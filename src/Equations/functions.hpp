@@ -131,20 +131,16 @@ inline double Quadratic(double a, double b, double c){
     }
     return ret;
 }
-inline double fun_dAtodY(double dA, double w0, double s){
+inline double fun_dAtodY(double dA, double w_top, double s){
     /* Delta_A_cs of flux to Dy in river stage @t=t+1*/
-    /* w0 = topwidth at t */
+    /* w_top = topwidth at t */
     double dy = 0.;
     if(dA == 0.) return 0.;
     
     if( fabs(s) < EPS_SLOPE ){
-        dy = dA / w0;
+        dy = dA / w_top;
     }else{
-        if(dA > 0){
-            dy = Quadratic(s, w0, -1. * dA);
-        }else{
-            dy = Quadratic(-s, w0, -1. * dA);
-        }
+        dy = Quadratic(s, w_top, -1. * dA);
     }
     return dy;
 }
