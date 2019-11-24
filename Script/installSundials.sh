@@ -1,6 +1,6 @@
 #!/bin/bash
 path="~/sundials"
-installPath="sundials-master"
+installPath="InstallSundials"
 echo "Trying to download and install SUNDIALS/CVODE solver for you."
 echo ""
 read -p "Where to install?(Default: $path) :" path
@@ -42,7 +42,7 @@ cmake -DCMAKE_INSTALL_PREFIX=$path \
  -DBUILD_IDAS=OFF \
  -DBUILD_KINSOL=OFF \
  -DOPENMP_ENABLE=OFF \
- ../
+ ../../sundials-master
 
 echo "make"
 make
