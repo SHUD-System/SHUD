@@ -93,6 +93,8 @@ all:
 	make shud
 	@echo
 check:
+	ls ${SUNDIALS_DIR}
+	ls ${SUNDIALS_DIR}/lib
 	./shud
 	@echo
 help:
