@@ -91,6 +91,9 @@ all:
 	make clean
 	make shud
 	@echo
+check:
+	./shud
+	@echo
 help:
 	@(echo)
 	@echo "Usage:"
