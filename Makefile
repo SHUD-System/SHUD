@@ -58,7 +58,7 @@ CC       = /usr/bin/g++
 MPICC    = /usr/local/bin/mpic++
 CFLAGS   = -O3 -g  -std=c++11
 #STCFLAG     = -static
-LDFLAGS  = -Wl, -rpath ${SUNDIALS_DIR}/lib
+LDFLAGS  = -Wl,-rpath,${SUNDIALS_DIR}/lib
 LIBS     = -lm
 SRC    	= ${SRC_DIR}/classes/*.cpp \
 		  ${SRC_DIR}/ModelData/*.cpp \
