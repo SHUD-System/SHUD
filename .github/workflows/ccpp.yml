@@ -13,5 +13,3 @@ jobs:
       run: ./Script/installSundials.sh
     - name: make
       run: make
-    - name: make check
-      run: make check
