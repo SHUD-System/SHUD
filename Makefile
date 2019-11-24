@@ -37,6 +37,7 @@ LIB_USR = ${SUNDIALS_DIR}/lib
 LIB_SYS = /usr/local/lib/
 INC_OMP = /usr/local/opt/libomp/include
 LIB_OMP = /usr/local/opt/libomp/lib
+LIB_SUN = ${SUNDIALS_DIR}/lib
 
 INC_MPI = /usr/local/opt/open-mpi
 
@@ -58,7 +59,7 @@ CC       = /usr/bin/g++
 MPICC    = /usr/local/bin/mpic++
 CFLAGS   = -O3 -g  -std=c++11
 #STCFLAG     = -static
-LDFLAGS  = -Wl,-rpath,${SUNDIALS_DIR}/lib
+LDFLAGS  = -Wl,-rpath,${LIB_SUN}
 LIBS     = -lm
 SRC    	= ${SRC_DIR}/classes/*.cpp \
 		  ${SRC_DIR}/ModelData/*.cpp \
@@ -87,12 +88,16 @@ LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial
 LK_OMP	= -Xpreprocessor -fopenmp -lomp -lsundials_nvecopenmp
 
 
-
+LB:
+    @echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${LIB_SUN}"
+    LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${LIB_SUN}"
 all:
+    make LB
 	make clean
 	make shud
 	@echo
 check:
+    make LB
 	ls ${SUNDIALS_DIR}
 	ls ${SUNDIALS_DIR}/lib
 	./shud
@@ -111,10 +116,11 @@ cvode CVODE:
 	@echo '...Install SUNDIALS/CVODE for your ...'
 	chmod +x ./script/installSundials.sh
 	./script/installSundials.sh
-	
+    make LB
 	@echo 
 
 shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
+    make LB
 	@echo '...Compiling shud ...'
 	@echo $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
 	@echo
@@ -126,6 +132,7 @@ shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
 	@echo
 
 shud_omp: ${MAIN_OMP}  $(SRC) $(SRC_H)
+    make LB
 	@echo '...Compiling shud_OpenMP ...'
 	@echo $(CC) $(CFLAGS) ${STCFLAG} ${LDFLAGS} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
 	@echo
