@@ -8,9 +8,7 @@ The Solver for Hydrologic Unstructured Domain  (SHUD - pronounced “SHOULD”) 
 * **Website (ongoing)**: https://SHUD-system.github.io
 * **Document (ongoing)**: https://github.com/SHUD-System/SHUD_Doc
 * **Programming**: C++
-
 * **Platform**: Mac OS, Linux and Windows
-
 * **Required library**:  SUNDIALS/CVODE V5.0+
 * **Parallelization** : OpenMP
 * **Support tools**: SHUD-tools in R (https://github.com/SHUD-System/SHUD-tool)
