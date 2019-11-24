@@ -33,7 +33,6 @@ SHELL = /bin/sh
 BUILDDIR = .
 SRC_DIR = src
 
-LIB_USR = ${SUNDIALS_DIR}/lib
 LIB_SYS = /usr/local/lib/
 INC_OMP = /usr/local/opt/libomp/include
 LIB_OMP = /usr/local/opt/libomp/lib
@@ -59,8 +58,7 @@ CC       = /usr/bin/g++
 MPICC    = /usr/local/bin/mpic++
 CFLAGS   = -O3 -g  -std=c++11
 #STCFLAG     = -static
-LDFLAGS  = -Wl,-rpath,${LIB_SUN},-export_dynamic
-LIBS     = -lm
+
 SRC    	= ${SRC_DIR}/classes/*.cpp \
 		  ${SRC_DIR}/ModelData/*.cpp \
 		  ${SRC_DIR}/Model/*.cpp \
@@ -81,8 +79,10 @@ INCLUDES = -I ${SUNDIALS_DIR}/include \
 
 		  
 LIBRARIES = -L ${LIB_OMP} \
-			-L ${SUNDIALS_DIR}/lib \
+			-L ${LIB_SUN} \
 			-L ${LIB_SYS}
+
+RPATH = '-Wl,-rpath,${LIB_SUN}' 
 
 LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial
 LK_OMP	= -Xpreprocessor -fopenmp -lomp -lsundials_nvecopenmp
@@ -115,10 +115,10 @@ cvode CVODE:
 
 shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
 	@echo '...Compiling shud ...'
-	@echo  $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
+	@echo  $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} ${RPATH} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
 	@echo
 	@echo
-	 $(CC) $(CFLAGS) ${INCLUDES} ${STCFLAG} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
+	 $(CC) $(CFLAGS) ${INCLUDES} ${STCFLAG} ${LIBRARIES} ${RPATH} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
 	@echo
 	@echo
 	@echo " ${TARGET_EXEC} is compiled successfully!"
@@ -126,10 +126,10 @@ shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
 
 shud_omp: ${MAIN_OMP}  $(SRC) $(SRC_H)
 	@echo '...Compiling shud_OpenMP ...'
-	@echo $(CC) $(CFLAGS) ${STCFLAG} ${LDFLAGS} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
+	@echo $(CC) $(CFLAGS) ${STCFLAG} ${RPATH} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
 	@echo
 	@echo
-	$(CC) $(CFLAGS)  ${STCFLAG} ${LDFLAGS} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
+	$(CC) $(CFLAGS)  ${STCFLAG} ${RPATH} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
 	@echo
 	@echo " ${TARGET_OMP} is compiled successfully!"
 	@echo
