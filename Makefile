@@ -91,7 +91,6 @@ LK_DYLN = "LD_LIBRARY_PATH=${LIB_SUN}"
 all:
 	make clean
 	make shud
-	make check
 	@echo
 check:
 	ls ${SUNDIALS_DIR}
