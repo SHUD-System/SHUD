@@ -86,18 +86,13 @@ LIBRARIES = -L ${LIB_OMP} \
 
 LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial
 LK_OMP	= -Xpreprocessor -fopenmp -lomp -lsundials_nvecopenmp
+LK_DYLN = "LD_LIBRARY_PATH=${LIB_SUN}"
 
-
-LB:
-    @echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${LIB_SUN}"
-    LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${LIB_SUN}"
 all:
-    make LB
 	make clean
 	make shud
 	@echo
 check:
-    make LB
 	ls ${SUNDIALS_DIR}
 	ls ${SUNDIALS_DIR}/lib
 	./shud
@@ -116,13 +111,11 @@ cvode CVODE:
 	@echo '...Install SUNDIALS/CVODE for your ...'
 	chmod +x ./script/installSundials.sh
 	./script/installSundials.sh
-    make LB
 	@echo 
 
 shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
-    make LB
 	@echo '...Compiling shud ...'
-	@echo $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
+	@echo ${LK_DYLN} $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
 	@echo
 	@echo
 	$(CC) $(CFLAGS) ${INCLUDES} ${STCFLAG} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
@@ -132,7 +125,6 @@ shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
 	@echo
 
 shud_omp: ${MAIN_OMP}  $(SRC) $(SRC_H)
-    make LB
 	@echo '...Compiling shud_OpenMP ...'
 	@echo $(CC) $(CFLAGS) ${STCFLAG} ${LDFLAGS} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
 	@echo
