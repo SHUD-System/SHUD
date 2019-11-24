@@ -25,7 +25,7 @@
 # 3 Path of SRC_DIR, default is "SRC_DIR = ."
 # 4 Path of BUILT_DIR, default is "BUILT_DIR = ."
 # -----------------------------------------------------------------
-SUNDIALS_DIR = ~/sundials
+SUNDIALS_DIR = $(HOME)/sundials
 # SUNDIALS_DIR = /usr/local/sundials
 
 
@@ -59,7 +59,7 @@ CC       = /usr/bin/g++
 MPICC    = /usr/local/bin/mpic++
 CFLAGS   = -O3 -g  -std=c++11
 #STCFLAG     = -static
-LDFLAGS  = -Wl,-rpath,${LIB_SUN}
+LDFLAGS  = -Wl,-rpath,${LIB_SUN},-export_dynamic
 LIBS     = -lm
 SRC    	= ${SRC_DIR}/classes/*.cpp \
 		  ${SRC_DIR}/ModelData/*.cpp \
@@ -91,6 +91,7 @@ LK_DYLN = "LD_LIBRARY_PATH=${LIB_SUN}"
 all:
 	make clean
 	make shud
+	make check
 	@echo
 check:
 	ls ${SUNDIALS_DIR}
@@ -109,16 +110,16 @@ help:
 	@(echo)
 cvode CVODE:
 	@echo '...Install SUNDIALS/CVODE for your ...'
-	chmod +x ./script/installSundials.sh
-	./script/installSundials.sh
+	chmod +x configure
+	./configure
 	@echo 
 
 shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
 	@echo '...Compiling shud ...'
-	@echo ${LK_DYLN} $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
+	@echo  $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
 	@echo
 	@echo
-	$(CC) $(CFLAGS) ${INCLUDES} ${STCFLAG} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
+	 $(CC) $(CFLAGS) ${INCLUDES} ${STCFLAG} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
 	@echo
 	@echo
 	@echo " ${TARGET_EXEC} is compiled successfully!"
