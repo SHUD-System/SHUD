@@ -33,6 +33,7 @@ SHELL = /bin/sh
 BUILDDIR = .
 SRC_DIR = src
 
+LIB_USR = ${SUNDIALS_DIR}/lib
 LIB_SYS = /usr/local/lib/
 INC_OMP = /usr/local/opt/libomp/include
 LIB_OMP = /usr/local/opt/libomp/lib
@@ -57,7 +58,7 @@ CC       = /usr/bin/g++
 MPICC    = /usr/local/bin/mpic++
 CFLAGS   = -O3 -g  -std=c++11
 #STCFLAG     = -static
-LDFLAGS  = 
+LDFLAGS  = -Wl, -rpath ${SUNDIALS_DIR}/lib
 LIBS     = -lm
 SRC    	= ${SRC_DIR}/classes/*.cpp \
 		  ${SRC_DIR}/ModelData/*.cpp \
@@ -113,10 +114,10 @@ cvode CVODE:
 
 shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
 	@echo '...Compiling shud ...'
-	@echo $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
+	@echo $(CC) $(CFLAGS) ${STCFLAG} ${INCLUDES} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
 	@echo
 	@echo
-	$(CC) $(CFLAGS) ${INCLUDES} ${STCFLAG} ${LIBRARIES} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
+	$(CC) $(CFLAGS) ${INCLUDES} ${STCFLAG} ${LIBRARIES} ${LDFLAGS} -o ${TARGET_EXEC} ${MAIN_shud} $(SRC)  $(LK_FLAGS)
 	@echo
 	@echo
 	@echo " ${TARGET_EXEC} is compiled successfully!"
@@ -124,10 +125,10 @@ shud SHUD: ${MAIN_shud} $(SRC) $(SRC_H)
 
 shud_omp: ${MAIN_OMP}  $(SRC) $(SRC_H)
 	@echo '...Compiling shud_OpenMP ...'
-	@echo $(CC) $(CFLAGS) ${STCFLAG} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
+	@echo $(CC) $(CFLAGS) ${STCFLAG} ${LDFLAGS} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
 	@echo
 	@echo
-	$(CC) $(CFLAGS)  ${STCFLAG} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
+	$(CC) $(CFLAGS)  ${STCFLAG} ${LDFLAGS} -D_OPENMP_ON ${INCLUDES} ${LIBRARIES} -o ${TARGET_OMP}   ${MAIN_OMP} $(SRC)  $(LK_FLAGS) $(LK_OMP)
 	@echo
 	@echo " ${TARGET_OMP} is compiled successfully!"
 	@echo
