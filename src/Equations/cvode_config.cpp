@@ -153,7 +153,7 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     flag = CVodeSetMinStep(cvode_mem, 1E-6); //Minimum time interval in cvode.dt = t(i) - t(i - 1);
     check_flag(&flag, "CVodeSetMinStep", 1);
     
-    flag = CVodeSetMaxNumSteps(cvode_mem, 1E3); //max iterations.
+    flag = CVodeSetMaxNumSteps(cvode_mem, 1E6); //max iterations.
     check_flag(&flag, "CVodeSetMaxNumSteps", 1);
     
     flag = CVodeSetInitStep(cvode_mem, MD->CS.InitStep);
