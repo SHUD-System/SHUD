@@ -60,16 +60,22 @@ double Model_Data::WeirFlow(double ze, double ye,
     hr = yr + zr;
     dh = hr - he;
     if(dh > 0.){ // from River to Element. Q is Positive.
-        y = dh;
-        Q = 2. / 3. * cwr * sqrt(2. * GRAV * y) * rivLen * y* 60.; /* 60 is for m3/s  to m3/min, because GRAV is m/s2*/
-    }else{ // from Element to River. Q is Negative.
-        if( ye > threshold){
-            if( hr > ze){
-                y = -dh;
-            }else{
-                y = ye;
+        y = he - zbank;
+        if( y > 0.){ // river water higher than bank.
+            if(he > zbank){
+                y = dh;
             }
-            Q = -2./ 3. * cwr * sqrt(2. * GRAV * y) * rivLen * y* 60.;
+            Q = cwr * sqrt(2. * GRAV * y) * rivLen * y* 60.; /* 60 is for m3/s  to m3/min, because GRAV is m/s2*/
+        }else{
+            Q = 0.;
+        }
+    }else{ // from Element to River. Q is Negative.
+        y = he - zbank;
+        if( y > 0. && ye > threshold){// ye must be larger than depression.
+            if(hr > zbank){
+                y = -dh;
+            }
+            Q = -1. * cwr * sqrt(2. * GRAV * y) * rivLen * y* 60.; /* 60 is for m3/s  to m3/min, because GRAV is m/s2*/
         }else{
             Q = 0.;
         }
