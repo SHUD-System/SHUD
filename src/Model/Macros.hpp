@@ -10,7 +10,6 @@
 
 #ifdef _OPENMP_ON
 #include "omp.h"
-#include "nvector_openmp.h" /* contains the definition of type N_Vector for openmp */
 #include "nvector/nvector_openmp.h" /* serial N_Vector types, fcts., macros */
 #define SET_VALUE(v, i) NV_Ith_OMP(v,i)
 #else
