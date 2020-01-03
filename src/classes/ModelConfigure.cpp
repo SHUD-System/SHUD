@@ -364,7 +364,7 @@ void globalCal::write(const char *fn){
     fprintf(fp, "LC_ROUGH\t%g\n", clandc.Rough);
     fprintf(fp, "LC_ISMAX\t%g\n", clandc.cISmax);
     fprintf(fp, "LC_DROOT\t%g\n", clandc.RzD);
-    fprintf(fp, "LC_Soil_Dgd\t%g\n", clandc.SoilDgd);
+    fprintf(fp, "LC_SoilDgd\t%g\n", clandc.SoilDgd);
     fprintf(fp, "LC_ImpAF\t%g\n", clandc.ImpAF);
     
     fprintf(fp, "#%s\n", "River stucture");
@@ -379,7 +379,7 @@ void globalCal::write(const char *fn){
     fprintf(fp, "#%s\n", "Misc");
     fprintf(fp, "AQ_DEPTH+\t%g\n", cAqD);
     fprintf(fp, "TS_PRCP\t%g\n", cPrep);
-    fprintf(fp, "TS_SFCTMP\t%g\n", cTemp);
+    fprintf(fp, "TS_SFCTMP+\t%g\n", cTemp);
     fprintf(fp, "TS_LAI\t%g\n", cLAItsd);
     fprintf(fp, "TS_LAI\t%g\n", cMF);
     fprintf(fp, "ET_ETP\t%g\n", cETP);
