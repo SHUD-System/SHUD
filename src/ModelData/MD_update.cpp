@@ -153,6 +153,26 @@ void Model_Data::summary (N_Vector udata){
     }
 }
 void Model_Data::summary (N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_Vector u5){
+    
+#ifdef _OPENMP_ON
+    for (int i = 0; i < NumEle; i++){
+        yEleSurf[i] = NV_Ith_OMP(u1, i);
+        yEleUnsat[i] = NV_Ith_OMP(u2, i);
+        yEleGW[i] = NV_Ith_OMP(u3, i);
+        if(Ele[i].iBC > 0){
+            yEleGW[i] = Ele[i].yBC;
+        }
+    }
+    for (int i = 0; i < NumRiv; i++){
+        yRivStg[i] = NV_Ith_OMP(u4, i);
+        if(Riv[i].BC > 0){
+            yRivStg[i] = Riv[i].yBC;
+        }
+    }
+    for (int i = 0; i < NumLake; i++){
+        yLakeStg[i] = NV_Ith_OMP(u5, i);
+    }
+#else
     for (int i = 0; i < NumEle; i++){
         yEleSurf[i] = NV_Ith_S(u1, i);
         yEleUnsat[i] = NV_Ith_S(u2, i);
@@ -170,6 +190,7 @@ void Model_Data::summary (N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_
     for (int i = 0; i < NumLake; i++){
         yLakeStg[i] = NV_Ith_S(u5, i);
     }
+#endif
     Sub2Global(yEleSurf, yEleUnsat, yEleGW, yRivStg, yLakeStg, NumEle, NumRiv, NumLake);
 //    printVector(stdout, yEleSurf, 0, NumEle, 0);
 //    printVector(stdout, yEleUnsat, 0, NumEle, 0);
