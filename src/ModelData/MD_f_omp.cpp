@@ -8,10 +8,11 @@
 
 void Model_Data::f_applyDY_omp(double *DY, double t){
     double area;
+    int i;
 #pragma omp parallel  default(shared) private(i) num_threads(CS.num_threads)
     {
 #pragma omp for
-        for (int i = 0; i < NumEle; i++) {
+        for (i = 0; i < NumEle; i++) {
             area = Ele[i].area;
             QeleSurfTot[i] = Qe2r_Surf[i];
             QeleSubTot[i] = Qe2r_Sub[i];
@@ -66,7 +67,7 @@ void Model_Data::f_applyDY_omp(double *DY, double t){
 #endif
         }// end of for 1:NumEle
 #pragma omp for
-        for (int i = 0; i < NumRiv; i++) {
+        for (i = 0; i < NumRiv; i++) {
             if(Riv[i].BC > 0){
                 //            Newmann condition.
                 DY[iRIV] = 0.;
@@ -118,16 +119,16 @@ void Model_Data:: f_loop_omp( double  *Y, double  *DY, double t){
 
 void Model_Data::f_update_omp(double  *Y, double *DY, double t){
     /* Initialization of temporary state variables */
-    
+    int i;
 #pragma omp parallel  default(shared) private(i) num_threads(CS.num_threads)
     {
 #pragma omp for
-        for (int i = 0; i < NumY; i++) {
+        for (i = 0; i < NumY; i++) {
             DY[i] = 0.;
         }
         
 #pragma omp for
-        for (int i = 0; i < NumEle; i++) {
+        for (i = 0; i < NumEle; i++) {
             uYsf[i] = (Y[iSF] >= 0.) ? Y[iSF] : 0.;
             uYus[i] = (Y[iUS] >= 0.) ? Y[iUS] : 0.;
             
@@ -164,7 +165,7 @@ void Model_Data::f_update_omp(double  *Y, double *DY, double t){
         }//end of for j=1:NumEle
         
 #pragma omp for
-        for (int i = 0; i < NumRiv; i++ ){
+        for (i = 0; i < NumRiv; i++ ){
             uYriv[i] = (Y[iRIV] >= 0.) ? Y[iRIV] : 0.;
             /* qrivsurf and qrivsub are calculated in Element fluxes.
              qrivDown and qrivUp are calculated in River fluxes. */
