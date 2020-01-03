@@ -29,8 +29,13 @@ int f_surf(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
+#ifdef _OPENMP_ON
+    Y = NV_DATA_OMP(CV_Y);
+    DY = NV_DATA_OMP(CV_Ydot);
+#else
     Y = NV_DATA_S(CV_Y);
     DY = NV_DATA_S(CV_Ydot);
+#endif
     MD->f_updatei(Y, DY, t, 1);
     MD->f_loop1(t);
     MD->f_applyDYi(DY, t, 1);
@@ -42,8 +47,13 @@ int f_unsat(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
+#ifdef _OPENMP_ON
+    Y = NV_DATA_OMP(CV_Y);
+    DY = NV_DATA_OMP(CV_Ydot);
+#else
     Y = NV_DATA_S(CV_Y);
     DY = NV_DATA_S(CV_Ydot);
+#endif
     MD->f_updatei(Y, DY, t, 2);
     MD->f_loop2(t);
     MD->f_applyDYi(DY, t, 2);
@@ -55,8 +65,13 @@ int f_gw(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
+#ifdef _OPENMP_ON
+    Y = NV_DATA_OMP(CV_Y);
+    DY = NV_DATA_OMP(CV_Ydot);
+#else
     Y = NV_DATA_S(CV_Y);
     DY = NV_DATA_S(CV_Ydot);
+#endif
     MD->f_updatei(Y, DY, t, 3);
     MD->f_loop3(t);
     MD->f_applyDYi(DY, t, 3);
@@ -69,8 +84,13 @@ int f_river(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
+#ifdef _OPENMP_ON
+    Y = NV_DATA_OMP(CV_Y);
+    DY = NV_DATA_OMP(CV_Ydot);
+#else
     Y = NV_DATA_S(CV_Y);
     DY = NV_DATA_S(CV_Ydot);
+#endif
     MD->f_updatei(Y, DY, t, 4);
     MD->f_loop4(t);
     MD->f_applyDYi(DY, t, 4);
@@ -82,8 +102,13 @@ int f_lake(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
+#ifdef _OPENMP_ON
+    Y = NV_DATA_OMP(CV_Y);
+    DY = NV_DATA_OMP(CV_Ydot);
+#else
     Y = NV_DATA_S(CV_Y);
     DY = NV_DATA_S(CV_Ydot);
+#endif
     MD->f_updatei(Y, DY, t, 5);
     MD->f_loop5(t);
     MD->f_applyDYi(DY, t, 5);
