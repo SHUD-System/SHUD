@@ -189,6 +189,9 @@ double _Element::Flux_Recharge(double Yunsat, double Ygw){
             grad = 0.;
         }else{
             grad = (u_theta - ThetaR) / (ThetaFC - ThetaR);
+//            grad = (u_theta - ThetaFC) / (ThetaS - ThetaFC);
+//            grad = (0.5 * u_deficit + u_phius) / (0.5 * u_deficit);
+            grad = max(grad, 0.);
         }
     }else{
         /* DRY condition. */
