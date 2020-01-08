@@ -88,7 +88,7 @@ void Model_Data::fun_Seg_surface(int iEle, int iRiv, int i){
     isf = max(0., isf);
     QsegSurf[i] = WeirFlow(Ele[iEle].zmax, isf,
                            Ele[iEle].zmax - Riv[iRiv].depth, uYriv[iRiv],
-                           Ele[iEle].zmax, RivSeg[i].Cwr, RivSeg[i].length, Ele[iEle].depression);
+                           Ele[iEle].zmax + Riv[iRiv].zbank, RivSeg[i].Cwr, RivSeg[i].length, Ele[iEle].depression);
     
 //    QrivSurf[iRiv]    +=  QsegSurf[i]; // Positive from River to Element
 //    Qe2r_Surf[iEle]   += -QsegSurf[i]; // Positive from Element to River

@@ -63,7 +63,7 @@ public:
 //    double x = NA_VALUE;    /* Centroid x of river reach [m] */
 //    double y = NA_VALUE; /* Centroid y of river reach [m] */
     double zbed = NA_VALUE;    /* bed elevation [m] */
-    double zbank = NA_VALUE;    /* bank elevation [m] */
+    double zbank = 0.0;    /* bank elevation [m] */
     double Length = NA_VALUE;    /* Riv reach Length [m] */
     double BedSlope = NA_VALUE; /* Slope of river bed [m/m] */
     /* relation to its downstream */
