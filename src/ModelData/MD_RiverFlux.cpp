@@ -10,7 +10,7 @@ void Model_Data::Flux_RiverDown(double t, int i){
     if (id >= 0) {
         sMean = (Riv[i].BedSlope + Riv[id].BedSlope) * 0.5 ;
         Distance =  Riv[i].Dist2DownStream;
-        s = (uYriv[i] + Riv[i].zbed - uYriv[id] - Riv[id].zbed) / Distance + sMean;
+        s = ((uYriv[i] - Riv[i].depth) - (uYriv[id] - Riv[id].depth)) / Distance + sMean;
 //        CSarea = 0.5 * (Riv[i].u_CSarea + Riv[iDownStrm].u_CSarea);
 //        Perem = 0.5 * (Riv[i].u_CSperem + Riv[iDownStrm].u_CSperem);
         CSarea = Riv[i].u_CSarea;  // if avg, this occurs 0.5 * (10w * 0.1h + 100w * 0.1) = 55wh;
