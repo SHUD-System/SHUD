@@ -117,7 +117,7 @@ inline double AerodynamicResistance(double Uz, double hc, double Z_u, double Z_e
      */
     //    r_a = 12 * 4.72 * log(Ele[i].windH / rl) / (0.54 * Vel / UNIT_C / 60 + 1) / UNIT_C / 60;    return r_a;
     double  r_a, d, Z_om, Z_ov;
-    d = 0.67 * hc *0;
+    d = 0.67 * hc;
     Z_om = 0.123 * hc;
     Z_ov = 0.0123 * hc;
     r_a = log( (Z_u - d) / Z_om ) * log( (Z_e - d) / (Z_ov))
