@@ -61,6 +61,10 @@ void _Element::applyGeometry(_Node *Node){
     double  x1, y1, x2, y2, x3, y3;
     double  zmin1, zmax1, zmin2, zmax2, zmin3, zmax3;
     double  aqd, z0;
+    double  d1, d2, d3;
+    double  px1, py1, pz1,
+            px2, py2, pz2,
+            px3, py3, pz3;
     x1 = Node[node[0] - 1].x;
     x2 = Node[node[1] - 1].x;
     x3 = Node[node[2] - 1].x;
@@ -96,6 +100,27 @@ void _Element::applyGeometry(_Node *Node){
     edge[0] = Eudist(x2, y2, x3, y3);
     edge[1] = Eudist(x3, y3, x1, y1);
     edge[2] = Eudist(x1, y1, x2, y2);
+    
+    PointPerpdicularOnLine(&px1, &py1, x, y, x2, y2, x3, y3);
+    PointPerpdicularOnLine(&px2, &py2, x, y, x3, y3, x1, y1);
+    PointPerpdicularOnLine(&px3, &py3, x, y, x1, y1, x2, y2);
+    d1 = Eudist(px1, py1, x, y);
+    d2 = Eudist(px2, py2, x, y);
+    d3 = Eudist(px3, py3, x, y);
+    
+    Dist2Edge[0] = d1;
+    Dist2Edge[1] = d2;
+    Dist2Edge[2] = d3;
+//    Dist2Edge[0] = sqpow2(edge[0] * edge[1] * edge[2] / (4 * area), edge[0] / 2 );
+//    Dist2Edge[1] = sqpow2(edge[0] * edge[1] * edge[2] / (4 * area), edge[1] / 2 );
+//    Dist2Edge[2] = sqpow2(edge[0] * edge[1] * edge[2] / (4 * area), edge[2] / 2 );
+    
+    pz1 = ZOnLine(x2, y2, zmax2, x3, y3, zmax3, px1, py1);
+    pz2 = ZOnLine(x3, y3, zmax3, x1, y1, zmax1, px2, py2);
+    pz3 = ZOnLine(x1, y1, zmax1, x2, y2, zmax2, px3, py3);
+    slope[0] =  (zmax - pz1)/ d1;
+    slope[1] =  (zmax - pz2)/ d1;
+    slope[2] =  (zmax - pz3)/ d1;
 }
 void _Element::InitElement(){
     AquiferDepth = zmax - zmin;
@@ -134,7 +159,7 @@ void _Element::applyNabor(_Node *Node, _Element *Ele){
 
     for(int j = 0; j < 3; j++){
         eNabor = nabr[j] - 1;
-        Dist2Edge[j] = sqpow2(edge[0] * edge[1] * edge[2] / (4 * area), edge[j] / 2 );
+//        Dist2Edge[j] = sqpow2(edge[0] * edge[1] * edge[2] / (4 * area), edge[j] / 2 );
         //          Dist2Edge[j] =  sqrt(pow(edge[0] * edge[1] * edge[2] / (4 * area), 2) - pow(edge[j] / 2, 2));
         if(eNabor >= 0){
             Dist2Nabor[j] = Eudist(x, y,

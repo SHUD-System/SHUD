@@ -210,3 +210,43 @@ void printVector(FILE *fid, double * x, int xstart, int n, double t){
     }
     fprintf(fid, "\n");;
 }
+
+
+void PointPerpdicularOnLine(double *xx, double *yy,
+                            double x, double y,
+                            double x1, double y1,
+                            double x2, double y2){
+    // https://stackoverflow.com/questions/849211/shortest-distance-between-a-point-and-a-line-segment
+    double A = x - x1;
+    double B = y - y1;
+    double C = x2 - x1;
+    double D = y2 - y1;
+    double dot = A * C + B * D;
+    double len_sq = C * C + D * D;
+    double param = -1.;
+    
+    if (len_sq != 0){ //in case of 0 length line
+        param = dot / len_sq;
+    }else{
+        param = -1.;
+    }
+    
+    if (param < 0.) {
+        *xx = x1;
+        *yy = y1;
+    }else if (param > 1.) {
+        *xx = x2;
+        *yy = y2;
+    }else{
+        *xx = x1 + param * C;
+        *yy = y1 + param * D;
+    }
+}
+double ZOnLine(double x1, double y1, double z1,
+               double x2, double y2, double z2,
+               double x3, double y3){
+    double D = Eudist(x1, y1, x2, y2);
+    double dx = Eudist(x1, y1, x3, y3);
+    double dz = z2 - z1;
+    return z1 + dz / D  * dx;
+}

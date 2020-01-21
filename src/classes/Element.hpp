@@ -26,12 +26,13 @@ public:
     int nabrToMe[3] = {-1, -1, -1}; /* The index j of my nabor */
     double edge[3];/* edge i is from node i to node i+1 */
     double area = NA_VALUE;    /* area of element */
-    
+    double slope[3]; /* Slope from centroid to edge */
+    double Dist2Edge[3];
     double x = NA_VALUE;    /* x of centroid */
     double y = NA_VALUE;    /* y of centroid */
     double zmin = NA_VALUE;    /* z_min of centroid */
     double zmax = NA_VALUE;    /* z_max of centroid */
-    double  zcentroid = NA_VALUE; 
+    double zcentroid = NA_VALUE;
     void printHeader(FILE *fp);
     void printInfo(FILE *fp);
 };
@@ -74,7 +75,6 @@ public:
 //    double dhBYdx = NA_VALUE;    /* Head gradient in x dirn. */
 //    double dhBYdy = NA_VALUE;    /* Head gradient in y dirn. */
 //    double Avg_Sf = NA_VALUE;    /* Head gradient in normal */
-    double Dist2Edge[3];
     double Dist2Nabor[3];
     double FixPressure = NA_VALUE;  /* Pressure [Pa]*/
 //    double FixGamma = NA_VALUE;     /* Psychrometric Constant [kPa °C-1] */

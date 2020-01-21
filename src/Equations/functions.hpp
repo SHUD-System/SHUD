@@ -163,7 +163,13 @@ double dhdy(double *x, double *y, double *h){
      y[1] * (x[0] - x[2]) +
      y[0] * (x[2] - x[1]));
 }
-
+void PointPerpdicularOnLine(double *xx, double *yy,
+                              double x, double y,
+                              double x1, double y1,
+                            double x2, double y2);
+double ZOnLine(double x1, double y1, double z1,
+             double x2, double y2, double z2,
+               double x3, double y3);
 #endif /* functions_h */
 
 
