@@ -8,16 +8,17 @@
 
 #include "Model_Data.hpp"
 void Model_Data::updateforcing(double t){
+    int i;
 #ifdef _OPENMP_ON
-#pragma omp for parallel default(shared) private(i) num_threads(CS.num_threads)
+#pragma omp for
 #endif
-    for (int i = 0; i < NumForc; i++){
+    for (i = 0; i < NumForc; i++){
         tsd_weather[i].movePointer(t);
     }
     tsd_MF.movePointer(t);
     tsd_LAI.movePointer(t);
     tsd_RL.movePointer(t);
-    for(int i = 0; i < NumEle; i++){
+    for(i = 0; i < NumEle; i++){
         Ele[i].updateElement(uYsf[i], uYus[i], uYgw[i]);
         tReadForcing(t,i);
     }
@@ -247,9 +248,9 @@ void Model_Data::EvapoTranspiration(double t, double dt){
 //    ret=NA_VALUE;
 //    DT_min = dt ; /* dt [min] */
 //#ifdef _OPENMP_ON
-//#pragma omp for parallel default(shared) private(i) num_threads(CS.num_threads)
+//#pragma omp for
 //#endif
-//    for(int i = 0; i < NumEle; i++) {
+//    for(i = 0; i < NumEle; i++) {
 //        /* Note the dependence on physical units */
 //        T = t_temp[i];
 //        LAI = t_lai[i];
