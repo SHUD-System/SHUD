@@ -145,6 +145,8 @@ void Control_Data::read(const char *fn){
             screenIntv = (int)  val;
         else if (strcasecmp ("VERBOSE", optstr) == 0)
             Verbose = (int)  val;
+        else if (strcasecmp ("CloseBoundary", optstr) == 0)
+            CloseBoundary = (int)  val;
         else if (strcasecmp ("INIT_MODE", optstr) == 0)
             init_type = (int)  val;
         else if (strcasecmp ("NUM_OPENMP", optstr) == 0)
