@@ -18,7 +18,7 @@ _TimeSeriesData::~_TimeSeriesData(){
     for (int i = 0; i < MAXQUE; i++) {
         delete[] ts[i];
     }
-#ifdef _DEBUG
+#ifdef DEBUG
     printf("TSD to %s Destructed.\n", fn.c_str());
 #endif
 }
@@ -49,7 +49,7 @@ void _TimeSeriesData::read_csv()
         CheckFile(&file, fn.c_str());
         std::string str;
         Length = 0;
-#ifdef _DEBUG
+#ifdef DEBUG
         if (nQue > 0) {
             std::cout << "No of Queue = " << nQue << std::endl;;
         }
@@ -77,7 +77,7 @@ void _TimeSeriesData::read_csv()
         } else {
             eof = 1;
         }
-#ifdef _DEBUG
+#ifdef DEBUG
         std::cout << fn << "\n\tUpdate queue. Length = " << Length << std::endl;
 #endif
         if(Length <= 0){
@@ -93,7 +93,7 @@ void _TimeSeriesData::readDimensions()
     FILE *fp = fopen(fn.c_str(), "r");
     CheckFile(fp, fn.c_str());
     fscanf(fp, "%d %d %ld", &tmp, &nc, &StartTime);
-#ifdef _DEBUG
+#ifdef DEBUG
     fprintf(stdout, "Header of %s : %d\t%d\t%ld ",fn.c_str(),  tmp, nc, StartTime);
 #endif
     fclose(fp);
