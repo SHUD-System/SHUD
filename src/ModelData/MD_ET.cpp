@@ -220,7 +220,7 @@ void Model_Data::EvapoTranspiration(double t, double dt){
         }
         qEleTF[i] = ret;
         yEleIS[i] = isval;
-#ifdef _DEBUG
+#ifdef DEBUG
         CheckNANi(qEleNetPrep[i], i, "qEleNetPrep[i]");
         CheckNANi(qElePrep[i], i, "qElePrep[i]");
         CheckNANi(qEleET[i][0], i, "qEleET[i][0]");
@@ -375,7 +375,7 @@ void Model_Data::EvapoTranspiration(double t, double dt){
 //        }
 //        qEleTF[i] = ret;
 //        yEleIS[i] = isval;
-//#ifdef _DEBUG
+//#ifdef DEBUG
 //        CheckNANi(qEleNetPrep[i], i, "qEleNetPrep[i]");
 //        CheckNANi(qElePrep[i], i, "qElePrep[i]");
 //        CheckNANi(qEleET[i][0], i, "qEleET[i][0]");
@@ -405,7 +405,7 @@ void Model_Data::f_etFlux(int i, double t){
     qEleET[i][1] = Et;
     qEleET[i][2] = Ev;
     qEleETA[i] = qEleET[i][0] + qEleET[i][1] + qEleET[i][2];
-#ifdef _DEBUG
+#ifdef DEBUG
     CheckNANi(ETp, i, "Potential ET (Model_Data::EvapoTranspiration)");
     CheckNANi(qEleET[i][1], i, "Transpiration (Model_Data::EvapoTranspiration)");
     CheckNANi(qEleET[i][2], i, "Soil Evaporation (Model_Data::EvapoTranspiration)");
