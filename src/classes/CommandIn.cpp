@@ -62,7 +62,7 @@ void CommandIn::parse(int argc, char **argv){
     }
     
     
-#ifdef _DEBUG
+#ifdef DEBUG
     printf("\t\t\t * Debug mode enable.\n");
 #endif
     
