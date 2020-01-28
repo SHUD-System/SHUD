@@ -230,7 +230,9 @@ double _Element::Flux_Recharge(double Yunsat, double Ygw){
 //        ke = meanArithmetic(ku, KsatV, u_deficit, Ygw);
         u_qr = grad * ke;
     }
-//    CheckNANi(u_qr, 0, "u_qr");
+#ifdef DEBUG
+    CheckNANi(u_qr, 0, "u_qr");
+#endif
     return u_qr;
 }
 void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
@@ -261,7 +263,7 @@ void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
         u_phius = max(MINPSI, u_phius);
     }
     u_effkInfi = infKsatV * (1 - hAreaF) + u_satn * macKsatV * hAreaF ;
-#ifdef _DEBUG
+#ifdef DEBUG
     if (u_effkInfi < 0.){
         printf("WARNING: Negative effective conductivity for infiltration.\n");
     }
