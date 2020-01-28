@@ -85,7 +85,7 @@ void Model_Data::f_applyDY(double *DY, double t){
 //                DY[isf] =0.0;  // debug only.
 //                DY[ius] =0.0;
 //                DY[igw] =0.0;
-#ifdef _DEBUG
+#ifdef DEBUG
         CheckNANi(DY[i], i, "DY[i] (Model_Data::f_applyDY)");
         CheckNANi(DY[ius], i, "DY[ius] (Model_Data::f_applyDY)");
         CheckNANi(DY[igw], i, "DY[igw] (Model_Data::f_applyDY)");
@@ -101,7 +101,7 @@ void Model_Data::f_applyDY(double *DY, double t){
 //            DY[iRIV] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].u_TopArea;
         }
 //        DY[iRIV] = 0.0;
-#ifdef _DEBUG
+#ifdef DEBUG
         CheckNANi(DY[i + 3 * NumEle], i, "DY[i] of river (Model_Data::f_applyDY)");
 #endif
     }
