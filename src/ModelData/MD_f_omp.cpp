@@ -60,7 +60,7 @@ void Model_Data::f_applyDY_omp(double *DY, double t){
             /* Convert with specific yield */
             DY[iUS] /= Ele[i].Sy;
             DY[iGW] /= Ele[i].Sy;
-#ifdef _DEBUG
+#ifdef DEBUG
             CheckNANi(DY[i], i, "DY[i] (Model_Data::f_applyDY)");
             CheckNANi(DY[iUS], i, "DY[iUS] (Model_Data::f_applyDY)");
             CheckNANi(DY[iGW], i, "DY[iGW] (Model_Data::f_applyDY)");
@@ -75,7 +75,7 @@ void Model_Data::f_applyDY_omp(double *DY, double t){
                 DY[iRIV] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].u_TopArea;
             }
             //        DY[iRIV] = 0.0;
-#ifdef _DEBUG
+#ifdef DEBUG
             CheckNANi(DY[i + 3 * NumEle], i, "DY[i] of river (Model_Data::f_applyDY)");
 #endif
         } // end of for 1:NumRiv
