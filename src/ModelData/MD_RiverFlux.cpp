@@ -43,7 +43,7 @@ void Model_Data::Flux_RiverDown(double t, int i){
                 exit(1);
         }//end of switch
     } //end of if
-#ifdef _DEBUG
+#ifdef DEBUG
     CheckNANi(QrivDown[i], i, "RiverFlux Down");
 #endif
 }
@@ -93,7 +93,7 @@ void Model_Data::fun_Seg_surface(int iEle, int iRiv, int i){
 //    QrivSurf[iRiv]    +=  QsegSurf[i]; // Positive from River to Element
 //    Qe2r_Surf[iEle]   += -QsegSurf[i]; // Positive from Element to River
     
-#ifdef _DEBUG
+#ifdef DEBUG
     CheckNANi(QsegSurf[i], i, "River Flux Surface (Functopm:f_Segement_surface)");
 #endif
 }
@@ -106,7 +106,7 @@ void Model_Data::fun_Seg_sub( int iEle, int iRiv, int i){
     
 //    QrivSub[iRiv] += QsegSub[i];
 //    Qe2r_Sub[iEle] += -QsegSub[i];
-#ifdef _DEBUG
-    CheckNANi(Q, i, "River Flux Sub(Functopm:fun_Seg_sub)");
+#ifdef DEBUG
+    CheckNANi(QsegSub[i], i, "River Flux Sub(Functopm:fun_Seg_sub)");
 #endif
 }
