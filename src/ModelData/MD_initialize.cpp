@@ -165,7 +165,7 @@ void Model_Data:: initialize(){
     for (int i = 0; i < NumEle; i++) {
         Ele[i].applyNabor(Node, Ele);
     }
-#ifdef _DEBUG
+#ifdef DEBUG
     /* Topological relationship between Elements*/
     for (int i = 0; i < NumEle; i++) {
         printf("%d: ", i+1);
