@@ -150,7 +150,7 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
             }else{
                 DY[i] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].u_TopArea;
             }
-#ifdef _DEBUG
+#ifdef DEBUG
             CheckNANi(DY[i], i, "DY[i] of river (Model_Data::f_applyDYi)");
 #endif
         }
