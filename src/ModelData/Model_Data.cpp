@@ -262,7 +262,7 @@ int Model_Data::ScreenPrintu(double t, unsigned long it){
     static unsigned long ncall3=0;
     static unsigned long ncall4=0;
     static unsigned long ncall5=0;
-#ifdef _DEBUG
+#ifdef DEBUG
     printf("%.0f min ~ %.4f day\t %.2f%% \n", t, t / 1440., (double)it / nt * 100 );
     flag = 1;
 #else
@@ -286,7 +286,7 @@ int Model_Data::ScreenPrintu(double t, unsigned long it){
 int Model_Data::ScreenPrint(double t, unsigned long it){
     int flag = 0;
     static unsigned long ncall=0;
-#ifdef _DEBUG
+#ifdef DEBUG
     printf("%.0f min ~ %.4f day\t %.2f%% \n", t, t / 1440., (double)it / nt * 100 );
     flag = 1;
 #else
