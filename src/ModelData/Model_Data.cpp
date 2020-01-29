@@ -257,13 +257,8 @@ void Model_Data::LakeTable(const char *fn){
 
 int Model_Data::ScreenPrintu(double t, unsigned long it){
     int flag = 0;
-    static unsigned long ncall1=0;
-    static unsigned long ncall2=0;
-    static unsigned long ncall3=0;
-    static unsigned long ncall4=0;
-    static unsigned long ncall5=0;
 #ifdef DEBUG
-    printf("%.0f min ~ %.4f day\t %.2f%% \n", t, t / 1440., (double)it / nt * 100 );
+    printf("%.0f min ~ %.4f day\t %.2f%% \n", t, t / 1440., (double)it / CS.NumSteps * 100 );
     flag = 1;
 #else
     static double tnext = t;
@@ -285,9 +280,8 @@ int Model_Data::ScreenPrintu(double t, unsigned long it){
 }
 int Model_Data::ScreenPrint(double t, unsigned long it){
     int flag = 0;
-    static unsigned long ncall=0;
 #ifdef DEBUG
-    printf("%.0f min ~ %.4f day\t %.2f%% \n", t, t / 1440., (double)it / nt * 100 );
+    printf("%.0f min ~ %.4f day\t %.2f%% \n", t, t / 1440., (double)it / CS.NumSteps * 100 );
     flag = 1;
 #else
     static double tnext = t;
