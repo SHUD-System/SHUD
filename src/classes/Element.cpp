@@ -264,10 +264,10 @@ void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
     }
     u_effkInfi = infKsatV * (1 - hAreaF) + u_satn * macKsatV * hAreaF ;
 #ifdef DEBUG
-    if (u_effkInfi < 0.){
+    if (u_effkInfi < EPS_DOUBLE){
         printf("WARNING: Negative effective conductivity for infiltration.\n");
     }
-    if (u_effKH < 0.000000001){
+    if (u_effKH < EPS_DOUBLE){
         printf("WARNING: Negative effective conductivity for infiltration.\n");
     }
 #endif
