@@ -177,7 +177,7 @@ void _Element::Flux_Infiltration(double Ysurf, double Yunsat, double Ygw, double
     double av = Ysurf + netprcp, grad;
     if(Ygw > AquiferDepth){
         /* GW reach the surface */
-        u_qex = fabs(Ygw - AquiferDepth) / infD * Kmax; /* Exfiltration must be positive (upward). */
+        u_qex = fabs(Ygw - AquiferDepth) / AquiferDepth * Kmax; /* Exfiltration must be positive (upward). */
         u_qi = 0. ;
     }else{
         /* GW level is lower than Surface */
@@ -263,14 +263,14 @@ void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
         u_phius = max(MINPSI, u_phius);
     }
     u_effkInfi = infKsatV * (1 - hAreaF) + u_satn * macKsatV * hAreaF ;
-#ifdef DEBUG
-    if (u_effkInfi < EPS_DOUBLE){
-        printf("WARNING: Negative effective conductivity for infiltration.\n");
-    }
-    if (u_effKH < EPS_DOUBLE){
-        printf("WARNING: Negative effective conductivity for infiltration.\n");
-    }
-#endif
+//#ifdef DEBUG
+//    if (u_effkInfi < EPS_DOUBLE){
+//        printf("WARNING: Negative effective conductivity for infiltration.\n");
+//    }
+//    if (u_effKH < EPS_DOUBLE){
+//        printf("WARNING: Negative effective conductivity for infiltration.\n");
+//    }
+//#endif
 }
 
 void _Element::copyGeol(Geol_Layer *g){
