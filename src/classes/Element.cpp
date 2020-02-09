@@ -252,7 +252,7 @@ void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
         u_satKr = 1.0;
         u_phius = 0.;
         u_theta = ThetaS;
-    }else if(u_satn <= EPS_DOUBLE){
+    }else if(u_satn <= ZERO){
         u_satn = 0.;
         u_satKr = 0.;
         u_phius = MINPSI;
@@ -264,10 +264,10 @@ void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
     }
     u_effkInfi = infKsatV * (1 - hAreaF) + u_satn * macKsatV * hAreaF ;
 //#ifdef DEBUG
-//    if (u_effkInfi < EPS_DOUBLE){
+//    if (u_effkInfi < ZERO){
 //        printf("WARNING: Negative effective conductivity for infiltration.\n");
 //    }
-//    if (u_effKH < EPS_DOUBLE){
+//    if (u_effKH < ZERO){
 //        printf("WARNING: Negative effective conductivity for infiltration.\n");
 //    }
 //#endif

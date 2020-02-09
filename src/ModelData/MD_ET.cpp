@@ -155,15 +155,15 @@ void Model_Data::EvapoTranspiration(double t, double dt){
             yEleISmax[i] = 0.;
             r_ISMax = 0.;
         }
-        if (LAI > 0.0 && Ele[i].VegFrac > 0.0) {
-            if(yEleIS[i] < 0){
+        if (LAI > ZERO && Ele[i].VegFrac > ZERO) {
+            if(yEleIS[i] < ZERO){
                 qEleET[i][0] = 0.;
             }else{
                 qEleET[i][0] = gc.cEt0 * Ele[i].VegFrac * sqrt(r_ISMax) * qEleETP[i];
             }
             qEleET[i][0] = qEleET[i][0] < 0 ? 0 : qEleET[i][0];
             
-            if(yEleIS[i] <= 0 ){
+            if(yEleIS[i] <= ZERO ){
                 qEleTF[i] = 0.;
             }else{
                 qEleTF[i] = 0.0565 * yEleISmax[i] * exp(3.89 * r_ISMax);
@@ -172,7 +172,7 @@ void Model_Data::EvapoTranspiration(double t, double dt){
             qEleET[i][0] = 0.0;
             qEleTF[i] = 0.0;
         }
-        if(yEleISmax[i] >0.){
+        if(yEleISmax[i] > ZERO){
             if (yEleIS[i] >= yEleISmax[i]) {
                 if (((1 - fracSnow) * qElePrep[i] * Ele[i].VegFrac + MeltRateCanopy) >= qEleET[i][0] + qEleTF[i]) {
                     qEleETloss[i] = qEleET[i][0];

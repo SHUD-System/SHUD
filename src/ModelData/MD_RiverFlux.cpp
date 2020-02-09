@@ -15,7 +15,7 @@ void Model_Data::Flux_RiverDown(double t, int i){
 //        Perem = 0.5 * (Riv[i].u_CSperem + Riv[iDownStrm].u_CSperem);
         CSarea = Riv[i].u_CSarea;  // if avg, this occurs 0.5 * (10w * 0.1h + 100w * 0.1) = 55wh;
         Perem = Riv[i].u_CSperem;
-        R = (Perem <= EPS_DOUBLE) ? 0. : (CSarea / Perem);
+        R = (Perem <= ZERO) ? 0. : (CSarea / Perem);
         QrivDown[i] = ManningEquation(CSarea, n, R, s);
 //        QrivUp[id] += -QrivDown[i];
     } else {

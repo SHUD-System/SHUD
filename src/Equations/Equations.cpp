@@ -113,7 +113,7 @@ double effKVnew(double ksatFunc,  double macKV, double KV, double areaF, double 
 }
 double effKH(double Ygw, double aqDepth, double MacD, double Kmac, double AF, double Kmx){
     double effk = 0;
-    if (MacD <= EPS_DOUBLE || Ygw < aqDepth - MacD) {
+    if (MacD <= ZERO || Ygw < aqDepth - MacD) {
         effk = Kmx;
     } else {
         if (Ygw > aqDepth) {
@@ -147,7 +147,7 @@ double fun_recharge(double effk_us, double kgw, double Deficit, double ygw, doub
 {
     double effk;
     double q = 0.;
-    if(effk_us < EPS_DOUBLE || kgw < EPS_DOUBLE){
+    if(effk_us < ZERO || kgw < ZERO){
         return 0.;
     }
     effk = meanHarmonic(kgw, effk_us, ygw, yus);

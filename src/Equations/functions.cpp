@@ -52,7 +52,7 @@ int checkRange(double x, double xmin, double xmax, int i, const char *s){
 }
 double timeInterp(double t, double t0, double t1, double x0, double x1){
     double dt = t1 - t0;
-    if (fabs(dt) < EPS_DOUBLE) {
+    if (fabs(dt) < ZERO) {
         return x1;
     } else {
         return ((t1 - t) * x0 + (t - t0) * x1) / dt;
@@ -115,14 +115,14 @@ double getSecond(void)
 
 void CheckNonNegative(double x, int i, const char *s)
 {
-    if (x < 0.0 || isnan(x) || isinf(x) || fabs(x - NA_VALUE) < EPS_DOUBLE) {
+    if (x < 0.0 || isnan(x) || isinf(x) || fabs(x - NA_VALUE) < ZERO) {
         printf("ERROR: Value %e for %s of Element %d is not allowed. Please check again.\n", x, s, i + 1);
         myexit(ERRNAN);
     }
 }
 void CheckNonZero(double x, int i, const char *s)
 {
-    if (x <= 0.0 || isnan(x) || isinf(x) || fabs(x - NA_VALUE) < EPS_DOUBLE) {
+    if (x <= 0.0 || isnan(x) || isinf(x) || fabs(x - NA_VALUE) < ZERO) {
         printf("ERROR: Value %e for %s of Element %d is not allowed. Please check again.\n", x, s, i + 1);
         myexit(ERRNAN);
     }
@@ -138,7 +138,7 @@ void compareVal(double x, double y)
 {
     double d = fabs(x - y);
     if (d != 0.) {
-        if (d > EPS_DOUBLE) {
+        if (d > ZERO) {
             //if (d / fabs(x) > 1.e-4 || d / fabs(y) > 1.e-4) {
             printf("\nValues are different\n\n");
             printf("%f \t %f \t %e\n\n", x, y, d);
@@ -176,7 +176,7 @@ void CheckFile(FILE * fp, const char *s){
 }
 
 void CheckNA(double x, const char *s){
-    if (fabs(x - NA_VALUE) < EPS_DOUBLE) {
+    if (fabs(x - NA_VALUE) < ZERO) {
         fprintf(stderr, "\n  Fatal Error: %s is NA_value \n", s);
         myexit(ERRDATAIN);
     }
