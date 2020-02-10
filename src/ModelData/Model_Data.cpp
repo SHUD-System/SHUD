@@ -262,6 +262,7 @@ int Model_Data::ScreenPrintu(double t, unsigned long it){
     flag = 1;
 #else
     static double tnext = t;
+    static unsigned long ncall1 = 0, ncall2 = 0, ncall3 = 0, ncall4 = 0, ncall5 = 0;
     if (t >= tnext) {
         printf("%6.2f day \t %5.2f%% \t %6.2f sec \t %6ld %6ld %6ld %6ld %6ld\n",
                t / 1440, 100.0 * it / CS.NumSteps, getSecond(),
@@ -285,6 +286,7 @@ int Model_Data::ScreenPrint(double t, unsigned long it){
     flag = 1;
 #else
     static double tnext = t;
+    static unsigned long ncall = 0;
     if (t >= tnext) {
         printf("%.2f day \t %.2f%% \t %.2f sec \t %ld \n", tnext / 1440, 100.0 * it / CS.NumSteps, getSecond(), nFCall - ncall);
         tnext += CS.screenIntv;
