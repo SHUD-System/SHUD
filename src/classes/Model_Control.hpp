@@ -95,7 +95,7 @@ private:
     double DayEnd = 10;     /* END Day [Day] */
 public:
     int Verbose = 0;
-    int CloseBoundary = 0; /* Whether the close boundary exist. 1 = no boundary flux. 0 = Default boundary flux. [bool]*/
+    int CloseBoundary = 1; /* Whether the close boundary exist. 1 = no boundary flux. 0 = Default boundary flux. [bool]*/
     int Ascii = 0;      /* Whether export result as ASCII File [bool]*/
     int Binary = 1;     /* Whether export result as Binary File [bool]*/
     int Spinup = 0;     /* Number of days for spinup */
