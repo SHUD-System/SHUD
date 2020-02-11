@@ -18,9 +18,7 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     MD->f_applyDY(DY, t);
 #endif
     MD->nFCall++;
-//        FILE *file_debug = fopen("DY_debug.dat", "ab");
-//        printVectorBin(file_debug, DY, 0, MD->NumY, t);
-//        fclose(file_debug);
+    printDY(MD->file_debug, DY, MD->NumY, t);
     return 0;
 }
 

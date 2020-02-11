@@ -221,6 +221,7 @@ void Model_Data::debugData(const char *outdir){
     char fn[MAXLEN];
     char str[MAXLEN];
     sprintf(str, "%s/%s", outdir, "Debug_Table");
+    sprintf(file_debug, "%s/%s", outdir, "DY.dat");
     if(NumEle > 0){
         sprintf(fn, "%s%s", str, "_Element.csv");
         ElementTable(fn);

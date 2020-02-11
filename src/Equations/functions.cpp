@@ -198,6 +198,18 @@ void creatFile(const char *fn, const char *mode){
 void screeninfo(const char *s){
     screeninfo(s,"");
 }
+
+void printDY(char* fn, double * dy, int n, double t){
+    /* Print the dy value out. */
+    FILE *file_debug = fopen(fn, "ab");
+    printVectorBin(file_debug, dy, 0, n, t);
+    fclose(file_debug);
+}
+void printDY(char* fn){
+    /* Print dy, create empty file. */
+    FILE *file_debug = fopen(fn, "wb");
+    fclose(file_debug);
+}
 void printVectorBin(FILE *fid, double * x, int xstart, int n, double t){
     fwrite (&t, sizeof (double), 1, fid);
     fwrite (x, sizeof (double), n, fid);

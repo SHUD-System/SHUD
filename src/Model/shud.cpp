@@ -80,10 +80,9 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->debugData(fout->outpath);
     MD->gc.write(fout->Calib_bak);
     
-//    FILE *file_debug = fopen("DY_debug.dat", "wb");
-//    fclose(file_debug);
     f(t, udata, du, MD); /* Initialized the status */
     for (int i = 0; i < MD->CS.NumSteps && !ierr; i++) {
+        printDY(MD->file_debug);
         flag = MD->ScreenPrint(t, i);
         MD->PrintInit(fout->Init_update, t);
         /* inner loops to next output points with ET step size control */

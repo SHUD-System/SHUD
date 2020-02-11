@@ -28,6 +28,7 @@ public:
     //int RivMode;        /* River Routing Mode */
 //    unsigned long nFCall1;
 //    unsigned long nFCall2;
+    char file_debug[MAXLEN];
     unsigned long nFCall = 0;
     
     unsigned long nFCall1 = 0;

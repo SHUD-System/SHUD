@@ -6,8 +6,9 @@
 #include <unistd.h>
 #include <math.h>
 #include <time.h>
+#include <string.h>
 #include "Macros.hpp"
-
+using namespace std;
 /* Time Interpolation */
 double timeInterp(double t, double t0, double t1, double x0, double x1);
 
@@ -34,6 +35,8 @@ double stddeviation(double x[], int n);
 //double polygonArea(double X[], double Y[], int n);/* Not ready yet.*/
 
 /*==========misc function===============*/
+void printDY(char* fn, double * dy, int n, double t); /* Print the dy value out. */
+void printDY(char* fn); /* Print dy, create empty file. */
 void printVector(FILE *fid, double * x, int xstart, int n, double t);
 void printVectorBin(FILE *fid, double * x, int xstart, int n, double t);
 
