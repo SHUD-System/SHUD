@@ -10,7 +10,7 @@ void Model_Data::read_rivchn(const char *fn){
     TabularData tb;
     NumSegmt = tb.read(fn);
     RivSeg = new RiverSegement[NumSegmt];
-    printf("\tNumber of River segmetns: %d\n", NumSegmt);
+    printf("\tNumber of River segments: %d\n", NumSegmt);
     if(tb.ncol != 4){
         printf("The column of River Parameter should be: \n");
         printf("%s\t%s\t%s\t%s\n", "index", "iRiv", "iEle", "Length");
