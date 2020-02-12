@@ -15,9 +15,12 @@ void Model_Data::CheckInput_att(){
         flag = flag | checkRange(Ele[i].iLC, 1, NumLC,  i, "Landcover");
         flag = flag | checkRange(Ele[i].iForc, 1, NumForc,  i, "Forcing");
         flag = flag | checkRange(Ele[i].iMF, 1, NumMeltF,  i, "MeltFactor");
-    }
-    if(flag){
-        myexit(ERRDATAIN);
+        if(flag){
+            printf("Error in .att (line %d): %d, %d, %d, %d, %d\n", i+1,
+                   Ele[i].iSoil, Ele[i].iGeol, Ele[i].iLC,
+                   Ele[i].iForc, Ele[i].iMF);
+            myexit(ERRDATAIN);
+        }
     }
 }
 void Model_Data::CheckInput_mesh(){
