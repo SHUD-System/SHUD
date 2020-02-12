@@ -336,7 +336,7 @@ Print_Ctrl::~Print_Ctrl(){
     if(NumVar > 0){
         if(PrintVar != NULL ) delete[] PrintVar;
         if(buffer != NULL ) delete[] buffer;
-    }    
+    }
     close_file();
 }
 void Print_Ctrl::fun_printBINARY(double t, double dt){

@@ -120,8 +120,12 @@ public:
     char Init_update[MAXLEN];
     char Init_bak[MAXLEN];
     
-    //calib bakcup
+    //calib backup
     char Calib_bak[MAXLEN];
+    
+    //Time steps
+    FILE *fid_time;
+    char File_Time[MAXLEN];
     
     // Flood Warnings
     char floodout[MAXLEN];
@@ -134,8 +138,12 @@ public:
     void updateFilePath();
     void createDir();
     void setOutpath(const char *fn);
-    
+    void writeTime(double t);
     void copy(FileOut *fout);
+private:
+    clock_t t0 = clock();
+    clock_t t1 = t0;
+    double sec;
 };
 
 void mkdir_p( char *dir, int mode);

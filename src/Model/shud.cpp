@@ -106,6 +106,7 @@ double SHUD(FileIn *fin, FileOut *fout){
         }
 #else
 //        f(t, udata, du, MD);
+        fout->writeTime(t);
         MD->CS.ExportResults(t);
         MD->flood->FloodWarning(t);
 #endif
