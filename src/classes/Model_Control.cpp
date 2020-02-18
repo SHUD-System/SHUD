@@ -17,9 +17,7 @@ void PrintOutDt::defaultmode(){
     /* Element Fluxes */
     dt_qe_prcp = dt; // default output PRCP.
     dt_qe_infil = dt;
-    dt_qe_et[0] = dt;
-    dt_qe_et[1] = dt;
-    dt_qe_et[2] = dt;
+    dt_qe_et = dt;
     
     dt_qe_rech = dt;
     dt_qe_etp = dt;
@@ -60,9 +58,7 @@ void PrintOutDt::calibmode(int dt ){
     /* Element Fluxes */
     dt_qe_prcp = dt; // default output PRCP.
     dt_qe_infil = 0;
-    dt_qe_et[0] = dt;
-    dt_qe_et[1] = dt;
-    dt_qe_et[2] = dt;
+    dt_qe_et = dt;
     
     dt_qe_rech = 0;
     dt_qe_etp = dt;
@@ -190,9 +186,7 @@ void Control_Data::read(const char *fn){
         else if (strcasecmp ("dt_qe_PRCP", optstr) == 0)
             dt_qe_prcp =  val;
         else if (strcasecmp ("dt_qe_ET", optstr) == 0){
-            dt_qe_et[0] =  val;
-            dt_qe_et[1] =  val;
-            dt_qe_et[2] =  val;
+            dt_qe_et  =  val;
             dt_qe_etp =  val;
             dt_qe_eta =  val;
         }

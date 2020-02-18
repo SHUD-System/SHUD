@@ -55,7 +55,7 @@ public:
     /* Element Fluxes */
     int dt_qe_prcp = 1440; // default output PRCP.
     int dt_qe_infil = 0;
-    int dt_qe_et[3] = {0,0,0};
+    int dt_qe_et = 0;
     int dt_qe_rech = 0;
     int dt_qe_etp = 0;
     int dt_qe_eta = 0;
