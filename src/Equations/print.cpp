@@ -18,7 +18,7 @@ void SHUDlogo(void){
 //    printf (" S::::::SSSSSS:::::S  H:::::::H     H:::::::H    UU:::::::::::::UU    D:::::::::::::::DD   \n");
 //    printf (" S:::::::::::::::SS   H:::::::H     H:::::::H      UU:::::::::UU      D::::::::::::DDD     \n");
 //    printf ("  SSSSSSSSSSSSSSS     HHHHHHHHH     HHHHHHHHH        UUUUUUUUU        DDDDDDDDDDDDD        \n\n");
-//    printf ("                      Solver for Hydrologic Unstructured Domain v1.0                       \n");
+//    printf ("                      Solver for Hydrological Unstructured Domain v1.0                       \n");
 //    printf ("___________________________________________________________________________________________\n");
 //    printf ("\n\n\n\n");
     printf("  ________________________________________________________________\n");
@@ -31,7 +31,7 @@ void SHUDlogo(void){
     printf("      /  \\__██ |      ██ |  ██ |      ██ \\__██ |      ██ |__██ |\n");
     printf("      ██    ██/       ██ |  ██ |      ██    ██/       ██    ██/ \n");
     printf("       ██████/        ██/   ██/        ██████/        ███████/  \n\n");
-    printf("         Solver for Hydrologic Unstructured Domain v1.0  2019   \n");
+    printf("        Solver for Hydrological Unstructured Domain v1.0  2019   \n");
     printf("  ________________________________________________________________\n");
 }
 
