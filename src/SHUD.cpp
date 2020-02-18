@@ -22,7 +22,7 @@
  * 4) Change the structure of River
  * 5) The functions to handle the time-series data, including forcing, LAI,
  *    Roughness Length, Boundary Condition, Melt factor
- * 6) Add Lakes into the hydrologic process
+ * 6) Add Lakes into the hydrological process
  *******************************************************************************/
 #include "shud.hpp"
 #include "print.hpp"
