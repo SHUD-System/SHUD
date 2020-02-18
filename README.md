@@ -2,7 +2,7 @@
 
 ## Brief
 
-The Solver for Hydrologic Unstructured Domain  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM). 
+The Solver for Hydrological Unstructured Domain  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM).
 
 * **Maintainner**: Lele Shu (lele.shu@gmail.com)
 * **Website (ongoing)**: https://SHUD-system.github.io
@@ -15,7 +15,7 @@ The Solver for Hydrologic Unstructured Domain  (SHUD - pronounced “SHOULD”) 
 
 ## Overview
 
-The Solver for Hydrologic Unstructured Domain  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM). 
+The Solver for Hydrological Unstructured Domain  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM).
 
 SHUD encapsulates the strategy for the synthesis of multi-state distributed hydrological models using the integral representation of the underlying physical process equations and state variables. As a heritage of **Penn State Integrated Hydrologic Model (PIHM)**, the SHUD model is a continuation of 16 years of PIHM modeling in hydrology and related fields since the release of its first PIHM version (Qu, 2004). 
 
@@ -41,7 +41,7 @@ As a descendent of PIHM, SHUD inherits the fundamental idea of solving hydrologi
 1. SHUD is written in C++, an object-oriented programming language with functionality to avoid risky memory leaks from C. Every functions in the code has been rewritten, so the functions, algorithm or data structure between SHUD and PIHM are incompatible. 
 2. SHUD implements a re-design of the calculation of water exchange between hill slope and river. The PIHM defines the river channel as adjacent to bank elements – namely, the river channel shares the edges with bank elements. This design leads to sink problems in elements that share one node with a starting river channel. 
 3. The mathematical equations used in infiltration, recharge, overland flow and river discharge are different among the two models. This change is so essential that the model results would be different with the same parameter set. 
-4. SHUD adds mass-balance control within the calculation of each layer of elements and river channels, critical for long-term or micro-scale hydrologic modeling. 
+4. SHUD adds mass-balance control within the calculation of each layer of elements and river channels, critical for long-term or micro-scale hydrological modeling. 
 
 We now briefly summarize the technical model improvements and technical capabilities of the model, compared to PIHM. This elaboration of the relevant technical features aims to assist future developers and advanced users with model coupling. Compared with PIHM, SHUD ... 
 
