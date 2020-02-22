@@ -124,6 +124,9 @@ void Model_Data::f_update(double  *Y, double *DY, double t){
         Qe2r_Surf[i] = 0.;
         Qe2r_Sub[i] = 0.;
     }
+    for (int i = 0; i < NumY; i++){
+        DY[i] = 0.;
+    }
 }
 void Model_Data::summary (N_Vector udata){
     double  *Y;
