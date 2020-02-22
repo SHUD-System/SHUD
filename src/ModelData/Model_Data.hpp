@@ -132,8 +132,6 @@ public:
                            * precep) */
     double *yEleISsnowmax;    /* Maximum interception storage (snow) */
     double *qEleTF;        /* Through Fall */
-    double **qEleET;        /* Evapo-transpiration (from canopy,
-                             * ground, subsurface, transpiration) */
     
     double *yEleIS;        /* Interception storage */
     double *yEleSnow;        /* Snow depth on each element */
@@ -141,9 +139,22 @@ public:
     double *yEleSurf;   // debug may not necessary
     double *yEleUnsat;   // debug may not necessary
 //    double *yEleSM;   // Soil Moisture Ratio
-    double *qEleETP;
+    double *qEleETP;    /* Potential ET  = qPotEvap * (1-VegFrac)+ qPotTran * VegFrac */
+    double *qPotEvap;   /* Potential Evaporation of Soil */
+    double *qPotTran;   /* Potential Transpiration of Vegetation */
+    double *qEs;    /* Evaporation from surface ponding */
+    double *qEu;    /* Evaporation from Unsat */
+    double *qEg;    /* Evaporation from GW */
+    double *qTu;    /* Transpiration from Unsat */
+    double *qTg;    /* Transpiration from GW */
+    
+    
+    double *qEleE_IC;    /* Evaporation from canopy interception */
+    double *qEleE_sf;    /* Evaporation from canopy interception */
+    double *qEleEvapo;    /* Evaporation from canopy interception */
+    double *qEleTrans;    /* Evaporation from canopy interception */
+    
     double *iBeta;
-    double *iPC;
     double *qEleETA;
     double *yRivStg;   // debug may not necessary
     /* Lake variables */
@@ -214,7 +225,7 @@ public:
     void debugData();
     void debugData(const char *fn);
     void f_etFlux(int i, double t);
-    void EvapoTranspiration(double t, double dt);
+    void ET(double t, double tnext);
     void updateforcing(double t);
     double getArea();
     void PassValue();

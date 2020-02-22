@@ -433,7 +433,6 @@ void Model_Data::FreeData(){
     for (int i = 0; i < NumEle; i++) {
         delete[] QeleSurf[i] ;
         delete[] QeleSub[i] ;
-        delete[] qEleET[i] ;
     }
     
     delete[]    QeleSurf;
@@ -445,14 +444,25 @@ void Model_Data::FreeData(){
     delete[]    Qe2r_Surf; // 5.1
     delete[]    Qe2r_Sub; // 5.2
     
-    delete[]    qEleET;
     delete[]    qElePrep;
     delete[]    qEleTF;
     delete[]    qEleETP;
     delete[]    qEleETA;
+    delete[]    qEleE_IC;
+    delete[]    qEleE_sf;
+    delete[]    qEleTrans;
+    delete[]    qEleEvapo;
+    delete[]    qPotEvap;
+    delete[]    qPotTran;
+    
+    delete[]    qEs;
+    delete[]    qEu;
+    delete[]    qEg;
+    delete[]    qTu;
+    delete[]    qTg;
+    
     delete[]    qEleETloss; //10
     delete[]    iBeta; // 10.1
-    delete[]    iPC;
     
     delete[]    qEleNetPrep;
     delete[]    qEleInfil;

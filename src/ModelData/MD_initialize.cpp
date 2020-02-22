@@ -245,10 +245,13 @@ void Model_Data:: initialize_output (FileOut *fout){
     }
     
     /* ET  2d array */
-    for (int i = 0; i < 3; i++){
-        if (CS.dt_qe_et[i] > 0)
-            CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, fout->ele_q_ET[i], CS.dt_qe_et[i], qEleET, i, 1);
+    if (CS.dt_qe_et > 0){
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, fout->ele_q_ET[0], CS.dt_qe_et, qEleE_IC, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, fout->ele_q_ET[1], CS.dt_qe_et, qEleTrans, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, fout->ele_q_ET[2], CS.dt_qe_et, qEleEvapo, 1);
     }
+    
+    
     /* Print control for River */
     if (CS.dt_Qr_up > 0)
         CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, fout->riv_Q_up, CS.dt_Qr_up, QrivUp, 1);

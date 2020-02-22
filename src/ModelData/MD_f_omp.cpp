@@ -8,11 +8,12 @@
 
 void Model_Data::f_applyDY_omp(double *DY, double t){
     double area;
-    int i;
+    int isf, ius, igw, i;
 #pragma omp parallel  default(shared) private(i) num_threads(CS.num_threads)
     {
 #pragma omp for
         for (i = 0; i < NumEle; i++) {
+            isf = iSF; ius = iUS; igw = iGW;
             area = Ele[i].area;
             QeleSurfTot[i] = Qe2r_Surf[i];
             QeleSubTot[i] = Qe2r_Sub[i];
@@ -22,41 +23,24 @@ void Model_Data::f_applyDY_omp(double *DY, double t){
                 //            CheckNANi(QeleSubTot[i], 1, "QeleSubTot[i]");
                 //            CheckNANi(QeleSurfTot[i], 1, "QeleSurfTot[i]");
             }
-            DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area;
-            DY[iUS] = qEleInfil[i] - qEleRecharge[i];
-            DY[iGW] = qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area;
-            
-            if(uYsf[i] < EPSILON){ /* NO ponding water*/
-                if (uYgw[i] < Ele[i].WetlandLevel){
-                    /*Evaporate from unsat soil*/
-                    DY[iUS] += -qEleET[i][2];
-                }else{
-                    /*Evaporate from Ground water*/
-                    DY[iGW] += -qEleET[i][2];
-                }
-            }else{ /*Ponding water*/
-                DY[i] +=  - qEleET[i][2];
-            }
-            if (uYgw[i] > Ele[i].RootReachLevel) {
-                /*Vegetation sucks water from Ground water*/
-                DY[iGW] += - qEleET[i][1];
-            } else {
-                DY[iUS] += - qEleET[i][1];
-            }
-            
+            DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEleE_sf[i];
+            DY[ius] = qEleInfil[i] - qEleRecharge[i] - qEu[i] - qTu[i];
+            DY[igw] = qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area - qEg[i] - qTg[i];
+
             /* Boundary condition and Source/Sink */
-            if(Ele[i].iBC > 0){ // Fix head of GW.
-                DY[iGW] = 0;
+            if(Ele[i].iBC == 0){
+            }else if(Ele[i].iBC > 0){ // Fix head of GW.
+                DY[igw] = 0;
             }else if(Ele[i].iBC < 0){ // Fix flux in GW
-                DY[iGW] += Ele[i].QBC / area;
-            }else{ /* Void */}
-            
-            if(Ele[i].iSS > 0){ // SS in Landusrface
-                DY[iSF] += Ele[i].QSS / area;
+                DY[igw] += Ele[i].QBC / area;
+            }
+
+            if(Ele[i].iSS == 0){
+            }else if(Ele[i].iSS > 0){ // SS in Landusrface
+                DY[isf] += Ele[i].QSS / area;
             }else if(Ele[i].iSS < 0){ // SS in GW
-                DY[iGW] += Ele[i].QSS / area;
-            }else{}
-            
+                DY[igw] += Ele[i].QSS / area;
+            }
             /* Convert with specific yield */
             DY[iUS] /= Ele[i].Sy;
             DY[iGW] /= Ele[i].Sy;

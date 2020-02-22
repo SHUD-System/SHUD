@@ -93,10 +93,10 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
     }else if(flag ==2){
         for (int i = 0; i < NumEle; i++) {
             DY[i] = qEleInfil[i] - qEleRecharge[i];
-            DY[i] += -qEleET[i][2];
+            DY[i] += -qEleEvapo[i];
             if (uYgw[i] > Ele[i].RootReachLevel) {
             } else {
-                DY[i] += - qEleET[i][1];
+                DY[i] += - qEleTrans[i];
             }
             /* Convert with specific yield */
             DY[i] /= Ele[i].Sy;
@@ -116,13 +116,13 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
                 if (uYgw[i] < Ele[i].WetlandLevel){
                 }else{
                     /*Evaporate from Ground water*/
-                    DY[i] += -qEleET[i][2];
+                    DY[i] += -qEleEvapo[i];
                 }
             }else{
             }
             if (uYgw[i] > Ele[i].RootReachLevel) {
                 /*Vegetation sucks water from Ground water*/
-                DY[i] += - qEleET[i][1];
+                DY[i] += - qEleTrans[i];
             } else {
             }
             

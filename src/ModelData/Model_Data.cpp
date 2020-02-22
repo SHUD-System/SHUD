@@ -77,14 +77,24 @@ void Model_Data::allocateMemory()
     Qe2r_Surf = new double[NumEle]; //5.1
     Qe2r_Sub  = new double[NumEle]; // 5.2
     
-    qEleET      = new double *[NumEle];
+    qEleE_IC      = new double[NumEle];
+    qEleE_sf      = new double[NumEle];
+    qEleEvapo      = new double[NumEle];
+    qEleTrans      = new double[NumEle];
     qElePrep    = new double[NumEle];
     qEleTF      = new double[NumEle];
     qEleETP     = new double[NumEle];
+    qPotEvap     = new double[NumEle];
+    qPotTran    = new double[NumEle];
     qEleETA     = new double[NumEle];
+    qEs     = new double[NumEle];
+    qEu     = new double[NumEle];
+    qEg     = new double[NumEle];
+    qTu     = new double[NumEle];
+    qTg     = new double[NumEle];
+    
     qEleETloss  = new double[NumEle]; //10
     iBeta     = new double[NumEle]; // 10.1
-    iPC     = new double[NumEle];
     
     qEleNetPrep = new double[NumEle];
     qEleInfil   = new double[NumEle];
@@ -137,7 +147,6 @@ void Model_Data::allocateMemory()
     for (int i = 0; i < NumEle; i++) {
         QeleSurf[i] = new double[3];
         QeleSub[i] = new double[3];
-        qEleET[i] = new double[3];
     }
     
     t_prcp  = new double[NumEle];  //

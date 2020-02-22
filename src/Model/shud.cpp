@@ -87,10 +87,10 @@ double SHUD(FileIn *fin, FileOut *fout){
         MD->PrintInit(fout->Init_update, t);
         /* inner loops to next output points with ET step size control */
         tnext += MD->CS.SolverStep;
-        while (t < tnext ) {
+        while (t < tnext) {
             MD->updateforcing(t);
             /* calculate Interception Storage */
-            MD->EvapoTranspiration(t, MD->CS.ETStep);
+            MD->ET(t, tnext);
             if(dummy_mode){
                 t = tnext;  /* dummy mode only. */
             }else{
@@ -234,7 +234,7 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
             if(t > tnext_et){
                 MD->updateforcing(t);
                 /* calculate Interception Storage */
-                MD->EvapoTranspiration(t, dt);
+                MD->ET(t, tnext);
                 tnext_et += MD->CS.ETStep;
             }
 

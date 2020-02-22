@@ -188,11 +188,11 @@ void globalCal::push(const char *optstr, double val){
         cMF = val;
     /* ET */
     else if (strcasecmp ("ET_IC", optstr) == 0)
-        cEt0 = val;
+        cE_ic = val;
     else if (strcasecmp ("ET_TR", optstr) == 0)
-        cEt1 = val;
+        cE_trans = val;
     else if (strcasecmp ("ET_SOIL", optstr) == 0)
-        cEt2 = val;
+        cE_Evapo = val;
     else if (strcasecmp ("ET_ETP", optstr) == 0)
         cETP = val;
     
@@ -290,11 +290,11 @@ double globalCal::getValue(const char *optstr){
     else if (strcasecmp ("ET_ETP", optstr) == 0)
         ret = cETP;
     else if (strcasecmp ("ET_IC", optstr) == 0)
-        ret = cEt0;
+        ret = cE_ic;
     else if (strcasecmp ("ET_TR", optstr) == 0)
-        ret = cEt1;
+        ret = cE_trans;
     else if (strcasecmp ("ET_SOIL", optstr) == 0)
-        ret = cEt2;
+        ret = cE_Evapo;
     
     /*  Rivers */
     else if (strcasecmp ("RIV_ROUGH", optstr) == 0)
@@ -383,9 +383,9 @@ void globalCal::write(const char *fn){
     fprintf(fp, "TS_LAI\t%g\n", cLAItsd);
     fprintf(fp, "TS_LAI\t%g\n", cMF);
     fprintf(fp, "ET_ETP\t%g\n", cETP);
-    fprintf(fp, "ET_IC\t%g\n", cEt0);
-    fprintf(fp, "ET_TR\t%g\n", cEt1);
-    fprintf(fp, "ET_SOIL\t%g\n", cEt2);
+    fprintf(fp, "ET_IC\t%g\n", cE_ic);
+    fprintf(fp, "ET_TR\t%g\n", cE_trans);
+    fprintf(fp, "ET_SOIL\t%g\n", cE_Evapo);
     
     fclose(fp);
 }
@@ -446,9 +446,9 @@ void globalCal::copy(globalCal *p){
     
     cPrep = p->cPrep ;
     cETP = p->cETP ;
-    cEt0 = p->cEt0 ;
-    cEt1 = p->cEt1 ;
-    cEt2 = p->cEt2 ;
+    cE_ic = p->cE_ic ;
+    cE_trans = p->cE_trans ;
+    cE_Evapo = p->cE_Evapo ;
     cISmax = p->cISmax ;
     cLAItsd = p->cLAItsd ;
     cMF = p->cMF ;

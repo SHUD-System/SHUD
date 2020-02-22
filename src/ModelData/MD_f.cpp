@@ -8,6 +8,7 @@
 void Model_Data:: f_loop(double t){
     int i;
     for (i = 0; i < NumEle; i++) {
+        f_etFlux(i, t);
         /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
         /*========infiltration/Recharge Function==============*/
         Ele[i].updateElement(uYsf[i] , uYus[i] , uYgw[i] ); // step 1 update the kinf, kh, etc. for elements.
@@ -42,27 +43,9 @@ void Model_Data::f_applyDY(double *DY, double t){
             QeleSurfTot[i] += QeleSurf[i][j];
             QeleSubTot[i] += QeleSub[i][j];
         }
-        DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area;
-        DY[ius] = qEleInfil[i] - qEleRecharge[i];
-        DY[igw] = qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area;
-
-        if(uYsf[i] < EPSILON){ /* NO ponding water*/
-            if (uYgw[i] < Ele[i].WetlandLevel){
-                /*Evaporate from unsat soil*/
-                DY[ius] += -qEleET[i][2];
-            }else{
-                /*Evaporate from Ground water*/
-                DY[igw] += -qEleET[i][2];
-            }
-        }else{ /*Ponding water*/
-            DY[i] +=  - qEleET[i][2];
-        }
-        if (uYgw[i] > Ele[i].RootReachLevel) {
-            /*Vegetation sucks water from Ground water*/
-            DY[igw] += - qEleET[i][1];
-        } else {
-            DY[ius] += - qEleET[i][1];
-        }
+        DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEleE_sf[i];
+        DY[ius] = qEleInfil[i] - qEleRecharge[i] - qEu[i] - qTu[i];
+        DY[igw] = qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area - qEg[i] - qTg[i];
 
         /* Boundary condition and Source/Sink */
         if(Ele[i].iBC == 0){
@@ -78,10 +61,15 @@ void Model_Data::f_applyDY(double *DY, double t){
         }else if(Ele[i].iSS < 0){ // SS in GW
             DY[igw] += Ele[i].QSS / area;
         }
-//
         /* Convert with specific yield */
         DY[ius] /= Ele[i].Sy;
         DY[igw] /= Ele[i].Sy;
+//        if(DY[ius] < 0. && uYus[i] < -10.){  // debug only
+//            printf("%.3f, %d: %.2f, %.2e, %.2f | (%.2e, %.2e, %.2e), %.2e, %.2e\n", t, i+1,
+//                   uYus[i], DY[ius], uYgw[i], qEleE_IC[i], qEleTrans[i], qEleEvap[i],
+//                   qEleInfil[i], qEleRecharge[i]);
+//            printf("\n");
+//        }
 //                DY[isf] =0.0;  // debug only.
 //                DY[ius] =0.0;
 //                DY[igw] =0.0;

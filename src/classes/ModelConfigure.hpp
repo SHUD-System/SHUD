@@ -94,13 +94,6 @@ public:
     void printInfo(FILE *fp);
 };
 
-//class processCal {
-//public:
-//    double Et0 = 1;
-//    double Et1 = 1;
-//    double Et2 = 1;
-//};
-
 
 class globalCal{
     //public river_calib,
@@ -120,9 +113,9 @@ public:
     
     double cETP = 1;
     double cPrep = 1;
-    double cEt0 = 1;
-    double cEt1 = 1;
-    double cEt2 = 1;
+    double cE_ic = 1;
+    double cE_trans = 1;
+    double cE_Evapo = 1;
     double cISmax = 1; /* */
     double cLAItsd = 1;  /* LAI TSD */
     double cMF = 1;  /* MF TSD */
