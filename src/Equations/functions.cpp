@@ -116,7 +116,7 @@ double getSecond(void)
 void CheckNonNegative(double x, int i, const char *s)
 {
     if (x < 0.0 || isnan(x) || isinf(x) || fabs(x - NA_VALUE) < ZERO) {
-        printf("ERROR: Value %e for %s of Element %d is not allowed. Please check again.\n", x, s, i + 1);
+        printf("ERROR: Negative Value %e for %s of Element %d is not allowed. Please check again.\n", x, s, i + 1);
         myexit(ERRNAN);
     }
 }
