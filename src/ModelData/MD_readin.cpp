@@ -306,9 +306,6 @@ void Model_Data::read_forc_csv(const char *fn){
 void Model_Data::loadinput(FileIn *fin){
     int nt=1;
     int flag = 1;
-#ifdef _CALIBMODE
-    flag = 0;
-#endif
     if(flag) fprintf(stdout,"* \t Project name: %s\n", fin->projectname);
     if(flag) fprintf(stdout,"* \t Project input folder: %s\n", fin->inpath);
     if(flag) fprintf(stdout,"* \t Project output folder: %s\n", fin->outpath);
@@ -540,8 +537,6 @@ void Model_Data::FreeData(){
     delete[] tsd_weather;
     
     /* MD::initialize() */
-#ifndef _CALIBMODE
     delete flood;
-#endif
 }
 

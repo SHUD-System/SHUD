@@ -10,11 +10,7 @@ int check_flag(void *flagvalue, const char *funcname, int opt)
     if (opt == 0 && flagvalue == NULL) {
         fprintf(stderr, "\nSUNDIALS_ERROR: %s() failed - returned NULL pointer\n\n",
                 funcname);
-#ifdef _CALIBMODE
-        return 1;
-#else
         myexit(ERRCVODE);
-#endif
         
     }
     /* Check if flag < 0 */
@@ -23,22 +19,14 @@ int check_flag(void *flagvalue, const char *funcname, int opt)
         if (*errflag < 0) {
             fprintf(stderr, "\nSUNDIALS_ERROR: %s() failed with flag = %d\n\n",
                     funcname, *errflag);
-#ifdef _CALIBMODE
-            return 1;
-#else
             myexit(ERRCVODE);
-#endif
         }
     }
     /* Check if function returned NULL pointer - no memory allocated */
     else if (opt == 2 && flagvalue == NULL) {
         fprintf(stderr, "\nMEMORY_ERROR: %s() failed - returned NULL pointer\n\n",
                 funcname);
-#ifdef _CALIBMODE
-        return 1;
-#else
         myexit(ERRCVODE);
-#endif
     }
     return (0);
 }
@@ -103,7 +91,7 @@ void CVODEstatus(void *cvode_mem, N_Vector u, realtype t){
   check_flag(&retval, "CVodeGetLastOrder", 1);
   retval = CVodeGetLastStep(cvode_mem, &hu);
   check_flag(&retval, "CVodeGetLastStep", 1);
-  printf("t = %.2e   no. steps = %ld   order = %d   stepsize = %.2e\n",
+  printf("t = %.2f   no. steps = %ld   order = %d   stepsize = %.4f\n",
          t, nst, qu, hu);
 }
 

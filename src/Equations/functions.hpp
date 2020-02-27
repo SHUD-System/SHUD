@@ -61,11 +61,9 @@ void screeninfo(const char *s);
 
 template<typename  T>
 void screeninfo(const char *s, T x){
-#ifndef _CALIBMODE
     char str[MAXLEN];
     sprintf(str, s, x);
     fprintf(stdout, "%s", str);
-#endif
 }
 inline
 void setValue (double *x, double val, int start, int n){

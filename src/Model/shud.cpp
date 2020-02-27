@@ -57,17 +57,10 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->LoadIC(fin);
     MD->SetIC2Y(udata);
     
-    
-#ifdef _CALIBMODE
-    MD->CS.CV.readobs(fin->file_obs);
-    MD->CS.CV.Pointer2Sim(MD->QrivDown, 1, 0);
-    MD->CS.updateSimPeriod(MD->CS.CV.DayStart, MD->CS.CV.DayEnd);
-    MD->CS.calibmode(1440);
-#else
     MD->initialize_output(fout);
     MD->PrintInit(fout->Init_bak, 0);
     MD->InitFloodAlert(fout->floodout);
-#endif
+    
     SetCVODE(mem, f, MD, udata, LS);
     
     /* set start time */
@@ -82,7 +75,9 @@ double SHUD(FileIn *fin, FileOut *fout){
     
     f(t, udata, du, MD); /* Initialized the status */
     for (int i = 0; i < MD->CS.NumSteps && !ierr; i++) {
+#ifdef DEBUG
         printDY(MD->file_debug);
+#endif
         flag = MD->ScreenPrint(t, i);
         MD->PrintInit(fout->Init_update, t);
         /* inner loops to next output points with ET step size control */
@@ -98,46 +93,20 @@ double SHUD(FileIn *fin, FileOut *fout){
                 check_flag(&flag, "CVode", 1);
             }
         }
+        //            CVODEstatus(mem, udata, t);
         MD->summary(udata);
-#ifdef _CALIBMODE
-        MD->CS.CV.pushsim(t);
-        if (atInterval(t, 1440 * 30)) {
-            MD->PrintInit(fout->Init_update);
-        }
-#else
-//        f(t, udata, du, MD);
         fout->writeTime(t);
         MD->CS.ExportResults(t);
         MD->flood->FloodWarning(t);
-#endif
     }
     MD->ScreenPrint(t, MD->CS.NumSteps);
     MD->PrintInit(fout->Init_update, t);
-#ifndef _CALIBMODE
-    PrintFinalStats(mem);
-#endif
     MD->modelSummary(fin, 1);
     /* Free memory */
     N_VDestroy_Serial(udata);
     N_VDestroy_Serial(du);
     /* Free integrator memory */
     CVodeFree(&mem);
-    
-#ifdef _CALIBMODE
-    if(ierr){
-        ret = 9999;
-    }else{
-        MD->CS.CV.printData(fout->obs_sim);
-        MD->CS.CV.callGOF();
-        MD->CS.CV.printGOF(stdout);
-        //    printf("OBJvalue = %f\n", MD->CS.CV.gof->gof_nRMSE(1) );
-        ret = MD->CS.CV.gof->gof_nRMSE(1);
-        if(ret < 0.01){
-            /* if nRMSE is less than 1%, it is good enough */
-            ret = 0.0;
-        }
-    }
-#endif
     
     delete MD;
     return ret;
@@ -184,17 +153,10 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
 
     MD->LoadIC(fin);
     MD->SetIC2Y(u1, u2, u3, u4, u5);
-    
-#ifdef _CALIBMODE
-    MD->CS.CV.readobs(fin->file_obs);
-    MD->CS.CV.Pointer2Sim(MD->QrivDown, 1, 0);
-    MD->CS.updateSimPeriod(MD->CS.CV.DayStart, MD->CS.CV.DayEnd);
-    MD->CS.calibmode(1440);
-#else
     MD->initialize_output(fout);
     MD->PrintInit(fout->Init_bak, 0);
     MD->InitFloodAlert(fout->floodout);
-#endif
+    
     SetCVODE(mem1, f_surf,  MD, u1, LS1);
     SetCVODE(mem2, f_unsat, MD, u2, LS2);
     SetCVODE(mem3, f_gw,    MD, u3, LS3);
@@ -266,12 +228,6 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
         }
         t0 = t;
         MD->summary(u1, u2, u3, u4, u5);
-#ifdef _CALIBMODE
-        MD->CS.CV.pushsim(t);
-        if (atInterval(t, 1440 * 30)) {
-            MD->PrintInit(fout->Init_update);
-        }
-#else
         //        f(t, udata, du, MD);
         MD->CS.ExportResults(tnext);
         flag = MD->ScreenPrintu(t, i);
@@ -281,7 +237,6 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
         printVector(fp3, globalY, N1*2, N3, t);
         printVector(fp4, globalY, N1*3, N4, t);
         MD->flood->FloodWarning(t);
-#endif
     }
     fclose(fp1);
     fclose(fp2);

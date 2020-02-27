@@ -11,10 +11,6 @@
 #include "Macros.hpp"
 #include "ModelConfigure.hpp"
 
-#ifdef _CALIBMODE
-#include "ObsSim.hpp"
-#endif
-
 class Print_Ctrl{
 private:
     char    filename[MAXLEN];
@@ -121,9 +117,6 @@ public:
     int NumPrint = 0;;
     int exfiltration = 0;
     Print_Ctrl PCtrl[100];
-#ifdef _CALIBMODE
-    ObsnSim CV;
-#endif
     
     /* Methods */
     Control_Data();

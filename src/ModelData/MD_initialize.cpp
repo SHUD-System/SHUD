@@ -197,9 +197,7 @@ void Model_Data:: initialize(){
         CheckNonZero(RivSeg[i].Cwr, i, "River Segment Cwr");
 //        CheckNonZero(RivSeg[i].KsatH, i, "River Segment KsatH");
     }
-#ifndef _CALIBMODE
     flood = new FloodAlert();
-#endif
     updateArea(); /* Calculate the Total Area of the watershed. */
 }
 void Model_Data:: initialize_output (FileOut *fout){
