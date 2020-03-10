@@ -13,4 +13,4 @@ output
 shud
 Build
 DerivedData
-
+*.xcodeproj
