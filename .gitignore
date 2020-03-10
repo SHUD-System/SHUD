@@ -1,0 +1,16 @@
+Build/
+	DerivedData/
+	Index/
+	SHUD.xcodeproj/
+	Script/
+	shud
+	shud.dSYM/
+	sundials-master.zip
+	sundials-master/
+
+output
+*.sh
+shud
+Build
+DerivedData
+
