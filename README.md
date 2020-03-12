@@ -1,8 +1,8 @@
-# Simulator of Hydrological Unstructured Domain
+# Simulator for Hydrological Unstructured Domain
 
 ## Brief
 
-The Simulator of Hydrological Unstructured Domain  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM).
+The Simulator for Hydrological Unstructured Domain  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM).
 
 - **Maintainner**: Lele Shu ([lele.shu@gmail.com](mailto:lele.shu@gmail.com))
 - **Website**: [shud.xyz](shud.xyz)
@@ -15,7 +15,7 @@ The Simulator of Hydrological Unstructured Domain  (SHUD - pronounced “SHOULD�
 
 ## Overview
 
-The Simulator of Hydrological Unstructured Domain  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM).
+The Simulator for Hydrological Unstructured Domain  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM).
 
 SHUD encapsulates the strategy for the synthesis of multi-state distributed hydrological models using the integral representation of the underlying physical process equations and state variables. As a heritage of **Penn State Integrated Hydrologic Model (PIHM)**, the SHUD model is a continuation of 16 years of PIHM modeling in hydrology and related fields since the release of its first PIHM version (Qu, 2004). 
 
