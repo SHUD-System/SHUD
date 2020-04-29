@@ -18,7 +18,10 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     MD->f_applyDY(DY, t);
 #endif
     MD->nFCall++;
+    
+#ifdef DEBUG
     printDY(MD->file_debug, DY, MD->NumY, t);
+#endif
     return 0;
 }
 
