@@ -274,7 +274,7 @@ int Model_Data::ScreenPrintu(double t, unsigned long it){
     static double tnext = t;
     static unsigned long ncall1 = 0, ncall2 = 0, ncall3 = 0, ncall4 = 0, ncall5 = 0;
     if (t >= tnext) {
-        printf("%6.2f day \t %5.2f%% \t %6.2f sec \t %6ld %6ld %6ld %6ld %6ld\n",
+        printf("%6.2f d \t %5.2f%% \t %6.2f s \t %6ld %6ld %6ld %6ld %6ld\n",
                t / 1440, 100.0 * it / CS.NumSteps, getSecond(),
                nFCall1 - ncall1, nFCall2 - ncall2, nFCall3 - ncall3, nFCall4 - ncall4, nFCall5 - ncall5
                );
