@@ -129,7 +129,8 @@ void _TimeSeriesData::movePointer(double t){
         //printf("%s,  %.1f \t [%.4f] \t %.1f\n", fn.c_str(), ts[iNow][0], t, ts[iNext][0]);
     }
     if (ts[iNext][0] < ts[iNow][0] && t - ts[iNow][0] > 1 && ts[iNow][0] + 1440 < t) {
-        fprintf(stderr, "\n\nError: missing forcing data after t=%.3lf\n\n", ts[iNow][0] / 1440. + 1);
+        fprintf(stderr, "\nError in reading file: %s\n", fn.c_str());
+        fprintf(stderr, "\nError: missing forcing data after t=%.3lf\n\n", ts[iNow][0] / 1440. + 1);
         myexit(ERRFileIO);
     }
 }
