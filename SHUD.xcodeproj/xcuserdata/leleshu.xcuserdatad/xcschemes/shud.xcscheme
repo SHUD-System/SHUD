@@ -70,6 +70,10 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "sac"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "-0 ccw"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument

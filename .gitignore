@@ -10,7 +10,7 @@ Build/
 
 output
 *.sh
-shud
+shud.*
 Build
 DerivedData
 *.xcodeproj

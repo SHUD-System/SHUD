@@ -34,7 +34,8 @@ The SHUD is a distributed hydrological model in which the domain is discretized 
 - SHUD can estimate either a long-term hydrological yield or a single-event flood. 
 - SHUD is an open-source model --- anyone can access the source code and submit their modifications/improvements.
 
-- 
+  
+
 
 ## How to compile (Linux and Mac)
 
