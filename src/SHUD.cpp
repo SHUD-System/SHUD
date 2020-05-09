@@ -1,7 +1,7 @@
 /*******************************************************************************
  * File        : main.cpp                                                      *
  * Version     : Nov, 2018 (SHUD v1.0)                                         *
- * Function    : SHUD (Solver for Hydrological Unstructured Domain)            *
+ * Function    : SHUD (Solver for Hydrologic Unstructured Domains)            *
  * Developer of SHUD 1.0:        Lele Shu (lele.shu@gmail.com)                 *
  *                                                                             *
  * SHUD inherits the fundamental idea of solving hydrological variables in     *
