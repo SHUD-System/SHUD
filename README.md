@@ -37,13 +37,13 @@ SHUD's design is based on a concise representation of a watershed and river basi
 
 - SHUD is a fully-coupled hydrologic model, where the conservative hydrologic fluxes are calculated within the same time step. The state variables are the height of ponding water on the land surface, soil moisture, groundwater level, and river stage, while fluxes are infiltration, overland flow, groundwater recharge, lateral groundwater flow, river discharge, and exchange between river and hillslope cells.
 
-- The global ODE system in SHUD is solved with a state-of-the-art parallel ODE solver, known as CVODE \citep{hindmarsh2005sundials} developed at Lawrence Livermore National Laboratory.
+- The global ODE system in SHUD is solved with a state-of-the-art parallel ODE solver, known as CVODE developed at Lawrence Livermore National Laboratory.
 
 - SHUD permits adaptable temporal and spatial resolution. The spatial resolution of the model varies from centimeters to kilometers based on modeling requirements computing resources. The internal time step of the iteration is adjustable and adaptive; it can export the status of a catchment at time-intervals from minutes to days.  The flexible spatial and temporal resolution of the model makes it valuable for coupling with other systems.
 
 - SHUD can estimate either a long-term hydrologic yield or a single-event flood.
 
-- SHUD is an open-source model, available on GitHub \citep{zenodo2019_shud}.
+- SHUD is an open-source model, available on GitHub.
 
   
 
