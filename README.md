@@ -4,6 +4,10 @@
 
 The Simulator for Hydrologic Unstructured Domains  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM).
 
+Ongoing applications of the SHUD model include hydrologic analyses of hillslope to regional scales  (1 $ m^2 $ to $10^6$ $\mbox{km}^2$), water resource and stormwater management, and interdisciplinary research for questions in limnology, agriculture, geochemistry, geomorphology, water quality, ecology, climate and land-use change. The strength of SHUD is its flexibility as a scientific and resource evaluation tool where modeling and simulation are required.
+
+
+
 - **Maintainner**: Lele Shu ([lele.shu@gmail.com](mailto:lele.shu@gmail.com))
 - **Website**: [shud.xyz](shud.xyz)
 - **User Guide**: https://www.shud.xyz/_book/
@@ -15,24 +19,31 @@ The Simulator for Hydrologic Unstructured Domains  (SHUD - pronounced “SHOULD�
 
 ## Overview
 
-The Simulator for Hydrologic Unstructured Domains  (SHUD - pronounced “SHOULD”) is a multi-process, multi-scale hydrological model where major hydrological processes are fully coupled using the semi-discrete **Finite Volume Method** (FVM).
-
-SHUD encapsulates the strategy for the synthesis of multi-state distributed hydrological models using the integral representation of the underlying physical process equations and state variables. As a heritage of **Penn State Integrated Hydrologic Model (PIHM)**, the SHUD model is a continuation of 16 years of PIHM modeling in hydrology and related fields since the release of its first PIHM version (Qu, 2004). 
-
-The SHUD’s design is based on a concise representation of a watershed and river basin’s hydrodynamics, which allows for interactions among major physical processes operating simultaneously, but with the flexibility to add or drop states/processes/constitutive relations depending on the objectives of the numerical experiment for research purpose. 
-
-The SHUD is a distributed hydrological model in which the domain is discretized using an unstructured triangular irregular network (e.g., *Delaunay triangles*) generated with constraints (geometric and parametric). A local prismatic control volume is formed by the vertical projection of the Delaunay triangles forming each layer of the model. Given a set of constraints (river network, watershed boundary, elevation, and hydraulic properties), an *“optimized mesh”* is generated. The *“optimized mesh”* indicates the hydrological processes with the unstructured mesh can be calculated efficiently, stably and rationally (Farthing and Ogden, 2017; Vanderstraeten and Keunings, 1995; Kumar, Bhatt and Duffy, 2009). River volume elements are also prismatic, with trapezoidal or rectangular cross-section, and maintain the topological relation with the Delaunay triangles. The local control volumes encapsulate all equations to be solved and are herein referred to as the model kernel. 
+The Simulator for Hydrologic Unstructured Domains (SHUD) is a multi-process, multi-scale model where major hydrologic processes are fully coupled using the **Finite Volume Method (FVM)**. SHUD encapsulates the strategy for the synthesis of multi-state distributed hydrologic models using the integral representation of the underlying physical process equations and state variables. As an intellectual descendant of Penn State Integrated Hydrologic Model (**PIHM**), the SHUD model is a continuation of 16 years of PIHM model development in hydrology and related fields since the release of its first PIHM version  (Qu, 2004).
 
 
+
+![Figure_tree](Fig/Figure_tree.png)
+
+The conceptual structure of the ***two-state integral-balance*** model for soil moisture and groundwater dynamics was originally devised by (Duffy, 1996), in which the partial volumes occupied by unsaturated and saturated moisture storage were integrated directly into a local conservation equation. This two-state integral-balance structure simplified the hydrologic dynamics while preserving the natural spatial and temporal scales contributing to runoff response.
+
+SHUD's design is based on a concise representation of a watershed and river basin's hydrodynamics, which allows for interactions among major physical processes operating simultaneously, but with the flexibility to add or drop state-process-constitutive relations depending on the objectives of the numerical experiment.
+
+![figure1](Fig/figure1.png)
 
 ### We now summarize the formulation and results from SHUD. 
 
-- SHUD is a physically-based model, in which all equations used to emerge from the physics behind the hydrological processes within a catchment. The physical model can predict the water in an ungaged water system.  SHUD represents the spatial heterogeneity that influences the hydrology of the region. Consequently, it is practical to couple the SHUD model with models from biochemistry, reaction transport, geomorphology, limnology and other related research areas.
-- SHUD is a fully-coupled hydrological model, where the conservative hydrological fluxes are calculated within the same time step. The state variables are the height of ponding water on the land surface, soil moisture, groundwater level, and river stage, while fluxes are infiltration, overland flow, groundwater recharge, lateral groundwater flow, river discharge, and exchange between river and elements. 
-- The global ODE system solved in SHUD integrates all local ODE systems over the domains and solves with a state-of-the-art parallel ODE solver known as CVODE (Hindmarsh et al., 2005) developed at the Lawrence Livermore National Laboratory. 
-- SHUD permits adaptable temporal and spatial resolution. The spatial resolution of the model varies from cen- timeters to kilometers based on modeling requirements computing resources. The internal time step of the iteration is adjustable; it can export the status of a catchment at time-intervals from a minutes to days. The flexible spatial and temporal resolution of the model is valuable for community model coupling. 
-- SHUD can estimate either a long-term hydrological yield or a single-event flood. 
-- SHUD is an open-source model --- anyone can access the source code and submit their modifications/improvements.
+- SHUD is a physically-based process spatially distributed catchment model. The model applies national geospatial data resources to simulate surface and subsurface flow in gaged or ungaged catchments. SHUD represents the spatial heterogeneity that influences the hydrology of the region based on national soil data and superficial geology. Several other groups have used PIHM, a SHUD ancestor to couple processes from biochemistry, reaction transport, landscape, geomorphology, limnology, and other related research areas.
+
+- SHUD is a fully-coupled hydrologic model, where the conservative hydrologic fluxes are calculated within the same time step. The state variables are the height of ponding water on the land surface, soil moisture, groundwater level, and river stage, while fluxes are infiltration, overland flow, groundwater recharge, lateral groundwater flow, river discharge, and exchange between river and hillslope cells.
+
+- The global ODE system in SHUD is solved with a state-of-the-art parallel ODE solver, known as CVODE \citep{hindmarsh2005sundials} developed at Lawrence Livermore National Laboratory.
+
+- SHUD permits adaptable temporal and spatial resolution. The spatial resolution of the model varies from centimeters to kilometers based on modeling requirements computing resources. The internal time step of the iteration is adjustable and adaptive; it can export the status of a catchment at time-intervals from minutes to days.  The flexible spatial and temporal resolution of the model makes it valuable for coupling with other systems.
+
+- SHUD can estimate either a long-term hydrologic yield or a single-event flood.
+
+- SHUD is an open-source model, available on GitHub \citep{zenodo2019_shud}.
 
   
 
@@ -45,7 +56,7 @@ The SHUD is a distributed hydrological model in which the domain is discretized 
 ./configure
 ```
 
-This configure is to download teh SUNDIALS from GitHub and install it on your 
+This configure is to download teh SUNDIALS from GitHub and install it on your computer.
 
 **Step 2: Compile SHUD with gcc**
 
@@ -55,6 +66,8 @@ make shud
 
 ```
 
+If you don't use `gcc`, you may edit the *Makefile* before compiling.
+
 **Step 3: Run the North Fork Cache Creek Watershed example**
 
 ```
@@ -62,6 +75,7 @@ make shud
 ```
 
 The screen looks shoud be:
+![screenshot](Fig/screenshot.png)
 
 **Step4: Analysis the results of modeling.**
 
