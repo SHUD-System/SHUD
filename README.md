@@ -50,6 +50,13 @@ SHUD's design is based on a concise representation of a watershed and river basi
 
 ## Compliation (Linux or Mac) and run the example watersheds
 
+**Step 0: download the latest source code**
+
+```
+git clone git@github.com:SHUD-System/SHUD.git
+cd SHUD
+```
+
 **Step 1: Install SUNDIALS/CVODE:**
 
 ```
