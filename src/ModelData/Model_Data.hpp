@@ -260,7 +260,7 @@ private:
     void read_calib(const char *fn);
     void read_para(const char *fn);
     void read_riv(const char *fn);
-    void read_rivchn(const char *fn);
+    void read_rivseg(const char *fn);
     void read_mesh(const char *fn);
     
     void read_lake(const char *fn);

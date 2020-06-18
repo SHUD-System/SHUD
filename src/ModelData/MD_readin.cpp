@@ -6,7 +6,7 @@ void Model_Data::read_calib(const char *fn){
 void Model_Data::read_para(const char *fn){
     CS.read(fn);
 }
-void Model_Data::read_rivchn(const char *fn){
+void Model_Data::read_rivseg(const char *fn){
     TabularData tb;
     NumSegmt = tb.read(fn);
     RivSeg = new RiverSegement[NumSegmt];
@@ -314,7 +314,7 @@ void Model_Data::loadinput(FileIn *fin){
     if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_riv);
     read_riv(fin->file_riv);
     if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_rivseg);
-    read_rivchn(fin->file_rivseg);
+    read_rivseg(fin->file_rivseg);
     if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_mesh);
     read_mesh(fin->file_mesh);
     if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_att);
@@ -514,7 +514,7 @@ void Model_Data::FreeData(){
     delete[]    t_mf;
     delete[]    t_rl;
     
-    //read_rivchn()
+    //read_rivseg()
     delete[] RivSeg;
     
     /* free river, read_riv */

@@ -77,7 +77,7 @@ void FileIn:: setInFilePath(char * indir, char *  pjrname){
     sprintf(file_mesh, "%s/%s.%s", inpath, projectname, "sp.mesh");
     sprintf(file_att, "%s/%s.%s", inpath, projectname, "sp.att");
     sprintf(file_riv, "%s/%s.%s", inpath, projectname, "sp.riv");
-    sprintf(file_rivseg, "%s/%s.%s", inpath, projectname, "sp.rivchn");
+    sprintf(file_rivseg, "%s/%s.%s", inpath, projectname, "sp.rivseg");
     sprintf(file_lake, "%s/%s.%s", inpath, projectname, "sp.lake");
     
     /* physical parameters */
