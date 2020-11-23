@@ -54,9 +54,9 @@ void Model_Data::tReadForcing(double t, int i){
     double r_av   = AerodynamicResistance(t_wind[i], t_rl[i], Ele[i].windH, 10.);     // eq 4.2.25  [min m-1]
     
     double Gamma = PsychrometricConstant(Ele[i].FixPressure, lambda); // eq 4.2.28  [kPa C-1]
-    qPotEvap[i] = gc.cETP * Penman_Monteith(Ele[i].FixPressure, (t_rn[i] - 0) * 1.0e-6, rho,
+    qPotEvap[i] = gc.cETP * PET_Penman_Monteith(Ele[i].FixPressure, (t_rn[i] - 0) * 1.0e-6, rho,
                                             ed, Delta, r_ab, 0., Gamma, lambda);                // eq 4.2.27
-    qPotTran[i] = gc.cETP * Penman_Monteith(Ele[i].FixPressure, (t_rn[i] - 0) * 1.0e-6, rho,
+    qPotTran[i] = gc.cETP * PET_Penman_Monteith(Ele[i].FixPressure, (t_rn[i] - 0) * 1.0e-6, rho,
                                             ed, Delta, r_av, r_s, Gamma, lambda);                // eq 4.2.27
     qEleETP[i] = qPotTran[i] * Ele[i].VegFrac + qPotEvap[i] * (1. - Ele[i].VegFrac);
 }

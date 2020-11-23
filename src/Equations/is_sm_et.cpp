@@ -1,5 +1,34 @@
 #include "is_sm_et.hpp"
-double Penman_Monteith(double Press, double A, double rho,
+
+double PET_Hargreaves(double Rad, double Tmax, double Tmin,
+                      double Tavg, double lambda, double x6,
+                      double x7, double x8, double x9){
+//    x6-x9 are dummy values
+//    SWAT 2:2.2.24
+//    λ is the latent heat of vaporization (MJ kg-1),
+//    Eo is the potential evapotranspiration (mm d-1),
+//    H0 is the extraterrestrial radiation (MJ m-2 d-1),
+//    Tmx is the maximum air temperature for a given day (􏰊C),
+//    Tmn is the minimum air temperature for a given day (􏰊C), and
+//    Tavg is the mean air temperature for a given day (􏰊C).
+    return 0.023 * Rad * sqrt(Tmax - Tmin) * (Tavg - 17.8) / lambda;  /* SWAT 2:2.2.24 */
+}
+double PET_Priestley_Taylor(double alpha, double Delta, double Gamma,
+                            double Hnet, double G, double lambda,
+                            double x7, double x8, double x9){
+//    x7-x9 are dummy values
+//    SWAT 2:2.2.23
+//    λ is the latent heat of vaporization (MJ kg-1),
+//    Eo is the potential evapotranspiration (mm d-1), 􏰔
+//    pet is a coefficient,
+//    Δ is the slope of the saturation vapor pressure-temperature curve,
+//    de/dT (kPa  ̊C-1),
+//    γ is the psychrometric constant (kPa  ̊C-1),
+//    Hnet is the net radiation (MJ m-2 d-1), and
+//    G is the heat flux density to the ground (MJ m-2 d-1).
+    return alpha * Delta / (Delta + Gamma) * (Hnet - G) / lambda;   /* SWAT 2:2.2.23 */
+}
+double PET_Penman_Monteith(double Press, double A, double rho,
                        double ed, double Delta, double r_a, double r_s,
                        double Gamma, double lambda){
     /* http://www.fao.org/docrep/X0490E/x0490e06.htm#penman%20monteith%20equation
@@ -19,7 +48,7 @@ double Penman_Monteith(double Press, double A, double rho,
     ETp = ETp / lambda * 0.001 ; // mm/min =>> m/min;   kg/m2/min = mm/min
     return ETp;
 }
-//double Penman_Monteith(double RH,
+//double PET_Penman_Monteith(double RH,
 //                       double T, double Vel, double P,
 //                       double Rn, double rl, double windH,
 //                       double Gamma, double lai, double R_ref){

@@ -19,11 +19,17 @@
 //void is_sm_et(double t, double stepsize, void *DS, N_Vector VY);
 
 
-double Penman_Monteith(double Press,  double Rn, double rho,
+double PET_Hargreaves(double Rad, double Tmax, double Tmin,
+                      double Tavg, double lambda, double x6,
+                      double x7, double x8, double x9);
+double PET_Priestley_Taylor(double alpha, double Delta, double Gamma,
+                            double Hnet, double G, double lambda,
+                            double x7, double x8, double x9);
+double PET_Penman_Monteith(double Press,  double Rn, double rho,
                        double ed, double Delta, double r_a, double r_s,
                        double Gamma, double Lambda);
 
-//double Penman_Monteith(double RH,
+//double PET_Penman_Monteith(double RH,
 //                       double T, double Vel, double Press,
 //                       double Rn, double rl, double windH,
 //                       double Gamma, double lai, double R_ref);
