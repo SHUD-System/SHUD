@@ -28,14 +28,12 @@ double PET_Priestley_Taylor(double alpha, double Delta, double Gamma,
 //    G is the heat flux density to the ground (MJ m-2 d-1).
     return alpha * Delta / (Delta + Gamma) * (Hnet - G) / lambda;   /* SWAT 2:2.2.23 */
 }
-double PET_Penman_Monteith(double Press, double A, double rho,
+double PET_Penman_Monteith(double Press, double Rad, double rho,
                        double ed, double Delta, double r_a, double r_s,
                        double Gamma, double lambda){
     /* http://www.fao.org/docrep/X0490E/x0490e06.htm#penman%20monteith%20equation
      Rn net radiation at the crop surface [MJ m-2 min-1],
      G soil heat flux density [MJ m-2 min-1],
-     T mean daily air temperature at 2 m height [°C],
-     u2 wind speed at 2 m height [m s-1],
      es saturation vapour pressure [kPa],
      ea actual vapour pressure [kPa],
      es - ea saturation vapour pressure deficit [kPa],
@@ -44,8 +42,9 @@ double PET_Penman_Monteith(double Press, double A, double rho,
      */
     //    double    Gamma;  // psychrometric constant
     //    double    Delta;  // the slope of the saturation vapour pressure temperature relationship
-    double    ETp = (Delta * A + rho * Cp * ed / r_a) / (Delta + Gamma * (1 + r_s / r_a)); // eq 4.2.27 [ ]
-    ETp = ETp / lambda * 0.001 ; // mm/min =>> m/min;   kg/m2/min = mm/min
+    double    ETp = (Delta * Rad + rho * Cp * ed / r_a) / (Delta + Gamma * (1 + r_s / r_a)); // eq 4.2.27 [ ]
+    ETp = ETp / lambda; // [ kg/s = 0.001 m3/m2/s=0.001 m/s ]
+    ETp = ETp * 0.001;  /* [kg s-1] to [m s-1] */
     return ETp;
 }
 //double PET_Penman_Monteith(double RH,
