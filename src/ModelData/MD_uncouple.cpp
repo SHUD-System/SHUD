@@ -88,7 +88,10 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
             if(Ele[i].iSS > 0){ // SS in Landusrface
                 DY[i] += Ele[i].QSS / area;
             }
-//            CheckNANi(uYsf[i], i, "DY[i] of Surface (Model_Data::f_applyDYi)");
+            if(abs(DY[i])>1.5){
+                CheckNANi(uYsf[i], i, "uYsf[i] of Surface (Model_Data::f_applyDYi)");
+                CheckNANi(DY[i], i, "DY[i] of Surface (Model_Data::f_applyDYi)");
+            }
         }
     }else if(flag ==2){
         for (int i = 0; i < NumEle; i++) {
@@ -100,7 +103,7 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
             }
             /* Convert with specific yield */
             DY[i] /= Ele[i].Sy;
-            CheckNANi(uYus[i], i, "DY[i] of Surface (Model_Data::f_applyDYi)");
+            CheckNANi(uYus[i], i, "uYus[i] of Unsat (Model_Data::f_applyDYi)");
             CheckNANi(DY[i], i, "DY[i] of Unsat (Model_Data::f_applyDYi)");
         }
     }else if(flag ==3){
@@ -140,7 +143,8 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
             /* Convert with specific yield */
             DY[i] /= Ele[i].Sy;
 //            DY[i] = 0;
-//            CheckNANi(DY[i], i, "DY[i] of Groundwater (Model_Data::f_applyDYi)");
+            CheckNANi(uYgw[i], i, "uYgw[i] of Groundwater (Model_Data::f_applyDYi)");
+            CheckNANi(DY[i], i, "DY[i] of Groundwater (Model_Data::f_applyDYi)");
         }
     }else if(flag ==4){
         for (int i = 0; i < NumRiv; i++) {
@@ -150,11 +154,16 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
             }else{
                 DY[i] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].u_TopArea;
             }
-#ifdef DEBUG
+            CheckNANi(uYriv[i], i, "DY[i] of river (Model_Data::f_applyDYi)");
             CheckNANi(DY[i], i, "DY[i] of river (Model_Data::f_applyDYi)");
+#ifdef DEBUG
 #endif
         }
     }else if(flag ==5){
+        for (int i = 0; i < NumLake; i++) {
+            CheckNANi(uYlake[i], i, "DY[i] of river (Model_Data::f_applyDYi)");
+            CheckNANi(DY[i], i, "DY[i] of river (Model_Data::f_applyDYi)");
+        }
     }else{
         fprintf(stderr, "ERROR: Wrong flag in function Model_Data::f_applyDYi\n");
         myexit(ERRCONSIS);
