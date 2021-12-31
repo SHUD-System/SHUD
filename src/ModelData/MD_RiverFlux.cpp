@@ -60,7 +60,7 @@ double Model_Data::WeirFlow(double ze, double ye,
     dh = hr - he;
     if(dh > 0.){ // from River to Element. Q is Positive.
         y = he - zbank;
-        if( y > 0.){ // river water higher than bank.
+        if( y > 0. & yr > threshold){ // river water higher than bank.
             if(he > zbank){
                 y = dh;
             }
@@ -103,7 +103,7 @@ void Model_Data::fun_Seg_sub( int iEle, int iRiv, int i){
                              uYgw[iEle], Ele[iEle].zmin,
                              Ele[iEle].u_effKH, Riv[iRiv].KsatH,  
                              RivSeg[i].length,Riv[iRiv].BedThick);
-    
+    QsegSub[i] *= fu_Sub[iEle];
 //    QrivSub[iRiv] += QsegSub[i];
 //    Qe2r_Sub[iEle] += -QsegSub[i];
 #ifdef DEBUG
