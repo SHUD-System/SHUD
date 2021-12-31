@@ -23,7 +23,7 @@ void Model_Data::f_applyDY_omp(double *DY, double t){
                 //            CheckNANi(QeleSubTot[i], 1, "QeleSubTot[i]");
                 //            CheckNANi(QeleSurfTot[i], 1, "QeleSurfTot[i]");
             }
-            DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEleE_sf[i];
+            DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEs[i];
             DY[ius] = qEleInfil[i] - qEleRecharge[i] - qEu[i] - qTu[i];
             DY[igw] = qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area - qEg[i] - qTg[i];
 
