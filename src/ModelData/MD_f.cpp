@@ -43,7 +43,7 @@ void Model_Data::f_applyDY(double *DY, double t){
             QeleSurfTot[i] += QeleSurf[i][j];
             QeleSubTot[i] += QeleSub[i][j];
         }
-        DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEleE_sf[i];
+        DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEs[i];
         DY[ius] = qEleInfil[i] - qEleRecharge[i] - qEu[i] - qTu[i];
         DY[igw] = qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area - qEg[i] - qTg[i];
 
