@@ -76,7 +76,6 @@ int f_gw(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     MD->f_updatei(Y, DY, t, 3);
     MD->f_loop3(t);
     MD->f_applyDYi(DY, t, 3);
-//    printVector(stdout, DY, 0, MD->NumEle, t);
     MD->nFCall3++;
     return 0;
 }

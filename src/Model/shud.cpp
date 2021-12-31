@@ -23,6 +23,7 @@ double *uYlake;
 double *globalY;
 double timeNow;
 int dummy_mode = 0;
+int global_implicit_mode = 0;
 using namespace std;
 double SHUD(FileIn *fin, FileOut *fout){
     double ret = 0.;
@@ -46,14 +47,15 @@ double SHUD(FileIn *fin, FileOut *fout){
     globalY = new double[NY];
 #ifdef _OPENMP_ON
     omp_set_num_threads(MD->CS.num_threads);
-    screeninfo("\nopenMP enabled. No of Threads = %d\n", MD->CS.num_threads);
+    screeninfo("\nopenMP: ON. No of Threads = %d\n", MD->CS.num_threads);
     udata = N_VNew_OpenMP(NY, MD->CS.num_threads);
     du = N_VNew_Serial(NY);
 #else
-    screeninfo("\nopenMP disabled\n");
+    screeninfo("\nopenMP: OFF\n");
     udata = N_VNew_Serial(NY);
     du = N_VNew_Serial(NY);
 #endif
+    screeninfo("\nGlobal Implicte Mode: ON\n");
     MD->LoadIC(fin);
     MD->SetIC2Y(udata);
     
@@ -75,6 +77,7 @@ double SHUD(FileIn *fin, FileOut *fout){
     
     f(t, udata, du, MD); /* Initialized the status */
     for (int i = 0; i < MD->CS.NumSteps && !ierr; i++) {
+        printDY(MD->file_debug);
 #ifdef DEBUG
         printDY(MD->file_debug);
 #endif
@@ -139,7 +142,8 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     N4 = MD->NumRiv;
     N5 = MD->NumLake;
 
-    screeninfo("\nopenMP disabled\n");
+    screeninfo("\nopenMP: OFF\n");
+    screeninfo("\nGlobal Implicte Mode: OFF\n");
     u1 = N_VNew_Serial(N1);
     u2 = N_VNew_Serial(N2);
     u3 = N_VNew_Serial(N3);
@@ -219,6 +223,7 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
             Global2Sub(MD->NumEle, MD->NumRiv, MD->NumLake);
             flag = CVode(mem4, tout, u4, &t, CV_NORMAL);
             check_flag(&flag, "CVode4", 1);
+            
             if(N5 > 0.){
                 t=t0;
                 Global2Sub(MD->NumEle, MD->NumRiv, MD->NumLake);
@@ -228,7 +233,6 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
         }
         t0 = t;
         MD->summary(u1, u2, u3, u4, u5);
-        //        f(t, udata, du, MD);
         MD->CS.ExportResults(tnext);
         flag = MD->ScreenPrintu(t, i);
         MD->PrintInit(fout->Init_update, t);
@@ -271,9 +275,11 @@ int SHUD(int argc, char *argv[]){
     FileOut *fout = new FileOut;
     CLI.parse(argc, argv);
     CLI.setFileIO(fin, fout);
-    
-    SHUD(fin, fout);
-//    SHUD_uncouple(fin, fout);
+    if(global_implicit_mode){
+        SHUD(fin, fout);
+    }else{
+        SHUD_uncouple(fin, fout);
+    }
     delete fin;
     delete fout;
     return 0;

@@ -80,13 +80,15 @@
 #define NA_VALUE -9999
 /*=======================*/
 #define ID 94 // debug only.
-extern int debug_mode;
+//extern int debug_mode;
+//extern int verbose_mode;
+//extern int sinks_remove;
+//extern int smooth_river;
+//extern int quiet_mode;
+//extern int ilog;
+
 extern int dummy_mode;
-extern int verbose_mode;
-extern int sinks_remove;
-extern int smooth_river;
-extern int quiet_mode;
-extern int ilog;
+extern int global_implicit_mode;
 
 extern double *uYsf;
 extern double *uYus;
@@ -98,4 +100,5 @@ extern double *globalY;
 
 extern double timeNow;
 
+using namespace std;
 #endif

@@ -19,10 +19,13 @@ void CommandIn::parse(int argc, char **argv){
         SHUD_help();
         myexit(ERRSUCCESS);
     }
-    while ((c = getopt (argc, argv, "0c:e:n:o:p:")) != -1){
+    while ((c = getopt (argc, argv, "0gc:e:n:o:p:")) != -1){
         switch (c){
             case '0':
                 dummy_mode = 1;
+                break;
+            case 'g':
+                global_implicit_mode = 1;
                 break;
             case 'c':
                 strcpy(calibfile, optarg);
