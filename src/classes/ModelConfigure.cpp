@@ -213,6 +213,22 @@ void globalCal::push(const char *optstr, double val){
         criv.rivSINU = val;
     else if (strcasecmp ("RIV_BEDTHICK", optstr) == 0)
         criv.rivBedThick = val;
+    
+    /* Frozen Soil (Permafrost) */
+    else if (strcasecmp ("Fzn_submax", optstr) == 0)
+        cfrozen.FT_sub_max = val;
+    else if (strcasecmp ("Fzn_submin", optstr) == 0)
+        cfrozen.FT_sub_min = val;
+    else if (strcasecmp ("Fzn_subday", optstr) == 0)
+        cfrozen.FT_sub_Day = val;
+    
+    else if (strcasecmp ("Fzn_surfmax", optstr) == 0)
+        cfrozen.FT_surf_max = val;
+    else if (strcasecmp ("Fzn_surfmin", optstr) == 0)
+        cfrozen.FT_surf_min = val;
+    else if (strcasecmp ("Fzn_surfday", optstr) == 0)
+        cfrozen.FT_surf_Day = val;
+    
     /* Initial Conditions */
     else if (strcasecmp ("IC_GW+", optstr) == 0)
         c_ic_gw = val;
@@ -313,6 +329,22 @@ double globalCal::getValue(const char *optstr){
         ret = criv.rivSINU;
     else if (strcasecmp ("RIV_BEDTHICK", optstr) == 0)
         ret = criv.rivBedThick;
+    
+    /* Frozen Soil (Permafrost) */
+    else if (strcasecmp ("Fzn_submax", optstr) == 0)
+        ret = cfrozen.FT_sub_max;
+    else if (strcasecmp ("Fzn_submin", optstr) == 0)
+        ret = cfrozen.FT_sub_min;
+    else if (strcasecmp ("Fzn_subday", optstr) == 0)
+        ret = cfrozen.FT_sub_Day;
+    
+    else if (strcasecmp ("Fzn_surfmax", optstr) == 0)
+        ret = cfrozen.FT_surf_max;
+    else if (strcasecmp ("Fzn_surfmin", optstr) == 0)
+        ret = cfrozen.FT_surf_min;
+    else if (strcasecmp ("Fzn_surfday", optstr) == 0)
+        ret = cfrozen.FT_surf_Day;
+    
     /* Initial condition */
     else if (strcasecmp ("IC_GW+", optstr) == 0)
         ret = c_ic_gw;
@@ -381,11 +413,25 @@ void globalCal::write(const char *fn){
     fprintf(fp, "TS_PRCP\t%g\n", cPrep);
     fprintf(fp, "TS_SFCTMP+\t%g\n", cTemp);
     fprintf(fp, "TS_LAI\t%g\n", cLAItsd);
-    fprintf(fp, "TS_LAI\t%g\n", cMF);
+    fprintf(fp, "TS_MF\t%g\n", cMF);
     fprintf(fp, "ET_ETP\t%g\n", cETP);
     fprintf(fp, "ET_IC\t%g\n", cE_ic);
     fprintf(fp, "ET_TR\t%g\n", cE_trans);
     fprintf(fp, "ET_SOIL\t%g\n", cE_Evapo);
+    
+    fprintf(fp, "#%s\n", "Frozen");
+    fprintf(fp, "Fzn_submax\t%g\n", cfrozen.FT_sub_max);
+    fprintf(fp, "Fzn_submin\t%g\n", cfrozen.FT_sub_min);
+    fprintf(fp, "Fzn_subday\t%g\n", cfrozen.FT_sub_Day);
+    
+    fprintf(fp, "Fzn_surfmax\t%g\n", cfrozen.FT_surf_max);
+    fprintf(fp, "Fzn_surfmin\t%g\n", cfrozen.FT_surf_min);
+    fprintf(fp, "Fzn_surfday\t%g\n", cfrozen.FT_surf_Day);
+    
+    
+    fprintf(fp, "#%s\n", "Intial Condition");
+    fprintf(fp, "IC_GW+\t%g\n", c_ic_gw);
+    fprintf(fp, "IC_RIV+\t%g\n", c_ic_riv);
     
     fclose(fp);
 }

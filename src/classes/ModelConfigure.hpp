@@ -40,7 +40,16 @@ public:
     double cISmax = 1.0;
 };
 
-
+class calib_frozen{
+public:
+    double FT_surf_Day = 7.;
+    double FT_surf_max = -1.;
+    double FT_surf_min = -5.;
+    
+    double FT_sub_Day = 28.;
+    double FT_sub_max = -3.;
+    double FT_sub_min = -10.;
+};
 class Soil_Layer {
 public:
     int     index;    /* index */
@@ -105,6 +114,7 @@ public:
     calib_geol cgeol;
     calib_soil csoil;
     calib_landcover clandc;
+    calib_frozen cfrozen;
     
     double cAqD = 0; // +
     double cTemp = 0; // +
