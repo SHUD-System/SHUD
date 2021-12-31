@@ -26,7 +26,7 @@ private:
     FILE    *fid_asc = NULL;
     char    filea[MAXLEN];
     char    fileb[MAXLEN];
-    long   StartTime;
+    long    StartTime;
 public:
     Print_Ctrl();
     ~Print_Ctrl();
@@ -102,7 +102,7 @@ public:
                       * the whole simulation [-]*/
     int num_threads;    /* Number of Threads in OPENmp only [-]*/
     int init_type = 3;    /* initialization mode [-]*/
-    
+    int cryosphere = 0;
     double abstol = 1.0e-4;    /* absolute tolerance [-]*/
     double reltol = 1.0e-3;    /* relative tolerance [-]*/
     double InitStep = 1.e-2;    /* initial step size [min]*/
@@ -110,6 +110,12 @@ public:
     double SolverStep = 2;       /* Maximum step size [min] */
     int UpdateICStep = 1440;       /* Maximum step size [min] */
     double ETStep = 60;         /* Step for et from interception [min]*/
+    
+    int     ET_Mode = 0; /* 0 - PET_Penman_Monteith
+                            1 - PET_Hargreaves (Rn, Tmax, Tmin)
+                            2 - PET_Priestley_Taylor
+                          */
+    
     double StartTime = 0.;      /* Start time of simulation [min]*/
     double EndTime = 14400;     /* End time of simulation [min]*/
     double dt = 1;
