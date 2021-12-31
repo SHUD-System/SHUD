@@ -109,8 +109,8 @@ int _TimeSeriesData::get_Ncol(){
 void _TimeSeriesData::applyCalib(double prcp, double temp)
 {
     for (int i = 0; i < Length; i++) {
-        ts[i][0] *= prcp;    /* Calibration of prcp */
-        ts[i][1] += temp;    /* Calibration of temp */
+        ts[i][1] *= prcp;    /* Calibration of prcp */
+        ts[i][2] += temp;    /* Calibration of temp */
     }
 }
 void _TimeSeriesData::movePointer(double t){

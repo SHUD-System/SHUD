@@ -28,6 +28,7 @@ public:
     void    initialize(int n);
     void    checkValue(int icol, double xmin, double xmax, const char *varname);
     int     get_Ncol();
+    double  xyz[3]={NA_VALUE, NA_VALUE, NA_VALUE};
 private:
     long StartTime;
     int ncol = 0;
