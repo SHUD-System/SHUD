@@ -1,13 +1,13 @@
 #include "Model_Data.hpp"
 void Model_Data::fun_Ele_Recharge(int i, double t){
     qEleRecharge[i] = Ele[i].Flux_Recharge(uYus[i] , uYgw[i]);
-//    qEleRecharge[i] = Ele[i].u_qr;
+    qEleRecharge[i] *= fu_Sub[i];
 }
 
 void Model_Data::fun_Ele_Infiltraion(int i, double t){
     Ele[i].Flux_Infiltration(uYsf[i] , uYus[i] , uYgw[i], qEleNetPrep[i]  );
-    qEleInfil[i] = Ele[i].u_qi;
-    qEleExfil[i] = Ele[i].u_qex * vExf;
+    qEleInfil[i] = Ele[i].u_qi * fu_Surf[i];
+    qEleExfil[i] = Ele[i].u_qex * fu_Surf[i];
 }
 void Model_Data::fun_Ele_surface(int i, double t){
     int j, inabr;
@@ -96,6 +96,6 @@ void Model_Data::fun_Ele_sub(int i, double t){
                 }
             }
         } // end of if
-        QeleSub[i][j] = Q;
+        QeleSub[i][j] = Q * fu_Sub[i];
     } // end of for loop
 }// end of functions
