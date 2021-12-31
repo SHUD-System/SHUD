@@ -78,7 +78,6 @@ void Model_Data::allocateMemory()
     Qe2r_Sub  = new double[NumEle]; // 5.2
     
     qEleE_IC      = new double[NumEle];
-    qEleE_sf      = new double[NumEle];
     qEleEvapo      = new double[NumEle];
     qEleTrans      = new double[NumEle];
     qElePrep    = new double[NumEle];
@@ -113,6 +112,11 @@ void Model_Data::allocateMemory()
     yEleSurf    = new double[NumEle];
     yEleUnsat   = new double[NumEle];
     yEleWetFront = new double[NumEle];  //23
+    
+    fu_Surf     = new double[NumEle];
+    fu_Sub      = new double[NumEle];
+    AccT_surf   = new _AccTemp[NumEle];
+    AccT_sub    = new _AccTemp[NumEle];
     
     yRivStg     = new double[NumRiv];
     QrivSurf    = new double[NumRiv];
