@@ -99,7 +99,7 @@ void Model_Data::f_update(double  *Y, double *DY, double t){
     }//end of for j=1:NumEle
     
     for (int i = 0; i < NumRiv; i++ ){
-        uYriv[i] = (Y[iRIV] >= 0.) ? Y[iRIV] : 0.;
+        uYriv[i] = Y[iRIV];
         /* qrivsurf and qrivsub are calculated in Element fluxes.
          qrivDown and qrivUp are calculated in River fluxes. */
         Riv[i].updateRiver(uYriv[i]);
@@ -113,6 +113,9 @@ void Model_Data::f_update(double  *Y, double *DY, double t){
             Riv[i].yBC = tsd_ryBC.getX(t, Riv[i].BC);
             uYriv[i] = Riv[i].yBC;
         }
+#ifdef DEBUG
+        CheckNANi(uYriv[i], i, "uYriv in f_update.");
+#endif
     }
     
     for (int i = 0; i < NumRiv; i++) {
