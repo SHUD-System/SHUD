@@ -69,16 +69,17 @@ inline double ActualEvaporation(double etp, double ThetaS, double ThetaR, double
 inline double LatentHeat(double Temp){
     /* Eq 4.2.1 in David R Maidment, Handbook of Hydrology */
     /* Temp in [C], lambda in [MJ/kg]*/
-    /* Latent heat of vaporizatio */
+    /* Latent heat of vaporization */
     return 2.501 - 0.002361 * Temp;
 }
 inline double BulkSurfaceResistance(double R_ref, double lai){
-    // R_ref     bulk stomatal resistance of the well-illuminated leaf [min m-1],
+    // R_ref     bulk stomatal resistance of the well-illuminated leaf [s m-1],
     return R_ref * 2. / lai; /* Allen(1998) */
 }
 inline double BulkSurfaceResistance(double lai){
     /* Eq 4.2.22 in David R Maidment, Handbook of Hydrology */
-    return 200. / 60. / lai;
+//    return 200. / 60. / lai;  /* min/m*/
+    return 200. / lai;  /* [s m-1] */
 }
 inline double PressureElevation(double z){
     return 101.325 * pow((293. - 0.0065 * z) / 293, 5.26); /*Pressure based on Elevation*/
@@ -123,9 +124,10 @@ inline double AerodynamicResistance(double Uz, double hc, double Z_u, double Z_e
      */
     //    r_a = 12 * 4.72 * log(Ele[i].windH / rl) / (0.54 * Vel / UNIT_C / 60 + 1) / UNIT_C / 60;    return r_a;
     double  r_a, d, Z_om, Z_ov;
-    d = 0.67 * hc;
-    Z_om = 0.123 * hc;
-    Z_ov = 0.0123 * hc;
+    
+    d = 0.67 * hc / 0.123;;
+    Z_om = hc;
+    Z_ov = 0.1 * hc;
     r_a = log( (Z_u - d) / Z_om ) * log( (Z_e - d) / (Z_ov))
     / (VON_KARMAN * VON_KARMAN* Uz);
     return r_a;
