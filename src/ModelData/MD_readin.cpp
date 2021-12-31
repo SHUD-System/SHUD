@@ -46,6 +46,10 @@ void Model_Data::read_riv(const char *fn){
         Riv[i].BedSlope = (double) tb.x[i][3];
         Riv[i].Length   = (double) tb.x[i][4];
         Riv[i].BC   = (double) tb.x[i][5];
+        if(Riv[i].Length < ZERO){
+            printf("Debug: %d\t%d\t%d\t%d\t%f\t%f\n", i, Riv[i].index, Riv[i].down, Riv[i].type, Riv[i].BedSlope, Riv[i].Length );
+            printf("\tThe RIV %d is ZERO/NEGATIVE length\n", i + 1 );
+        }
         if(Riv[i].down < 1){
             printf("\tThe downstream of RIV %d is negtive (Outlet )\n", i + 1 );
         }
@@ -248,11 +252,11 @@ void Model_Data::read_lc(const char *fn){
     for (int i=0; i<NumLC ; i++){
         LandC[i].index  = (int) tb.x[i][0];
 //        LandC[i].LAImax = (double) tb.x[i][1];
-        LandC[i].Rmin   = (double) tb.x[i][2] * 1440; // d/m  to min / m
-        LandC[i].Rs_ref = (double) tb.x[i][3] / 1440; // [min / m]
+        LandC[i].Rmin   = (double) tb.x[i][2] / 60; // s/m  to min / m
+        LandC[i].Rs_ref = (double) tb.x[i][3] ; //  [s / m]
         LandC[i].Albedo = (double) tb.x[i][4];
         LandC[i].VegFrac = (double) tb.x[i][5];
-        LandC[i].Rough  = (double) tb.x[i][6] * 1440.;
+        LandC[i].Rough  = (double) tb.x[i][6] / 60.; /* [s m^(-1/3)]  to [min m^(-1/3)]*/
         LandC[i].RzD    = (double) tb.x[i][7];
         LandC[i].SoilDgrd = (double) tb.x[i][8];
         LandC[i].ImpAF  = (double) tb.x[i][9];
@@ -277,29 +281,38 @@ void Model_Data::read_forc_csv(const char *fn){
     char str[MAXLEN];
     char shortname[MAXLEN];
     char longname[MAXLEN];
+    int id;
+    double lon, lat;
     path[0] = '\0';
     str[0] = '\0';
     fgets(str, MAXLEN, fp); // Dimension of the table
     sscanf(str, "%d %ld", &NumForc, &ForcStartTime);
     tsd_weather = new _TimeSeriesData[NumForc];
-    
     for(int i=0; i < NumForc; i++){
-        tsd_weather[i].initialize(Nforc + 1); // Nforc is no of column of data only
+        tsd_weather[i].initialize(Nforc + 1); /* Nforc is number of forcing sites. */
     }
-    
     fgets(str, MAXLEN, fp);
     if( strlen(str) > 1){
         sscanf(str, "%s", path);
     }
+    fgets(str, MAXLEN, fp);
+#ifdef DEBUG
+    printf("%s", str);
+#endif
     for(int i=0; i < NumForc && fgets(str, MAXLEN, fp); i++)
     {
-        sscanf(str, "%s", shortname);
+        sscanf(str, "%d %lf %lf %lf %lf %lf %s", &id, &lon, &lat, tsd_weather[i].xyz, tsd_weather[i].xyz+1, tsd_weather[i].xyz+2, shortname);
         sprintf(longname, "%s/%s", path, shortname);
-//        printf("debug%d-%s\n", i+1, longname);
+#ifdef DEBUG
+        printf("debug:%d %d, %lf, %lf, %lf, %lf, %lf, %s\n", i+1, id, lon, lat,
+               tsd_weather[i].xyz[0], tsd_weather[i].xyz[1], tsd_weather[i].xyz[2], longname);
+#endif
         tsd_weather[i].fn.assign(longname);
     }
     fclose(fp);
+    printf("\tNumber of csv files: %d\n", NumForc);
     for(int i=0; i < NumForc; i++){
+        printf("\t Reading %d/%d: \t%s\n", i+1, NumForc, tsd_weather[i].fn.c_str());
         tsd_weather[i].read_csv();
     }
 }
@@ -446,7 +459,6 @@ void Model_Data::FreeData(){
     delete[]    qEleETP;
     delete[]    qEleETA;
     delete[]    qEleE_IC;
-    delete[]    qEleE_sf;
     delete[]    qEleTrans;
     delete[]    qEleEvapo;
     delete[]    qPotEvap;
@@ -487,6 +499,11 @@ void Model_Data::FreeData(){
     delete[]    QrivUp;  // 28
     delete[]    QsegSurf;
     delete[]    QsegSub;
+    
+    
+    delete[]    fu_Surf;
+    delete[]    fu_Sub;
+//    delete[]    AccT;
     
     if(NumLake > 0){
         delete[]    yLakeStg;
