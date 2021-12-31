@@ -26,9 +26,9 @@ void river_para::InitValue(double *x){
     bankslope   = (double) x[2];
     BottomWidth = (double) x[3];
     Sinuosity   = (double) x[4];
-    rivRough    = (double) x[5] * 1440.;
+    rivRough    = (double) x[5] / 60.; /* [s m^(-1/3)]  to [min m^(-1/3)]*/
     Cwr         = (double) x[6];
-    KsatH       = (double) x[7] / 1440.;
+    KsatH       = (double) x[7] / 1440.; /* [m/d] to [m/min] */
     BedThick    = (double) x[8];
 //    printf("debug%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", index, depth, bankslope, BottomWidth, Sinuosity, rivRough, Cwr, KsatH);
 }
@@ -53,6 +53,12 @@ void _River::updateRiver(double newY){
     u_CSperem = fun_CrossPerem(u_Ystage, BottomWidth, bankslope);
     u_eqWidth = fun_EqWidth(u_Ystage, BottomWidth, bankslope);
     u_TopArea = u_eqWidth * Length;
+    
+    u_topWidth = fixMaxValue(u_topWidth, 0.);
+    u_CSarea = fixMaxValue(u_CSarea, 0.);
+    u_CSperem = fixMaxValue(u_CSperem, 0.);
+    u_eqWidth = fixMaxValue(u_eqWidth, 0.);
+    u_TopArea = fixMaxValue(u_TopArea, 0.);    
 }
 
 void _River::applyParameter(river_para *paras){
