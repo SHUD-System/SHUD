@@ -147,6 +147,15 @@ inline double fun_dAtodY(double dA, double w_top, double s){
 }
 
 inline
+int ifequal(double x, double y){
+    if( fabs(x - y) < ZERO){
+        return 1;
+    }else{
+        return 0;
+    }
+}
+
+inline
 double dhdx(double *x, double *y, double *h){
     return -1. * (y[2] * (h[1] - h[0]) +
                   y[1] * (h[0] - h[2]) +
@@ -163,6 +172,26 @@ double dhdy(double *x, double *y, double *h){
     (y[2] * (x[1] - x[0]) +
      y[1] * (x[0] - x[2]) +
      y[0] * (x[2] - x[1]));
+}
+
+inline double fixMaxValue(double x, double defVal){
+    if(x < defVal){
+        return defVal;
+    }else{
+        return x;
+    }
+}
+
+inline double FrozenFraction(double T, double high, double low){
+    double x;
+    if(T > high){
+        return 0; /* All mobile water*/
+    }else if(T < low){
+        return 1; /* All Frozen water*/
+    }else{
+        x = (high - T) / (high - low);
+        return min(1.0, max(x, 0.0));
+    }
 }
 void PointPerpdicularOnLine(double *xx, double *yy,
                               double x, double y,
