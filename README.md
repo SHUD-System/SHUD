@@ -9,9 +9,10 @@ Ongoing applications of the SHUD model include hydrologic analyses of hillslope 
 
 
 - **Maintainner**: Lele Shu ([lele.shu@gmail.com](mailto:lele.shu@gmail.com))
-- **Website**: [shud.xyz](shud.xyz)
+- **Website (中文)**: [www.shud.xyz/zh/](https://www.shud.xyz/zh/)
+- **Website (English)**: [www.shud.xyz/en/](https://www.shud.xyz/en/)
 - **User Guide**: https://www.shud.xyz/_book/
-- **Support tools**: SHUD-tools in R.  [https://github.com/SHUD-System/SHUDtoolbox](https://github.com/SHUD-System/SHUDtoolbox)
+- **Support tools**: rSHUD.  [https://github.com/SHUD-System/rSHUD](https://github.com/SHUD-System/rSHUD)
 - **Programming**: C/C++
 - **Platform**: Mac OS, Linux and Windows
 - **Required library**:  SUNDIALS/CVODE V5.0+
