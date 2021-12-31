@@ -18,7 +18,7 @@ public:
     char    inpath[MAXLEN];
     char    prjfile[MAXLEN];
     char    calibfile[MAXLEN];
-    char    dir_cmaes[MAXLEN] = "cmaes";
+    char    dir_cmaes[MAXLEN];
     int     c;
     int     iprj = 0;       /*boolean flag, iprj = 1 read from prj file. iprj = 0, read based on prjname */
     int     iout = 0;   /*User defined output folder*/
