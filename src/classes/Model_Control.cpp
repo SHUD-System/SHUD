@@ -157,6 +157,8 @@ void Control_Data::read(const char *fn){
             MaxStep =  val;
         else if (strcasecmp ("Update_IC_STEP", optstr) == 0)
             UpdateICStep =  val;
+        else if (strcasecmp ("ET_Mode", optstr) == 0)
+            ET_Mode =  val;
         else if (strcasecmp ("ET_STEP", optstr) == 0 || strcasecmp ("LSM_STEP", optstr) == 0)
             ETStep =  val;
         else if (strcasecmp ("START", optstr) == 0)
@@ -164,7 +166,9 @@ void Control_Data::read(const char *fn){
         else if (strcasecmp ("END", optstr) == 0)
             DayEnd =  val;    /* Convert days to Minutes */
         else if (strcasecmp ("Exfiltration", optstr) == 0)
-            exfiltration =  val;/* Convert days to Minutes */
+            exfiltration =  val;
+        else if (strcasecmp ("cryosphere", optstr) == 0)
+            cryosphere =  val;
 //        else if (strcasecmp ("STEPSIZE_FACTOR", optstr) == 0)
 //            a =  val;
 //        else if (strcasecmp ("MODEL_STEPSIZE", optstr) == 0)
@@ -299,7 +303,7 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
     Interval = dt;
     for(int i=0; i<NumVar; i++){
         PrintVar[i] = &x[i];
-        *(PrintVar[i]) = 0.0;
+//        *(PrintVar[i]) = 0.0;
         buffer[i] = 0.0;
     }
     if(iFlux){
@@ -317,7 +321,7 @@ void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j
     Interval = dt;
     for(int i=0; i<NumVar; i++){
         PrintVar[i] = &(x[i][j]);
-        *(PrintVar[i]) = 0.0;
+//        *(PrintVar[i]) = 0.0;
         buffer[i] = 0.0;
     }
     if(iFlux){
