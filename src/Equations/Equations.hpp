@@ -61,4 +61,13 @@ double ManningEquation(double Area, double rough, double R, double S){
     }
     //    return Q;
 }
+
+inline
+double TemperatureOnElevation(double t, double Zi, double Zt){
+    if( ifequal(Zi, NA_VALUE) || ifequal(Zt, NA_VALUE) ){
+        return t;
+    }else{
+        return t + (Zt - Zi) * dTdZ;
+    }
+}
 #endif /* Equations_hpp */
