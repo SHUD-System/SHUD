@@ -17,7 +17,7 @@
 #define SET_VALUE(v, i) NV_Ith_S(v,i)
 #endif
 
-///*========index===============*/
+/*========index===============*/
 #define iSF     i
 #define iUS     i + NumEle
 #define iGW     i + 2 * NumEle
@@ -46,7 +46,7 @@
 #define MINRIVSLOPE 1e-4
 #define C_air 1004.0
 #define THRESH 0.0
-
+#define dTdZ  .00065  /* Adiabatic Lapse Rate 6.5 [K/km]*/
 #define GRAV 9.8		/* m/s^2 Note the dependence on physical units */
 
 #define C_air 1004.0
@@ -54,12 +54,12 @@
 #define SIGMA 3.402e-6
 #define R_dry 287.04
 #define R_v 461.5
-#define Ts  -3.0  //Threshold for Snow
-#define Tr  1.0
+#define Tsnow  -3.0  //Threshold for Snow
+#define Train  1.0
 #define To  0.0
 
 #define CONST_RH 0.01  //0.01 is the minimum value for Relative Humidity. [m]
-#define CONST_RL 0.0001  //0.001 is the minimum value for RL. [m]
+#define CONST_RL 0.01  //0.01 is the minimum value for RL. [m]
 #define IC_MAX 0.0002  // Maximum Interception on caonpy.
 #define IC_MAX_SNOW  0.003
 
