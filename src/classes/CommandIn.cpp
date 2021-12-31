@@ -73,11 +73,11 @@ void CommandIn::parse(int argc, char **argv){
 #endif
 }
 CommandIn::CommandIn(){
-    prjname[0] = '\0';
-    outpath[0] = '\0';
-    inpath[0] = '\0';
-    prjfile[0] = '\0';
-    calibfile[0] = '\0';
+    strcpy(prjname, "");
+    strcpy(outpath, "");
+    strcpy(inpath, "");
+    strcpy(prjfile, "");
+    strcpy(calibfile, "");
     strcpy(dir_cmaes, "cmaes");
 }
 void CommandIn::setFileIO(FileIn *fin, FileOut *fout){
