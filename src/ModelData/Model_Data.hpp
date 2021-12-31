@@ -19,6 +19,7 @@
 #include "is_sm_et.hpp"
 #include "Flux_RiverElement.hpp"
 #include "Macros.hpp"
+#include "AccTemperature.hpp"
 using namespace std;
 class Model_Data {        /* Model_data definition */
 public:
@@ -95,6 +96,15 @@ public:
     _Node *rivNode;
     FloodAlert *flood;
     
+    double *fu_Surf; /* Fraction of unfrozen landsurface */
+    double *fu_Sub; /* Fraction of unfrozen subsurface */
+    _AccTemp *AccT_surf;
+    _AccTemp *AccT_sub;
+    double AccT_sub_max = 10;
+    double AccT_sub_min = -10;
+    double AccT_surf_max = 3;
+    double AccT_surf_min = -3;
+    
     double WatershedArea = 0.;
     double *ISFactor;        /* ISFactor is used to calculate ISMax from LAI */
     double *windH;        /* Height at which wind velocity is measured */
@@ -150,7 +160,6 @@ public:
     
     
     double *qEleE_IC;    /* Evaporation from canopy interception */
-    double *qEleE_sf;    /* Evaporation from canopy interception */
     double *qEleEvapo;    /* Evaporation from canopy interception */
     double *qEleTrans;    /* Evaporation from canopy interception */
     
@@ -181,7 +190,6 @@ private:
     double *t_lai;
     double *t_mf;
     double *t_rl;
-    double vExf = 0.;
 public:
     /* Methods: */
     Model_Data();
