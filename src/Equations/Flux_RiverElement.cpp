@@ -18,8 +18,8 @@ double flux_R2E_GW(double yr, double zr,
     if(Kele < ZERO || Kriv < ZERO){
         return 0.;
     }else{
-        K = meanHarmonic(Kele, Kriv, 1., D_riv);
-//        K= 0.5 *(Kele + Kriv);
+//        K = meanHarmonic(Kele, Kriv, 1., D_riv);
+        K= meanArithmetic(Kele, Kriv, 1., 1.);
     }
     he = ye + ze; //head of Ele GW
     hr = yr + zr; //head of river
@@ -49,6 +49,8 @@ double flux_R2E_GW(double yr, double zr,
     }else{
         Q = 0.;
     }
+    
+//    CheckNANi(Q, 1, "River Flux Sub(Functopm:fun_Seg_sub)");
     return Q;
 }
 double flux_R2E_SF(double yr, double zr, double ye, double ze, double rough, double Len, double dist, double threshold){
