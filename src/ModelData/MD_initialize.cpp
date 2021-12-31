@@ -199,6 +199,15 @@ void Model_Data:: initialize(){
     }
     flood = new FloodAlert();
     updateArea(); /* Calculate the Total Area of the watershed. */
+    
+    AccT_sub_max = gc.cfrozen.FT_sub_max;
+    AccT_sub_min = gc.cfrozen.FT_sub_min;
+    AccT_surf_max = gc.cfrozen.FT_surf_max;
+    AccT_surf_min = gc.cfrozen.FT_surf_min;
+    for (int i = 0; i < NumEle; i++) {
+        AccT_sub[i].setLength(gc.cfrozen.FT_sub_Day);
+        AccT_surf[i].setLength(gc.cfrozen.FT_surf_Day);
+    }
 }
 void Model_Data:: initialize_output (FileOut *fout){
     int ip = 0;
