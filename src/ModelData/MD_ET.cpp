@@ -118,7 +118,7 @@ void Model_Data::ET(double t, double tnext){
         vgFrac = Ele[i].VegFrac;
         if(LAI > ZERO){
             icMax = gc.cISmax * IC_MAX * LAI;
-            icAcc = min(snAcc, max(0., (icMax - icStg) / DT_min) );
+            icAcc = min(prcp - snAcc, max(0., (icMax - icStg) / DT_min) );
             icEvap = min(max(0., icStg / DT_min), qPotEvap[i]);
         }else{
             icAcc = 0.;
@@ -130,7 +130,7 @@ void Model_Data::ET(double t, double tnext){
         yEleIS[i] = icStg * vgFrac;
         yEleSnow[i] = snStg;
         qEleE_IC[i] = icEvap * vgFrac;
-        qEleNetPrep[i] = prcp + snMelt - snAcc - icAcc * vgFrac ;
+        qEleNetPrep[i] = prcp + snMelt - snAcc - qEleE_IC[i] ;
         CheckNonNegative(qEleNetPrep[i], i, "Net Precipitation");
     }
 }
