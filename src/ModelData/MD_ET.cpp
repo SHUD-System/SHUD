@@ -118,7 +118,7 @@ void Model_Data::ET(double t, double tnext){
         vgFrac = Ele[i].VegFrac;
         if(LAI > ZERO){
             icMax = gc.cISmax * IC_MAX * LAI;
-            icAcc = min(prcp - snAcc, max(0., (icMax - icStg) / DT_min) );
+            icAcc = min(snAcc, max(0., (icMax - icStg) / DT_min) );
             icEvap = min(max(0., icStg / DT_min), qPotEvap[i]);
         }else{
             icAcc = 0.;
