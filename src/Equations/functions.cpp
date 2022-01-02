@@ -218,7 +218,7 @@ void printVectorBin(FILE *fid, double * x, int xstart, int n, double t){
 void printVector(FILE *fid, double * x, int xstart, int n, double t){
     fprintf(fid, "%f\t", t);;
     for(int i = 0; i < n; i++){
-        fprintf(fid, "%d:%.3e\t", i+1, x[i + xstart]);
+        fprintf(fid, "%.3e\t", x[i + xstart]);
     }
     fprintf(fid, "\n");;
 }
