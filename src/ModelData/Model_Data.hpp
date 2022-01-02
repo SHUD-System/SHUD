@@ -189,7 +189,7 @@ private:
     double *t_vp;
     double *t_lai;
     double *t_mf;
-    double *t_rl;
+    double *t_hc;  /* New defination: Height of Crop. void in temporary*/
 public:
     /* Methods: */
     Model_Data();

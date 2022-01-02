@@ -59,7 +59,7 @@
 #define To  0.0
 
 #define CONST_RH 0.01  //0.01 is the minimum value for Relative Humidity. [m]
-#define CONST_RL 0.01  //0.01 is the minimum value for RL. [m]
+#define CONST_HC 0.01  //0.01 is the minimum Height of CROP. [m]
 #define IC_MAX 0.0002  // Maximum Interception on caonpy.
 #define IC_MAX_SNOW  0.003
 

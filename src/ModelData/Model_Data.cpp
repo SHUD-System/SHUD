@@ -161,7 +161,7 @@ void Model_Data::allocateMemory()
     t_vp    = new double[NumEle];  //
     t_lai   = new double[NumEle];  //
     t_mf    = new double[NumEle];  //
-    t_rl    = new double[NumEle];  //
+    t_hc    = new double[NumEle];  //
 }
 
 void Model_Data::copyCalib(){

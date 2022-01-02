@@ -39,8 +39,8 @@ void Model_Data::tReadForcing(double t, int i){
     t_rn[i] = tsd_weather[idx].getX(t, i_rn) * (1 - Ele[i].Albedo);
     t_wind[i] = (fabs(tsd_weather[idx].getX(t, i_wind) ) + 0.001); // +.001 voids ZERO.
     t_rh[i] = tsd_weather[idx].getX(t, i_rh);
-    t_rl[i] = tsd_RL.getX(t, Ele[i].iLC);
-    t_rl[i] = max(t_rl[i], CONST_RL);
+    t_hc[i] = tsd_RL.getX(t, Ele[i].iLC);
+//    t_hc[i] = max(t_hc[i], CONSt_hc);
     /* Precipitation  */
     t_prcp[i]   = t_prcp[i] * 0.001 / 1440 ; // [mm d-1] to [m min-1]
     
@@ -61,15 +61,15 @@ void Model_Data::tReadForcing(double t, int i){
     double ed = es - ea ;  // [kPa]
     double Delta = SlopeSatVaporPressure(t_temp[i], es);        // eq 4.2.3 [kPa C-1]
     double rho = AirDensity(Ele[i].FixPressure, t_temp[i]);;    // eq 4.2.4 [kg m-3]
-    rs = ra = AerodynamicResistance(t_wind[i], CONST_RL, Ele[i].windH, 2.);     // eq 4.2.25  [s m-1]
+    rs = ra = AerodynamicResistance(t_wind[i], CONST_HC, Ele[i].windH, 2.);     // eq 4.2.25  [s m-1]
     double RG = t_rn[i] * 0.9;  /* R - G in the PM equation.*/
     qPotEvap[i] = gc.cETP * PET_Penman_Monteith(Ele[i].FixPressure, RG, rho,
                                             ed, Delta, ra, rs, Gamma, lambda) * 60.;                // eq 4.2.27
     if(t_lai[i] > 0.){
         rs = BulkSurfaceResistance(t_lai[i]);                  // eq 4.2.22 (bulk) surface resistances. [s m-1]
-        ra = AerodynamicResistance(t_wind[i], t_rl[i], Ele[i].windH, 2.);     // eq 4.2.25  [s m-1]
+        ra = AerodynamicResistance(t_wind[i], t_lai[i] / 24, Ele[i].windH, 2.);     // eq 4.2.22 & 4.2.25  [s m-1]
         qPotTran[i] = gc.cETP * PET_Penman_Monteith(Ele[i].FixPressure, RG, rho,
-                                                ed, Delta, ra, rs, Gamma, lambda) * 60.;                // eq 4.2.27
+                                                    ed, Delta, ra, rs, Gamma, lambda) * 60.;                // eq 4.2.27
         etp = qPotTran[i] * Ele[i].VegFrac + qPotEvap[i] * (1. - Ele[i].VegFrac);
     }else{
         etp = qPotEvap[i];
@@ -130,7 +130,7 @@ void Model_Data::ET(double t, double tnext){
         yEleIS[i] = icStg * vgFrac;
         yEleSnow[i] = snStg;
         qEleE_IC[i] = icEvap * vgFrac;
-        qEleNetPrep[i] = prcp + snMelt - snAcc - qEleE_IC[i] ;
+        qEleNetPrep[i] = prcp + snMelt - snAcc - icAcc * vgFrac ;
         CheckNonNegative(qEleNetPrep[i], i, "Net Precipitation");
     }
 }

@@ -529,7 +529,7 @@ void Model_Data::FreeData(){
     delete[]    t_vp;
     delete[]    t_lai;
     delete[]    t_mf;
-    delete[]    t_rl;
+    delete[]    t_hc;
     
     //read_rivseg()
     delete[] RivSeg;
