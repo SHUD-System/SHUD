@@ -237,8 +237,18 @@ void Model_Data:: initialize_output (FileOut *fout){
     if (CS.dt_Qe_sub > 0){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, fout->ele_Q_subTot, CS.dt_Qe_sub, QeleSubTot, 1);
     }
+    if (CS.dt_Qe_subx > 0){
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, fout->ele_Q_sub0, CS.dt_Qe_sub, QeleSub, 0, 1);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, fout->ele_Q_sub1, CS.dt_Qe_sub, QeleSub, 1, 1);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, fout->ele_Q_sub2, CS.dt_Qe_sub, QeleSub, 2, 1);
+    }
     if (CS.dt_Qe_surf > 0){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, fout->ele_Q_surfTot, CS.dt_Qe_surf, QeleSurfTot, 1);
+    }
+    if (CS.dt_Qe_surfx > 0){
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, fout->ele_Q_surf0, CS.dt_Qe_surf, QeleSurf, 0, 1);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, fout->ele_Q_surf1, CS.dt_Qe_surf, QeleSurf, 1, 1);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, fout->ele_Q_surf2, CS.dt_Qe_surf, QeleSurf, 2, 1);
     }
     if (CS.dt_Qe_rsub > 0){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, fout->ele_Q_rsub, CS.dt_Qe_rsub, Qe2r_Sub, 1);

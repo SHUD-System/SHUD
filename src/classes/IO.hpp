@@ -96,6 +96,13 @@ public:
 //    char ele_Q_sub[MAXLEN];
     char ele_Q_surfTot[MAXLEN];
     char ele_Q_subTot[MAXLEN];
+    char ele_Q_sub0[MAXLEN];
+    char ele_Q_sub1[MAXLEN];
+    char ele_Q_sub2[MAXLEN];
+    char ele_Q_surf0[MAXLEN];
+    char ele_Q_surf1[MAXLEN];
+    char ele_Q_surf2[MAXLEN];
+    
     char ele_Q_rsurf[MAXLEN]; // Element to River via Surface
     char ele_Q_rsub[MAXLEN]; // Element to River via Subsurface
     char ele_q_infil[MAXLEN];

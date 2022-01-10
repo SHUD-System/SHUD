@@ -58,7 +58,9 @@ public:
     
     /* Element volume Fluxes */
     int dt_Qe_sub = 0;
+    int dt_Qe_subx = 0;
     int dt_Qe_surf = 0;
+    int dt_Qe_surfx = 0;
     int dt_Qe_rsub = 0;
     int dt_Qe_rsurf = 0;
     

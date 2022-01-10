@@ -201,8 +201,12 @@ void Control_Data::read(const char *fn){
         // Q Ele
         else if (strcasecmp ("dt_Qe_sub", optstr) == 0)
             dt_Qe_sub =  val;
+        else if (strcasecmp ("dt_Qe_subx", optstr) == 0)
+            dt_Qe_subx =  val;
         else if (strcasecmp ("dt_Qe_surf", optstr) == 0)
             dt_Qe_surf =  val;
+        else if (strcasecmp ("dt_Qe_surfx", optstr) == 0)
+            dt_Qe_surfx =  val;
         else if (strcasecmp ("dt_Qe_rsub", optstr) == 0)
             dt_Qe_rsub =  val;
         else if (strcasecmp ("dt_Qe_rsurf", optstr) == 0)

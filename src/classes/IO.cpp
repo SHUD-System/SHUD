@@ -165,7 +165,13 @@ void FileOut::updateFilePath(){
     //    sprintf(ele_Q_surf, "%s/%s%s.eleqsurf", outpath, projname);
     //    sprintf(ele_Q_sub, "%s/%s%s.eleqsub", outpath, projname);
     sprintf(ele_Q_subTot, "%s/%s%s.eleqsub", outpath, projectname, suffix);
+    sprintf(ele_Q_sub0, "%s/%s%s.eleqsub1", outpath, projectname, suffix);
+    sprintf(ele_Q_sub1, "%s/%s%s.eleqsub2", outpath, projectname, suffix);
+    sprintf(ele_Q_sub2, "%s/%s%s.eleqsub3", outpath, projectname, suffix);
     sprintf(ele_Q_surfTot, "%s/%s%s.eleqsurf", outpath, projectname, suffix);
+    sprintf(ele_Q_surf0, "%s/%s%s.eleqsurf1", outpath, projectname, suffix);
+    sprintf(ele_Q_surf1, "%s/%s%s.eleqsurf2", outpath, projectname, suffix);
+    sprintf(ele_Q_surf2, "%s/%s%s.eleqsurf3", outpath, projectname, suffix);
     sprintf(ele_Q_rsurf, "%s/%s%s.eleqrsurf", outpath, projectname, suffix);
     sprintf(ele_Q_rsub, "%s/%s%s.eleqrsub", outpath, projectname, suffix);
     
