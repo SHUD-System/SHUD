@@ -145,10 +145,12 @@ void _Element::InitElement(){
 void _Element::applyNabor(_Node *Node, _Element *Ele){
     int eNabor;
     for (int j = 0; j < 3; j++) {
+        eNabor = nabr[j] - 1;
         if(nabr[j]>0){
             for(int k = 0; k < 3; k++){
-                if(Ele[nabr[j] - 1].nabr[k] == this->index){
-                    this->nabrToMe[j] = k;
+                if(Ele[eNabor].nabr[k] == this->index){
+                    this->nabrToMe[j] = k + 1;
+//                    printf("%d, %d <-> %d, %d\n", this->index, j+1, nabr[j], k+1);
                     /* Neighbor's K direction and My J direction shared a edge*/
                 }
             }
