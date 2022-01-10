@@ -200,6 +200,23 @@ void PointPerpdicularOnLine(double *xx, double *yy,
 double ZOnLine(double x1, double y1, double z1,
              double x2, double y2, double z2,
                double x3, double y3);
+inline
+void checkExchangeValue(double **x, int i, int j, int inabr, int jnabr){
+    if(inabr >=0 && jnabr >=0){
+        if( (x[i][j] + x[inabr][jnabr]) <= ZERO ){
+//            printf("1:(%d, %d) - (%d, %d)\t %E  + %E = %E\n",
+//                   i, j,
+//                   inabr+1, jnabr+1,
+//                   x[i][j], x[inabr][jnabr], x[i][j] + x[inabr][jnabr]);
+        }else{
+            printf("ERROR:(%d, %d) - (%d, %d)\t %E  + %E = %E\n",
+                   i, j,
+                   inabr+1, jnabr+1,
+                   x[i][j], x[inabr][jnabr], x[i][j] + x[inabr][jnabr]);
+            myexit(ERRCONSIS);
+        }
+    }
+}
 #endif /* functions_h */
 
 
