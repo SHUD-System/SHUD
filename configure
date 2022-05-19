@@ -12,13 +12,13 @@ echo "Installing examples to $path/example"
 echo ""
 
 rm -rf $installPath
-rm -rf sundials-master
+rm -rf sundials-5.8.0
 
-echo "download from github: \n wget https://codeload.github.com/LLNL/sundials/zip/master"
-wget -c https://codeload.github.com/LLNL/sundials/zip/master -O sundials-master.zip
+#echo "download from github: \n wget https://codeload.github.com/LLNL/sundials/zip/master"
+#wget -c https://codeload.github.com/LLNL/sundials/zip/master -O sundials-master.zip
 
-echo "unzip sundials-master.zip"
-unzip sundials-master.zip
+echo "tar -zxvf sundials-5.8.0.tar.gz" #直接在文件里提供sundial-5.8.0安装包
+tar -zxvf sundials-5.8.0.tar.gz
 
 mkdir $installPath
 echo "cd $installPath"
@@ -42,7 +42,7 @@ cmake -DCMAKE_INSTALL_PREFIX=$path \
  -DBUILD_IDAS=OFF \
  -DBUILD_KINSOL=OFF \
  -DOPENMP_ENABLE=OFF \
- ../../sundials-master
+ ../../sundials-5.8.0
 
 echo "make"
 make
