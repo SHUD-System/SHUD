@@ -96,13 +96,64 @@ void CVODEstatus(void *cvode_mem, N_Vector u, realtype t){
 }
 
 
-void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS){
+//void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS){
+//
+//    int flag;
+//    /* allocate memory for solver */
+//    /********* SUNDIALS 5.0+ ************/
+//    //    cvode_mem = CVodeCreate(CV_BDF, CV_NEWTON); //v3.x
+//    cvode_mem = CVodeCreate(CV_BDF);
+//    check_flag((void *)cvode_mem, "CVodeCreate", 0);
+//
+//    flag = CVodeSetUserData(cvode_mem, MD);
+//    check_flag(&flag, "CVodeSetUserData", 1);
+//
+//    //Model start from TIME = zero;
+//    flag = CVodeInit(cvode_mem, f, MD->CS.StartTime, udata);
+//    check_flag(&flag, "CVodeInit", 1);
+//
+//    flag = CVodeSStolerances(cvode_mem, MD->CS.reltol, MD->CS.abstol);
+//    check_flag(&flag, "CVodeSStolerances", 1);
+//
+//    //    LS = SUNSPGMR(udata, 0, 0); //v3.x
+//    LS = SUNLinSol_SPGMR(udata, 0, 0);
+//    check_flag((void *)LS, "SUNLinSol_SPGMR", 0);
+//
+//    flag = CVSpilsSetLinearSolver(cvode_mem, LS);
+//    check_flag(&flag, "CVSpilsSetLinearSolver", 1);
+//
+//    flag = CVodeSetMinStep(cvode_mem, 1E-6); //Minimum time interval in cvode.dt = t(i) - t(i - 1);
+//    check_flag(&flag, "CVodeSetMinStep", 1);
+//
+//    flag = CVodeSetMaxNumSteps(cvode_mem, 1E6); //max iterations.
+//    check_flag(&flag, "CVodeSetMaxNumSteps", 1);
+//
+//    flag = CVodeSetInitStep(cvode_mem, MD->CS.InitStep);
+//    check_flag(&flag, "CVodeSetInitStep", 1);
+//
+//    //force cvode run at least every x time - units.t(i) - t(i - 1) < X;
+//    flag = CVodeSetMaxStep(cvode_mem, MD->CS.MaxStep);
+//    check_flag(&flag, "CVodeSetMaxStep", 1);
+//
+////    flag = CVodeSetStabLimDet(cvode_mem, SUNTRUE);
+//    //flag = SUNSPGMRSetGSType(LS, MODIFIED_GS);
+//}
+
+
+void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS, SUNContext &sunctx){
     
     int flag;
-    /* allocate memory for solver */
-    /********* SUNDIALS 5.0+ ************/
-    //    cvode_mem = CVodeCreate(CV_BDF, CV_NEWTON); //v3.x
-    cvode_mem = CVodeCreate(CV_BDF);
+    
+    /********* SUNDIALS 6.0+ ************/
+    /* Allocate memory, and set problem data, initial values, tolerances */
+//    u = N_VNew_Serial(NY, sunctx);
+//    check_flag(void *)u, "N_VNew_Serial", 0));
+//    data = AllocUserData();
+//    check_flag(void *)data, "AllocUserData", 2);
+//    InitUserData(data);
+//    SetInitialProfiles(u, data->dx, data->dy);
+    
+    cvode_mem = CVodeCreate(CV_BDF, sunctx);
     check_flag((void *)cvode_mem, "CVodeCreate", 0);
     
     flag = CVodeSetUserData(cvode_mem, MD);
@@ -116,10 +167,10 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     check_flag(&flag, "CVodeSStolerances", 1);
     
     //    LS = SUNSPGMR(udata, 0, 0); //v3.x
-    LS = SUNLinSol_SPGMR(udata, 0, 0);
+    LS = SUNLinSol_SPGMR(udata, 0, 0, sunctx);
     check_flag((void *)LS, "SUNLinSol_SPGMR", 0);
     
-    flag = CVSpilsSetLinearSolver(cvode_mem, LS);
+    flag = CVodeSetLinearSolver(cvode_mem, LS, NULL);
     check_flag(&flag, "CVSpilsSetLinearSolver", 1);
     
     flag = CVodeSetMinStep(cvode_mem, 1E-6); //Minimum time interval in cvode.dt = t(i) - t(i - 1);

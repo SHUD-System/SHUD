@@ -23,7 +23,8 @@
 int check_flag(void *flagvalue, const char *funcname, int opt);
 void PrintFinalStats(void *cvode_mem);
 
-void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS);
+// void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS); // CVODE 5.X
+void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS, SUNContext &sunctx); // CVODE 6.X
 void CVODEstatus(void *cvode_mem, N_Vector u, realtype t);
 
 #endif				/* cvode_config_h */
