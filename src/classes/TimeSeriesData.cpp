@@ -138,7 +138,7 @@ void _TimeSeriesData::movePointer(double t){
 void _TimeSeriesData::checkValue(int icol, double xmin, double xmax, const char *varname){
     for(int i = 0; i < MAXQUE & i < Length; i++){
         if( ts[i][icol] < xmin || ts[i][icol] > xmax){
-            fprintf(stderr, "Warning: value of %s(t=%f day) = %f is out of range (%f, %f).\n", varname, ts[i][0], ts[i][icol], xmin, xmax);
+            fprintf(stderr, "Warning: value of %s(t=%g min) = %g is out of range (%f, %f).\n", varname, ts[i][0], ts[i][icol], xmin, xmax);
         }
     }
 }
