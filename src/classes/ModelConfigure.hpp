@@ -52,16 +52,16 @@ public:
 };
 class Soil_Layer {
 public:
-    int     index;    /* index */
-    double  infKsatV;    /* vertical saturated soil conductivity [m/day]*/
-    double  ThetaS;    /* soil porosity [m3/m3] */
-    double  ThetaR;    /* soil moisture residual [m3/m3] */
-    double  ThetaFC;    /* Field Capacity [m3/m3] */
-    double  Alpha;    /* soil curve parameter 1 [1/m]*/
-    double  Beta;    /* soil curve parameter 2 [-] */
-    double  hAreaF;    /* macroporous area fraction on horizontal section [m2/m2]*/
-    double  macKsatV;    /* macroporous saturated vertical conductivity [m/day]*/
-    double  infD;    /* depth from ground surface accross which head is calculated during infiltration [m]*/
+    int     index = NA_VALUE;    /* index */
+    double  infKsatV = NA_VALUE;    /* vertical saturated soil conductivity [m/day]*/
+    double  ThetaS = NA_VALUE;    /* soil porosity [m3/m3] */
+    double  ThetaR = NA_VALUE;    /* soil moisture residual [m3/m3] */
+    double  ThetaFC = NA_VALUE;    /* Field Capacity [m3/m3] */
+    double  Alpha = NA_VALUE;    /* soil curve parameter 1 [1/m]*/
+    double  Beta = NA_VALUE;    /* soil curve parameter 2 [-] */
+    double  hAreaF = NA_VALUE;    /* macroporous area fraction on horizontal section [m2/m2]*/
+    double  macKsatV = NA_VALUE;    /* macroporous saturated vertical conductivity [m/day]*/
+    double  infD = NA_VALUE;    /* depth from ground surface accross which head is calculated during infiltration [m]*/
     void    applyCalib(calib_soil *);
     void    checkValue();
     void printHeader(FILE *fp);
@@ -70,15 +70,15 @@ public:
 
 class Geol_Layer {
 public:
-    int     index;    /* index */
-    double  KsatH;    /* horizontal saturated geology conductivity [m/day] */
-    double  KsatV;    /* vertical saturated geology conductivity [m/day] */
-    double  Sy;     /* Specific Yield  = ThetaS - ThetaR */
-    double  geo_ThetaS;    /* geology porosity [m3/m3] */
-    double  geo_ThetaR;    /* residual porosity [m3/m3] */
-    double  geo_vAreaF;    /* macroporous area fraction on vertical section [m2/m2] */
-    double  macKsatH;   /* macroporous saturated horizontal conductivity [m/day] */
-    double  macD;       /* Depth of Macropore layer */
+    int     index = NA_VALUE;    /* index */
+    double  KsatH = NA_VALUE;    /* horizontal saturated geology conductivity [m/day] */
+    double  KsatV = NA_VALUE;    /* vertical saturated geology conductivity [m/day] */
+    double  Sy = NA_VALUE;     /* Specific Yield  = ThetaS - ThetaR */
+    double  geo_ThetaS = NA_VALUE;    /* geology porosity [m3/m3] */
+    double  geo_ThetaR = NA_VALUE;    /* residual porosity [m3/m3] */
+    double  geo_vAreaF = NA_VALUE;    /* macroporous area fraction on vertical section [m2/m2] */
+    double  macKsatH = NA_VALUE;   /* macroporous saturated horizontal conductivity [m/day] */
+    double  macD = NA_VALUE;       /* Depth of Macropore layer */
     void    applyCalib(calib_geol *);
     void    checkValue();
     void printHeader(FILE *fp);

@@ -84,6 +84,11 @@ void Soil_Layer::applyCalib(calib_soil *g){
 void Soil_Layer::checkValue(){
     checkRange(Alpha, .05, 20., index - 1, "Alpha");
     checkRange(Beta, 1., 10., index - 1, "Beta");
+    if(Beta < 1.1){
+        printf("Warning: Beta value (%.g) less than 1.1 may lead in NAN value in the model, so default beta=1.1 is used.\n", Beta);
+        Beta = 1.1;
+//        myexit(ERRDATAIN);
+    }
     checkRange(infKsatV, 0., 1.0e3, index - 1, "infKsatV");
     checkRange(infD, 0., 10., index - 1, "infD");
     checkRange(hAreaF, 0., 100., index - 1, "hAreaF");
