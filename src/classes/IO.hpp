@@ -32,6 +32,8 @@ public:
     char file_riv[MAXLEN];
     char file_rivseg[MAXLEN];
     char file_lake[MAXLEN];
+    char file_lake_ic[MAXLEN];
+    char file_lake_bathy[MAXLEN];
     
     /* model configuration */
     char file_init[MAXLEN];
@@ -116,10 +118,12 @@ public:
     char ewb_dh[MAXLEN];
     
     //Lakes
-    char lake_Q_riv[MAXLEN];
+    char lake_Q_rivin[MAXLEN];
+    char lake_Q_rivout[MAXLEN];
     char lake_Q_surf[MAXLEN];
     char lake_Q_sub[MAXLEN];
     char lake_y_stage[MAXLEN];
+    char lake_a_area[MAXLEN];
     char lake_q_evap[MAXLEN];
     char lake_q_prcp[MAXLEN];
     

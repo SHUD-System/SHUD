@@ -79,6 +79,8 @@ void FileIn:: setInFilePath(char * indir, char *  pjrname){
     sprintf(file_riv, "%s/%s.%s", inpath, projectname, "sp.riv");
     sprintf(file_rivseg, "%s/%s.%s", inpath, projectname, "sp.rivseg");
     sprintf(file_lake, "%s/%s.%s", inpath, projectname, "sp.lake");
+    sprintf(file_lake_bathy, "%s/%s.%s", inpath, projectname, "lake.bathy");
+    sprintf(file_lake_ic, "%s/%s.%s", inpath, projectname, "lake.ic");
     
     /* physical parameters */
     sprintf(file_lc, "%s/%s.%s", inpath, projectname, "para.lc");
@@ -185,6 +187,7 @@ void FileOut::updateFilePath(){
     sprintf(lake_Q_surf, "%s/%s%s.lakqsurf", outpath, projectname, suffix);
     sprintf(lake_Q_sub, "%s/%s%s.lakqsub", outpath, projectname, suffix);
     sprintf(lake_y_stage, "%s/%s%s.lakystage", outpath, projectname, suffix);
+    sprintf(lake_a_area, "%s/%s%s.lakatop", outpath, projectname, suffix);
     sprintf(lake_q_evap, "%s/%s%s.lakvevap", outpath, projectname, suffix);
     sprintf(lake_q_prcp, "%s/%s%s.lakvprcp", outpath, projectname, suffix);
     
@@ -342,7 +345,8 @@ void FileOut::copy(FileOut *p){
     strcpy(   ewb_q_io, p->ewb_q_io );
     strcpy(   ewb_dh, p->ewb_dh );
     
-    strcpy(   lake_Q_riv, p->lake_Q_riv );
+    strcpy(   lake_Q_rivin, p->lake_Q_rivin );
+    strcpy(   lake_Q_rivout, p->lake_Q_rivout );
     strcpy(   lake_Q_surf, p->lake_Q_surf );
     strcpy(   lake_Q_sub, p->lake_Q_sub );
     strcpy(   lake_y_stage, p->lake_y_stage );
