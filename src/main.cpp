@@ -1,11 +1,14 @@
 /*******************************************************************************
  * File        : main.cpp                                                      *
- * Version     : Nov, 2018 (SHUD v1.0)                                         *
- * Function    : SHUD (Solver for Hydrologic Unstructured Domains)            *
- * Developer of SHUD 1.0:        Lele Shu (lele.shu@gmail.com)                 *
+ * Version     : June, 2022 (SHUD v2.0)                                         *
+ * Function    : SHUD (Simulator for Hydrologic Unstructured Domains)          *
+ * Website     : https://www.shud.xyz/
+ * Maintainer  : Lele Shu (lele.shu@gmail.com)
+ * Developer of SHUD 2.0 (2022):        Lele Shu (lele.shu@gmail.com)          *
+ * Developer of SHUD 1.0 (2019):        Lele Shu (lele.shu@gmail.com)          *
  *                                                                             *
  * SHUD inherits the fundamental idea of solving hydrological variables in     *
- * CVODE, but it is imcompatible with PIHM input/output as well as algorithm.  *
+ * CVODE, but it is imcompatible with PIHM input/output, neither the algorithm.*
  *-----------------------------------------------------------------------------*
  * Developer of PIHM 3.0:        Gopal Bhatt (gopal.bhatt@psu.edu)             *
  * Developer of PIHM 2.2:        Xuan Yu                                       *
@@ -14,15 +17,6 @@
  * Developer of PIHM 1.0:        Yizhong Qu   (quyizhong@gmail.com)            *
  *-----------------------------------------------------------------------------*
  *                                                                             *
- *..............MODIFICATIONS/ADDITIONS in SHUD V1.0 ..........................*
- * 0) Change the language and structure of code from C to C++;
- * 1) Update the CVODE from v2.2 to v5.0
- * 2) Support OpenMP Parrallel computing
- * 3) Change the input/output format. Check the Manual of SHUD on github;
- * 4) Change the structure of River
- * 5) The functions to handle the time-series data, including forcing, LAI,
- *    Roughness Length, Boundary Condition, Melt factor
- * 6) Add Lakes into the hydrological process
  *******************************************************************************/
 #include "shud.hpp"
 #include "print.hpp"
