@@ -183,7 +183,8 @@ void FileOut::updateFilePath(){
     sprintf(ewb_q_io, "%s/%s%s.ewbqio", outpath, projectname, suffix);
     sprintf(ewb_dh, "%s/%s%s.ewbydh", outpath, projectname, suffix);
     
-    sprintf(lake_Q_riv, "%s/%s%s.lakqriv", outpath, projectname, suffix);
+    sprintf(lake_Q_rivin, "%s/%s%s.lakqrivin", outpath, projectname, suffix);
+    sprintf(lake_Q_rivout, "%s/%s%s.lakqrivout", outpath, projectname, suffix);
     sprintf(lake_Q_surf, "%s/%s%s.lakqsurf", outpath, projectname, suffix);
     sprintf(lake_Q_sub, "%s/%s%s.lakqsub", outpath, projectname, suffix);
     sprintf(lake_y_stage, "%s/%s%s.lakystage", outpath, projectname, suffix);
