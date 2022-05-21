@@ -8,10 +8,10 @@ TabularData::~TabularData(){
     reset();
 }
 void TabularData::reset(){
-    for(int i = 0; i < nrow; i++){
-        delete[] x[i];
-    }
-    if(nrow > 0 || ncol > 0){
+    if(nrow > 0){
+        for(int i = 0; i < nrow; i++){
+            delete[] x[i];
+        }
         delete[] x;
     }
     nrow = 0;
