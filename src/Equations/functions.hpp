@@ -55,7 +55,7 @@ void CheckFile(FILE * fp, const char *s);
 
 int checkRange(int x, int xmin, int xmax, int i, const char *s);
 int checkRange(double x, double xmin, double xmax, int i, const char *s);
-
+bool checkexist(int *x, int n, int xkey);
 void myexit(int flag);
 void screeninfo(const char *s);
 

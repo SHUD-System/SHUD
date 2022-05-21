@@ -34,6 +34,14 @@ void myexit(int flag){
     fprintf(stderr, "\n\n\n");
     exit(flag);
 }
+bool checkexist(int *x, int n, int xkey){
+    for(int i = 0; i < n; i++){
+        if(x[i] == xkey){
+            return 1;
+        }
+    }
+    return 0;
+}
 int checkRange(int x, int xmin, int xmax, int i, const char *s){
     if(x < xmin || x > xmax){
         fprintf(stderr, "\nInvalid value %d for %s(%d) is out of range [%d, %d]\n", x, s, i+1,  xmin, xmax);
