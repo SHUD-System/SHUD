@@ -15,7 +15,7 @@ Ongoing applications of the SHUD model include hydrologic analyses of hillslope 
 - **Support tools**: rSHUD.  [https://github.com/SHUD-System/rSHUD](https://github.com/SHUD-System/rSHUD)
 - **Programming**: C/C++
 - **Platform**: Mac OS, Linux and Windows
-- **Required library**:  SUNDIALS/CVODE V5.0+
+- **Required library**:  SUNDIALS/CVODE V6.0+
 - **Parallelization** : OpenMP
 
 ## Overview
