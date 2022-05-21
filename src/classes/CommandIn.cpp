@@ -7,8 +7,11 @@
 #include "CommandIn.hpp"
 void CommandIn::SHUD_help(void ){
     printf ("\n\nUsage:\n");
-    printf ("./shud [-0][-p projectfile] [-o output] [-n Num_Threads] <project_name>\n\n");
+    printf ("./shud [-0gv] [-p project_file] [-c Calib_file] [-o output] [-n Num_Threads] <project_name>\n\n");
     printf (" -0 Dummy simulation. Load input and write output, but no calculation.\n");
+    printf (" -g Sequential coupled Surface-Unsaturated-Saturated-River mode.\n");
+    printf (" -v Dummy simulation. Load input and write output, but no calculation.\n");
+    printf (" -c Calibration file (.cfg.calib). \n");
     printf (" -o output folder. Default is output/projname.out\n");
     printf (" -p projectfile, which includes the path to input files and output path.\n");
     printf (" -n Number of threads to run with OpenMP. \n");
@@ -19,13 +22,16 @@ void CommandIn::parse(int argc, char **argv){
         SHUD_help();
         myexit(ERRSUCCESS);
     }
-    while ((c = getopt (argc, argv, "0gc:e:n:o:p:")) != -1){
+    while ((c = getopt (argc, argv, "0gvc:e:n:o:p:")) != -1){
         switch (c){
             case '0':
                 dummy_mode = 1;
                 break;
             case 'g':
-                global_implicit_mode = 1;
+                global_implicit_mode = 0;
+                break;
+            case 'v':
+                global_verbose_mode = 1;
                 break;
             case 'c':
                 strcpy(calibfile, optarg);
