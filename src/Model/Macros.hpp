@@ -89,6 +89,8 @@
 
 extern int dummy_mode;
 extern int global_implicit_mode;
+extern int global_verbose_mode;
+extern int lakeon;
 
 extern double *uYsf;
 extern double *uYus;
