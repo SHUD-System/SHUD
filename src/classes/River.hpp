@@ -56,6 +56,7 @@ public:
     int BC = NA_VALUE;    /* BC type [-]
                            BC > 0 = Neumann BC; Fix river stage
                            BC < 0 = Dirichlet BC; Fix Flux in/out*/
+    int toLake = NA_VALUE, frLake = NA_VALUE;
     double yBC = 0.;
     double qBC = 0.;
     
