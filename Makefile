@@ -44,9 +44,9 @@ TARGET_EXEC     = ${BUILDDIR}/shud
 TARGET_OMP      = ${BUILDDIR}/shud_omp
 TARGET_DEBUG    = ${BUILDDIR}/shud_debug
 
-MAIN_shud 		= ${SRC_DIR}/SHUD.cpp
-MAIN_OMP 		= ${SRC_DIR}/SHUD.cpp
-MAIN_DEBUG 		= ${SRC_DIR}/SHUD.cpp
+MAIN_shud 		= ${SRC_DIR}/main.cpp
+MAIN_OMP 		= ${SRC_DIR}/main.cpp
+MAIN_DEBUG 		= ${SRC_DIR}/main.cpp
 
 # If compile on Cluster
 # CC       = g++
