@@ -54,8 +54,8 @@ void Landcover::printHeader(FILE *fp){
 //    fprintf(fp, "%s\t", "LAImax");
     fprintf(fp, "%s\t", "VegFrac");
     fprintf(fp, "%s\t", "Albedo");
-    fprintf(fp, "%s\t", "Rs_ref");
-    fprintf(fp, "%s\t", "Rmin");
+//    fprintf(fp, "%s\t", "Rs_ref");
+//    fprintf(fp, "%s\t", "Rmin");
     fprintf(fp, "%s\t", "Rough");
     fprintf(fp, "%s\t", "RzD");
     fprintf(fp, "%s\t", "SoilDgrd");
@@ -66,8 +66,8 @@ void Landcover::printInfo(FILE *fp){
 //    fprintf(fp, "%g\t", LAImax);
     fprintf(fp, "%g\t", VegFrac);
     fprintf(fp, "%g\t", Albedo);
-    fprintf(fp, "%g\t", Rs_ref);
-    fprintf(fp, "%g\t", Rmin);
+//    fprintf(fp, "%g\t", Rs_ref);
+//    fprintf(fp, "%g\t", Rmin);
     fprintf(fp, "%g\t", Rough);
     fprintf(fp, "%g\t", RzD);
     fprintf(fp, "%g\t", SoilDgrd);
@@ -77,6 +77,11 @@ void Soil_Layer::applyCalib(calib_soil *g){
     infKsatV *= g->infKsatV;
     Alpha *= g->Alpha;
     Beta *= g->Beta;
+    if(Beta < 1.1){
+        printf("Warning: Beta value (%.g) less than 1.1 may lead in NAN value in the model, so default beta=1.1 is used.\n", Beta);
+        Beta = 1.1;
+//        myexit(ERRDATAIN);
+    }
     hAreaF *= g->hAreaF;
     macKsatV *= g->macKsatV;
     infD *= g->infD;
@@ -84,11 +89,6 @@ void Soil_Layer::applyCalib(calib_soil *g){
 void Soil_Layer::checkValue(){
     checkRange(Alpha, .05, 20., index - 1, "Alpha");
     checkRange(Beta, 1., 10., index - 1, "Beta");
-    if(Beta < 1.1){
-        printf("Warning: Beta value (%.g) less than 1.1 may lead in NAN value in the model, so default beta=1.1 is used.\n", Beta);
-        Beta = 1.1;
-//        myexit(ERRDATAIN);
-    }
     checkRange(infKsatV, 0., 1.0e3, index - 1, "infKsatV");
     checkRange(infD, 0., 10., index - 1, "infD");
     checkRange(hAreaF, 0., 100., index - 1, "hAreaF");
@@ -116,8 +116,8 @@ void Landcover::applyCalib(calib_landcover *g){
 //    LAImax  *= 1.0;
     VegFrac *= g->VegFrac;
     Albedo *= g->Albedo;
-    Rs_ref *= 1.0;
-    Rmin *= 1.0;
+//    Rs_ref *= 1.0;
+//    Rmin *= 1.0;
     Rough *= g->Rough;
     RzD *= g->RzD;
     SoilDgrd *= g->SoilDgd;

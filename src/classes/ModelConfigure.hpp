@@ -91,8 +91,8 @@ public:
 //    double LAImax = NA_VALUE;    /* max LAI [m2/m2]*/  // debug: MUST remove this one, dummy.
     double VegFrac = NA_VALUE;/* Vegetation fraction [m2/m2] */
     double Albedo = NA_VALUE;    /* Albedo [1]*/
-    double Rs_ref = NA_VALUE;
-    double Rmin = NA_VALUE;    /* Minimum stomatal resistance */
+//    double Rs_ref = NA_VALUE;
+//    double Rmin = NA_VALUE;    /* Minimum stomatal resistance */
     double Rough = NA_VALUE;    /* surface roughness factor */
     double RzD = NA_VALUE;    /* rootZone Depth [m] */
     double SoilDgrd = NA_VALUE; /* Soil degradation ratio [-] */

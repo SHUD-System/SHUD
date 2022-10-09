@@ -51,7 +51,7 @@ void Model_Data::read_riv(const char *fn){
             printf("\tThe RIV %d is ZERO/NEGATIVE length\n", i + 1 );
         }
         if(Riv[i].down < 1){
-            printf("\tThe downstream of RIV %d is negtive (Outlet )\n", i + 1 );
+            printf("\tThe downstream of RIV %d is negtive (Outlet, %d)\n", i + 1, Riv[i].down);
         }
         if(Riv[i].BC > 0){
             printf("BC[%d] (Neumann Condition) applied to River %d\n", Riv[i].BC, i+1);
@@ -140,14 +140,15 @@ void Model_Data::read_att(const char *fn){
         fprintf(stderr, "\nWARNING: number of rows (%d) in att DOSE NOT match the number of cell in .mesh file (%d).\n Press anykey to continue ...\n", nr, NumEle);
 //        getchar();
     }
-    if(tb.ncol != 8){
-        printf("The column of .mesh should be: \n");
-        printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", "index", "iSoil", "iGeol", "iLC", "iForc", "iMF", "iBC", "iSS");
+    if(tb.ncol != 9){
+        printf("The column of .att should be: \n");
+        printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+               "index", "iSoil", "iGeol", "iLC", "iForc", "iMF", "iBC", "iSS", "Lake");
         printf("Actual column is:\n%s", tb.header);
         myexit(ERRFileIO);
     }
     for (int i=0; i<NumEle; i++){
-        // index are ignored, since the read_mesh already take care it.
+        // index are ignored, since the read_mesh already take care of it.
         Ele[i].iSoil    = (int) tb.x[i][1];
         Ele[i].iGeol    = (int) tb.x[i][2];
         Ele[i].iLC      = (int) tb.x[i][3];
@@ -155,7 +156,11 @@ void Model_Data::read_att(const char *fn){
         Ele[i].iMF      = (int) tb.x[i][5];
         Ele[i].iBC      = (int) tb.x[i][6];
         Ele[i].iSS      = (int) tb.x[i][7];
-//        printf("debug%d\t%d\t%d\t%d\t%d\t%d\t%d\n",i+1, Ele[i].iSoil, Ele[i].iGeol, Ele[i].iLC, Ele[i].iForc, Ele[i].iMF, Ele[i].iBC );
+        Ele[i].iLake    = (int) tb.x[i][8];
+        if( lakeon <=0 && Ele[i].iLake >0 ){
+            lakeon = 1;
+        }
+//        printf("debug%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",i+1, Ele[i].iSoil, Ele[i].iGeol, Ele[i].iLC, Ele[i].iForc, Ele[i].iMF, Ele[i].iBC, Ele[i].iSS, Ele[i].iLake);
         if(Ele[i].iBC > 0){
             ieBC1 = 1;
         }
@@ -223,48 +228,28 @@ void Model_Data::read_geol(const char *fn){
         Geol[i].macD        = (double) tb.x[i][7];
     }
 }
-void Model_Data::read_lake(const char *fn){
-    FILE *fp = fopen(fn, "r");
-    CheckFile(fp, fn);
-    char str[MAXLEN * 10];
-    char strname[MAXLEN];
-    fgets(str, MAXLEN, fp); // Dimension of the table
-    sscanf(str, "%d", &NumLake);
-    lake = new _Lake[NumLake];
-    for(int i = 0; i < NumLake && fgets(str, MAXLEN, fp); i++){
-        sscanf(str, "%s %d", strname, &NumLake);
-        lake->readLake(fp);
-    }
-    fclose(fp);
-}
-void Model_Data::read_lakeBathy(const char *fn){
-}
+
 void Model_Data::read_lc(const char *fn){
     TabularData tb;
     NumLC = tb.read(fn);
-    if(tb.ncol != 10){
+    if(tb.ncol < 7 | tb.ncol > 8){
         printf("The column of Geol should be: \n");
-        printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", "index", "LAImax","Rmin", "Rs_ref", "Albedo", "VegFrac", "Rough","RzD", "SoilDgrd", "ImpAF");
+        printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n", "index",
+               "Albedo", "VegFrac", "Rough","RzD", "SoilDgrd", "ImpAF");
         printf("Actual column is:\n%s", tb.header);
         myexit(ERRFileIO);
     }
     LandC = new Landcover[NumLC];
     for (int i=0; i<NumLC ; i++){
         LandC[i].index  = (int) tb.x[i][0];
-//        LandC[i].LAImax = (double) tb.x[i][1];
-        LandC[i].Rmin   = (double) tb.x[i][2] / 60; // s/m  to min / m
-        LandC[i].Rs_ref = (double) tb.x[i][3] ; //  [s / m]
-        LandC[i].Albedo = (double) tb.x[i][4];
-        LandC[i].VegFrac = (double) tb.x[i][5];
-        LandC[i].Rough  = (double) tb.x[i][6] / 60.; /* [s m^(-1/3)]  to [min m^(-1/3)]*/
-        LandC[i].RzD    = (double) tb.x[i][7];
-        LandC[i].SoilDgrd = (double) tb.x[i][8];
-        LandC[i].ImpAF  = (double) tb.x[i][9];
-//        printf( "%d %lf %lf %lf %lf %lf %lf %lf %lf %lf\n",
+        LandC[i].Albedo = (double) tb.x[i][1];
+        LandC[i].VegFrac = (double) tb.x[i][2];
+        LandC[i].Rough  = (double) tb.x[i][3] / 60.; /* [s m^(-1/3)]  to [min m^(-1/3)]*/
+        LandC[i].RzD    = (double) tb.x[i][4];
+        LandC[i].SoilDgrd = (double) tb.x[i][5];
+        LandC[i].ImpAF  = (double) tb.x[i][6];
+//        printf( "%d %lf %lf %lf %lf %lf %lf\n",
 //               (LandC[i].index),
-//               (LandC[i].LAImax),
-//               (LandC[i].Rmin),
-//               (LandC[i].Rs_ref),
 //               (LandC[i].Albedo),
 //               (LandC[i].VegFrac),
 //               (LandC[i].Rough),
@@ -316,75 +301,73 @@ void Model_Data::read_forc_csv(const char *fn){
         tsd_weather[i].read_csv();
     }
 }
-void Model_Data::loadinput(FileIn *fin){
+void Model_Data::loadinput(){
     int nt=1;
     int flag = 1;
-    if(flag) fprintf(stdout,"* \t Project name: %s\n", fin->projectname);
-    if(flag) fprintf(stdout,"* \t Project input folder: %s\n", fin->inpath);
-    if(flag) fprintf(stdout,"* \t Project output folder: %s\n", fin->outpath);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_para);
-    read_para(fin->file_para);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_riv);
-    read_riv(fin->file_riv);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_rivseg);
-    read_rivseg(fin->file_rivseg);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_mesh);
-    read_mesh(fin->file_mesh);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_att);
-    read_att(fin->file_att);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_soil);
-    read_soil(fin->file_soil);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_geol);
-    read_geol(fin->file_geol);
-    //    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_ibc);
-    //    read_ibc(fin->file_ibc);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_lc);
-    read_lc(fin->file_lc);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_forc);
-    read_forc_csv(fin->file_forc);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_lai);
-    read_lai(fin->file_lai);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_rl);
-    read_rl(fin->file_rl);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_mf);
-    read_mf(fin->file_mf);
+    if(flag) fprintf(stdout,"* \t Project name: %s\n", pf_in->projectname);
+    if(flag) fprintf(stdout,"* \t Project input folder: %s\n", pf_in->inpath);
+    if(flag) fprintf(stdout,"* \t Project output folder: %s\n", pf_in->outpath);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_para);
+    read_para(pf_in->file_para);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_riv);
+    read_riv(pf_in->file_riv);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_rivseg);
+    read_rivseg(pf_in->file_rivseg);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_mesh);
+    read_mesh(pf_in->file_mesh);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_att);
+    read_att(pf_in->file_att);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_soil);
+    read_soil(pf_in->file_soil);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_geol);
+    read_geol(pf_in->file_geol);
+    //    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_ibc);
+    //    read_ibc(pf_in->file_ibc);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_lc);
+    read_lc(pf_in->file_lc);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_forc);
+    read_forc_csv(pf_in->file_forc);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_lai);
+    read_lai(pf_in->file_lai);
+//    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_rl);
+//    read_rl(pf_in->file_rl);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_mf);
+    read_mf(pf_in->file_mf);
     
-    //    read_forc_binary(fin->file_forc);
-    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_calib);
-    read_calib(fin->file_calib);
+    //    read_forc_binary(pf_in->file_forc);
+    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_calib);
+    read_calib(pf_in->file_calib);
     if(ieBC1){
-        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_ebc1);
-        read_bcEle1(fin->file_ebc1);
+        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_ebc1);
+        read_bcEle1(pf_in->file_ebc1);
     }
     if(ieBC2){
-        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_ebc2);
-        read_bcEle2(fin->file_ebc2);
+        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_ebc2);
+        read_bcEle2(pf_in->file_ebc2);
     }
     if(irBC1){
-        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_rbc1);
-        read_bcRiv1(fin->file_rbc1);
+        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_rbc1);
+        read_bcRiv1(pf_in->file_rbc1);
     }
     if(irBC2){
-        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_rbc2);
-        read_bcRiv2(fin->file_rbc2);
+        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_rbc2);
+        read_bcRiv2(pf_in->file_rbc2);
     }
     if(ilBC1){
-        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_rbc2);
-        read_bcLake1(fin->file_lbc1);
+        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_rbc2);
+        read_bcLake1(pf_in->file_lbc1);
     }
     if(ilBC2){
-        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,fin->file_rbc2);
-        read_bcLake2(fin->file_lbc2);
+        if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_rbc2);
+        read_bcLake2(pf_in->file_lbc2);
     }
-    
-    this->CS.num_threads = max(CS.num_threads,  fin->numthreads); /* Number of threads for OpenMP */
+    this->CS.num_threads = max(CS.num_threads,  pf_in->numthreads); /* Number of threads for OpenMP */
 }
-
-void Model_Data::read_rl(const char *fn){
-    tsd_RL.fn = fn;
-    tsd_RL.readDimensions();
-    tsd_RL.read_csv();
-}
+//void Model_Data::read_rl(const char *fn){
+//    tsd_RL.fn = fn;
+//    tsd_RL.readDimensions();
+//    tsd_RL.read_csv();
+//}
 void Model_Data::read_lai(const char *fn){
     tsd_LAI.fn = fn;
     tsd_LAI.readDimensions();
@@ -510,7 +493,8 @@ void Model_Data::FreeData(){
         delete[]    QLakeSurf; //30
         
         delete[]    QLakeSub;
-        delete[]    QLakeRiv;
+        delete[]    QLakeRivIn;
+        delete[]    QLakeRivOut;
         delete[]    qLakePrcp;
         delete[]    qLakeEvap; //34
     }
@@ -529,7 +513,7 @@ void Model_Data::FreeData(){
     delete[]    t_vp;
     delete[]    t_lai;
     delete[]    t_mf;
-    delete[]    t_hc;
+//    delete[]    t_hc;
     
     //read_rivseg()
     delete[] RivSeg;

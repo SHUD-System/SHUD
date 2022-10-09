@@ -12,21 +12,24 @@ echo "Installing examples to $path/example"
 echo ""
 
 rm -rf $installPath
-rm -rf sundials-master
+#rm -rf sundials-master
 
 echo "download from github: \n wget https://codeload.github.com/LLNL/sundials/zip/master"
-wget -c https://codeload.github.com/LLNL/sundials/zip/master -O sundials-master.zip
-
-echo "unzip sundials-master.zip"
-unzip sundials-master.zip
+#wget -c https://codeload.github.com/LLNL/sundials/zip/master -O sundials.zip
+#echo "unzip sundials.zip"
+#unzip sundials.zip
+git clone https://github.com/LLNL/sundials.git
 
 mkdir $installPath
+
 echo "cd $installPath"
 cd $installPath
+
 rm -rf builddir
 
 echo "makedir builddir"
 mkdir builddir
+
 echo "cd builddir"
 cd builddir/
 
@@ -42,7 +45,7 @@ cmake -DCMAKE_INSTALL_PREFIX=$path \
  -DBUILD_IDAS=OFF \
  -DBUILD_KINSOL=OFF \
  -DOPENMP_ENABLE=OFF \
- ../../sundials-master
+ ../../sundials
 
 echo "make"
 make

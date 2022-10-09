@@ -23,7 +23,12 @@
 using namespace std;
 class Model_Data {        /* Model_data definition */
 public:
+    FileIn  *pf_in;
+    FileOut *pf_out;
+    double t0;  /* Time tag before current f loop */
+    double t1;  /* Time tag before current iteration */
     double tnow;       /* Current time tag*/
+    double dt;     /* DT = tnow - t1 */
     //int UnsatMode;        /* Unsat Mode */
     //int SurfMode;        /* Surface Overland Flow Mode */
     //int RivMode;        /* River Routing Mode */
@@ -64,7 +69,7 @@ public:
     
     _TimeSeriesData *tsd_weather;
     _TimeSeriesData tsd_LAI;
-    _TimeSeriesData tsd_RL;
+//    _TimeSeriesData tsd_RL;
     _TimeSeriesData tsd_MF;
     _TimeSeriesData tsd_eleSS; /* Element Source/Sink Term [L3/T] */
     _TimeSeriesData tsd_eyBC; /* Element Y BC */
@@ -168,9 +173,11 @@ public:
     double *yRivStg;   // debug may not necessary
     /* Lake variables */
     double *yLakeStg;
+    double *y2LakeArea;
     double *QLakeSurf;
     double *QLakeSub;
-    double *QLakeRiv;
+    double *QLakeRivIn;
+    double *QLakeRivOut;
     double *qLakeEvap;
     double *qLakePrcp;
     
@@ -184,25 +191,28 @@ private:
     double *t_prcp;
     double *t_temp;
     double *t_rh;
+    double *t_sph;
     double *t_wind;
     double *t_rn;
     double *t_vp;
     double *t_lai;
     double *t_mf;
-    double *t_hc;  /* New defination: Height of Crop. void in temporary*/
+//    double *t_hc;  /* New defination: Height of Crop. void in temporary*/
 public:
     /* Methods: */
     Model_Data();
+    Model_Data(FileIn *f_in, FileOut *f_out);
     ~Model_Data();
     /* Model input/output */
-    void loadinput(FileIn * fin);
+    void loadinput();
     void initialize();
-    void initialize_output(FileOut * fout);
+    void initializeLake();
+    void initialize_output();
     void SetIC2Y(N_Vector udata1, N_Vector udata2, N_Vector udata3, N_Vector udata4, N_Vector udata5);
     void SetIC2Y(N_Vector udata);
-    void LoadIC(FileIn *fin);
+    void LoadIC();
     /* screen print */
-    void modelSummary(FileIn * fileIn, int end);
+    void modelSummary(int end);
     int PrintInit(const char *fn, double t);
     
     void summary(N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_Vector u5);
@@ -211,6 +221,7 @@ public:
     int ScreenPrintu(double t, unsigned long it);
     /* methods in f function */
     void f_loop(double t);
+    void f_loopET(double t);
     void f_loop1(double t);
     void f_loop2(double t);
     void f_loop3(double t);
@@ -218,6 +229,10 @@ public:
     void f_loop5(double t);
     
     void f_applyDY(double * DY, double t);
+    void f_applyDY_surf(double * DY, double t);
+    void f_applyDY_unsat(double * DY, double t);
+    void f_applyDY_gw(double * DY, double t);
+    void f_applyDY_river(double * DY, double t);
     void f_applyDYi(double * DY, double t, int flag);
     void f_update(double * Y, double * DY, double t);
     void f_updatei(double * Y, double * DY, double t, int flag);
@@ -239,15 +254,20 @@ public:
     void PassValue();
 private:
     void fillpits(int i);
-    
     void tReadForcing(double t, int i);
-    
     void ElementTable(const char *fn);
     void RiverTable(const char *fn);
-    void LakeTable(const char *fn);
     
-    /* Memory management */
-    void allocateMemory();
+    void LakeTable(const char *fn);
+    int LakeUniqueID();
+    void LakeInitialize();
+    void lake_readBathy(const char *fn);
+    void lake_readIC(const char *fn);
+    void lake_read_sp(const char *fn);
+    
+    /* Memory management: allocation and recycle */
+    void malloc_Y();
+    void malloc_EleRiv();
     void FreeData();
     
     /* put calibration file into the parameters */
@@ -271,15 +291,13 @@ private:
     void read_rivseg(const char *fn);
     void read_mesh(const char *fn);
     
-    void read_lake(const char *fn);
-    void read_lakeBathy(const char *fn);
     
     void read_att(const char *fn);
     void read_soil(const char *fn);
     void read_geol(const char *fn);
     void read_lc(const char *fn);
     void read_forc_csv(const char *fn);
-    void read_rl(const char *fn);
+//    void read_rl(const char *fn);
     void read_lai(const char *fn);
     void read_mf(const char *fn);
     
@@ -304,11 +322,13 @@ private:
     void fun_Ele_Recharge(int i, double t);
     void fun_Seg_surface(int iEle, int iRiv, int i);
     void fun_Seg_sub(int iEle, int iRiv, int i);
+    void fun_Ele_lakeVertical(int i, double t);
+    void fun_Ele_lakeHorizon(int i, double t);
     
     /* Functions */
     void TimeSpent();
-    double WeirFlow(double ze, double ye, double zr, double yr,
-                    double zbank, double cwr, double rivLen, double threshold);
+    double WeirFlow_jtoi(double zi, double yi, double zj, double yj,
+                    double zbank, double cwr, double width, double threshold);
     double updateArea();
 };
 #endif                /* Model_Data_hpp */

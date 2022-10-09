@@ -45,6 +45,7 @@ void AttriuteIndex::printHeader(FILE *fp){
     fprintf(fp, "%s\t", "iForc");
     fprintf(fp, "%s\t", "iMF");
     fprintf(fp, "%s\t", "iBC");
+    fprintf(fp, "%s\t", "iLake");
 }
 void AttriuteIndex::printInfo(FILE *fp){
     fprintf(fp, "%d\t", iSoil);
@@ -55,6 +56,7 @@ void AttriuteIndex::printInfo(FILE *fp){
     fprintf(fp, "%d\t", iMF);
     fprintf(fp, "%d\t", iBC);
     fprintf(fp, "%d\t", iSS);
+    fprintf(fp, "%d\t", iLake);
 }
 
 void _Element::applyGeometry(_Node *Node){
@@ -83,6 +85,9 @@ void _Element::applyGeometry(_Node *Node){
     
     zmax = (zmax1 + zmax2 + zmax3) / 3.0;
     zmin = (zmin1 + zmin2 + zmin3) / 3.0;
+    if(zmin >= zmax){
+        printf("WARNING: zmin(%f) >= zmax(%f) at element %d.", zmin, zmax, index);
+    }
     if(zcentroid != NA_VALUE){
         z0 = zmax;
         aqd = zmax - zmin;
@@ -143,12 +148,10 @@ void _Element::InitElement(){
     }
 }
 void _Element::applyNabor(_Node *Node, _Element *Ele){
-    int eNabor;
     for (int j = 0; j < 3; j++) {
-        eNabor = nabr[j] - 1;
         if(nabr[j]>0){
             for(int k = 0; k < 3; k++){
-                if(Ele[eNabor].nabr[k] == this->index){
+                if(Ele[nabr[j] - 1].nabr[k] == this->index){
                     this->nabrToMe[j] = k + 1;
 //                    printf("%d, %d <-> %d, %d\n", this->index, j+1, nabr[j], k+1);
                     /* Neighbor's K direction and My J direction shared a edge*/
@@ -160,14 +163,16 @@ void _Element::applyNabor(_Node *Node, _Element *Ele){
     }
 
     for(int j = 0; j < 3; j++){
-        eNabor = nabr[j] - 1;
 //        Dist2Edge[j] = sqpow2(edge[0] * edge[1] * edge[2] / (4 * area), edge[j] / 2 );
         //          Dist2Edge[j] =  sqrt(pow(edge[0] * edge[1] * edge[2] / (4 * area), 2) - pow(edge[j] / 2, 2));
-        if(eNabor >= 0){
+        if(nabr[j] > 0){ /* Neighbor exist */
             Dist2Nabor[j] = Eudist(x, y,
-                                   Ele[eNabor].x, Ele[eNabor].y);
-            avgRough[j] = 0.5 * (Rough + Ele[eNabor].Rough);
-        }else{
+                                   Ele[nabr[j] - 1].x, Ele[nabr[j] - 1].y);
+            avgRough[j] = 0.5 * (Rough + Ele[nabr[j] - 1].Rough);
+        }else if(nabr[j] < 0){ /* Next to LAKE Element*/
+            Dist2Nabor[j] = Dist2Edge[j];
+            avgRough[j] = Rough;
+        }else{  /* No Neighbor, Not Lake element*/
             Dist2Nabor[j] = 0.;
             avgRough[j] = Rough;
         }
@@ -176,26 +181,26 @@ void _Element::applyNabor(_Node *Node, _Element *Ele){
     
 }
 void _Element::Flux_Infiltration(double Ysurf, double Yunsat, double Ygw, double netprcp){
-    double av = Ysurf + netprcp, grad;
-    if(Ygw > AquiferDepth){
+    double av = Ysurf + netprcp, grad=0;
+    if(Ygw + Yunsat > AquiferDepth || u_deficit < Yunsat){
         /* GW reach the surface */
-        u_qex = fabs(Ygw - AquiferDepth) / AquiferDepth * Kmax; /* Exfiltration must be positive (upward). */
+        u_qex =  fabs(Ygw + Yunsat - AquiferDepth) / AquiferDepth * Kmax; /* Exfiltration must be positive (upward). */
         u_qi = 0. ;
     }else{
         /* GW level is lower than Surface */
         u_qex = 0.;
         if(av > 0. && u_deficit > infD){
             grad = 1. + av / infD;
+//            grad = (av -  u_phius )/ infD;
             if( av > Kmax){
                 /* Heavy rainfall, Macropore works */
-                u_effkInfi = u_satKr * infKsatV * (1 - hAreaF) + hAreaF * macKsatV * u_satn;
+                u_effkInfi = infKsatV * (1 - hAreaF) + hAreaF * macKsatV * u_satn;
             }else if( av > infKsatV ){
                 /* Medium rainfall, Macropore works */
                 u_effkInfi = u_satKr * infKsatV * (1 - hAreaF) + hAreaF * macKsatV * u_satn;
             }else{
                 /* Light rainfall */
                 u_effkInfi = 1. * infKsatV * (1 - hAreaF);
-//                grad = (av - u_phius) / infD;
             }
             u_qi = grad * u_effkInfi;
             u_qi = min(av, max(0., u_qi) );
@@ -203,11 +208,14 @@ void _Element::Flux_Infiltration(double Ysurf, double Yunsat, double Ygw, double
             u_qi = 0;
         }
     }
+//    if(u_qi > 1.){ /* DEBUG ONLY*/
+//        u_qi=u_qi;
+//    }
 //    CheckNANi(u_qi, 0, "u_qi");
 }
 double _Element::Flux_Recharge(double Yunsat, double Ygw){
     double ke=0., grad, ku;
-    if(Ygw > AquiferDepth - infD){
+    if(Ygw > AquiferDepth - infD && Yunsat < u_deficit){
         u_qr  =  0.;
         return u_qr;
     }
@@ -233,9 +241,20 @@ double _Element::Flux_Recharge(double Yunsat, double Ygw){
         u_qr = grad * ke;
     }
 #ifdef DEBUG
-    CheckNANi(u_qr, 0, "u_qr");
+    CheckNANi(u_qr, 0, "_Element::Flux_Recharge():u_qr");
 #endif
     return u_qr;
+}
+void _Element::updateLakeElement(){
+    u_effKH = KsatH;
+    u_deficit = 0;
+    Kmax = infKsatV;
+    u_deficit = 0.;
+    u_satn = 1.;
+    u_theta = ThetaS;
+    u_satKr = 1.0;
+    u_phius = 0.;
+    u_effkInfi = infKsatV;
 }
 void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
     u_effKH = effKH(Ygw,  AquiferDepth,  macD,  macKsatH,  geo_vAreaF,  KsatH);
@@ -265,14 +284,15 @@ void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
         u_phius = max(MINPSI, u_phius);
     }
     u_effkInfi = infKsatV * (1 - hAreaF) + u_satn * macKsatV * hAreaF ;
-//#ifdef DEBUG
+#ifdef DEBUG
+//    CheckNANi(u_satKr, 0, "_Element::updateElement():u_satKr");
 //    if (u_effkInfi < ZERO){
 //        printf("WARNING: Negative effective conductivity for infiltration.\n");
 //    }
 //    if (u_effKH < ZERO){
 //        printf("WARNING: Negative effective conductivity for infiltration.\n");
 //    }
-//#endif
+#endif
 }
 
 void _Element::copyGeol(Geol_Layer *g){
@@ -304,8 +324,8 @@ void _Element::copyLandc(Landcover *g){
 //    LAImax   = g[iLC - 1].LAImax;
     VegFrac  = g[iLC - 1].VegFrac;
     Albedo   = g[iLC - 1].Albedo;
-    Rs_ref   = g[iLC - 1].Rs_ref;
-    Rmin     = g[iLC - 1].Rmin;
+//    Rs_ref   = g[iLC - 1].Rs_ref;
+//    Rmin     = g[iLC - 1].Rmin;
     Rough    = g[iLC - 1].Rough;
     RzD      = g[iLC - 1].RzD;
     SoilDgrd = g[iLC - 1].SoilDgrd;

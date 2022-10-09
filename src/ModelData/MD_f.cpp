@@ -8,17 +8,30 @@
 void Model_Data:: f_loop(double t){
     int i;
     for (i = 0; i < NumEle; i++) {
-        f_etFlux(i, t);
-        /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
-        /*========infiltration/Recharge Function==============*/
-        Ele[i].updateElement(uYsf[i] , uYus[i] , uYgw[i] ); // step 1 update the kinf, kh, etc. for elements.
-        fun_Ele_Infiltraion(i, t); // step 2 calculate the infiltration.
-        fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
+        if(lakeon && Ele[i].iLake > 0){
+            /* Lake elements */
+            Ele[i].updateLakeElement();
+            fun_Ele_lakeVertical(i, t);
+            qLakeEvap[Ele[i].iLake - 1] += qEleEvapo[i] / lake[Ele[i].iLake - 1].NumEleLake;
+            qLakePrcp[Ele[i].iLake - 1] += qElePrep[i] / lake[Ele[i].iLake - 1].NumEleLake;
+        }else{
+            f_etFlux(i, t);
+            /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
+            /*========infiltration/Recharge Function==============*/
+            Ele[i].updateElement(uYsf[i] , uYus[i] , uYgw[i] ); // step 1 update the kinf, kh, etc. for elements.
+            fun_Ele_Infiltraion(i, t); // step 2 calculate the infiltration.
+            fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
+        }
     }
     for (i = 0; i < NumEle; i++) {
-        /*========surf/gw flow Function==============*/
-        fun_Ele_surface(i, t);  // AFTER infiltration, do the lateral flux. ESP for overland flow.
-        fun_Ele_sub(i, t);
+        if(lakeon && Ele[i].iLake > 0){
+            /* Lake elements */
+            fun_Ele_lakeHorizon(i, t);
+        }else{
+            /*========surf/gw flow Function==============*/
+            fun_Ele_surface(i, t);  // AFTER infiltration, do the lateral flux. ESP for overland flow.
+            fun_Ele_sub(i, t);
+        }
     } //end of for loop.
     for (i = 0; i < NumSegmt; i++) {
         fun_Seg_surface(RivSeg[i].iEle-1, RivSeg[i].iRiv-1, i);
@@ -26,6 +39,10 @@ void Model_Data:: f_loop(double t){
     }
     for (i = 0; i < NumRiv; i++) {
         Flux_RiverDown(t, i);
+    }
+    for (i = 0; i < NumLake; i++) {
+        qLakeEvap[i] = min(qLakeEvap[i], qLakePrcp[i] + yLakeStg[i]);
+        qLakeEvap[i] = max(0, qLakeEvap[i]);
     }
     /* Shared for both OpenMP and Serial, to update */
     PassValue();
@@ -42,11 +59,21 @@ void Model_Data::f_applyDY(double *DY, double t){
         for (int j = 0; j < 3; j++) {
             QeleSurfTot[i] += QeleSurf[i][j];
             QeleSubTot[i] += QeleSub[i][j];
+            CheckNANij(QeleSurf[i][j], i, "QeleSurf[i][j]");
+            CheckNANij(QeleSub[i][j], i, "QeleSub[i][j]");
         }
         DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEs[i];
         DY[ius] = qEleInfil[i] - qEleRecharge[i] - qEu[i] - qTu[i];
         DY[igw] = qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area - qEg[i] - qTg[i];
-
+//        if(uYgw[i] > Ele[i].WetlandLevel ){ /* IF GW above surface, exfil from GW, OR, from UNSAT*/
+//            DY[igw] += - qEleExfil[i];
+//        }else{
+//            if(uYus[i] > 0.){
+//                DY[ius] += - qEleExfil[i];
+//            }else{
+//                DY[igw] += - qEleExfil[i];
+//            }
+//        }
         /* Boundary condition and Source/Sink */
         if(Ele[i].iBC == 0){
         }else if(Ele[i].iBC > 0){ // Fix head of GW.
@@ -64,15 +91,25 @@ void Model_Data::f_applyDY(double *DY, double t){
         /* Convert with specific yield */
         DY[ius] /= Ele[i].Sy;
         DY[igw] /= Ele[i].Sy;
-//        if(DY[ius] < 0. && uYus[i] < -10.){  // debug only
-//            printf("%.3f, %d: %.2f, %.2e, %.2f | (%.2e, %.2e, %.2e), %.2e, %.2e\n", t, i+1,
-//                   uYus[i], DY[ius], uYgw[i], qEleE_IC[i], qEleTrans[i], qEleEvap[i],
-//                   qEleInfil[i], qEleRecharge[i]);
+        
+//        if(i+1==ID_ELE && DY[i]+uYsf[i] > 0.1 ){  // debug only
+//            printf("%.3f, %d: %.2e, %.2e, %.2e | (%.2e, %.2e, %.2e, %.2e, %.2e )\n",
+//                   t, i+1,
+//                   uYsf[i], uYus[i], uYgw[i], qEleInfil[i], - qEleRecharge[i], - qEu[i],  - qTu[i], QeleSurfTot[i] / area);
 //            printf("\n");
 //        }
-//                DY[isf] =0.0;  // debug only.
-//                DY[ius] =0.0;
-//                DY[igw] =0.0;
+//        if(i +1== ID_ELE){  // debug only
+//            printf("%.3f, %d: %f, %f, %f | (%f, %f, %f), %.2e, %.2e\n",
+//                   t, i+1,
+//                   DY[i], DY[ius], DY[igw], QeleSurf[i][0] / area, QeleSurf[i][1] / area, QeleSurf[i][2] / area,
+//                   -QeleSurfTot[i] / area, qEleRecharge[i]);
+//            printf("\n");
+//        }
+        if(Ele[i].iLake > 0){
+            DY[i] = 0.;
+            DY[ius] = 0.;
+            DY[igw] = 0.;
+        }
 #ifdef DEBUG
         CheckNANi(DY[i], i, "DY[i] (Model_Data::f_applyDY)");
         CheckNANi(DY[ius], i, "DY[ius] (Model_Data::f_applyDY)");
@@ -86,11 +123,29 @@ void Model_Data::f_applyDY(double *DY, double t){
         }else{
             DY[iRIV] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].Length; // dA on CS
             DY[iRIV] = fun_dAtodY(DY[iRIV], Riv[i].u_topWidth, Riv[i].bankslope);
-//            DY[iRIV] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].u_TopArea;
+            
+//            if(i+1 == ID_RIV && fabs(DY[iRIV])> 0.001){
+//                printf("%d, up:%f, down:%f, sub:%f, surf:%f, dy=%f\n", i+1,
+//                       - QrivUp[i] / Riv[i].u_TopArea, - QrivDown[i] / Riv[i].u_TopArea,
+//                       - QrivSub[i] / Riv[i].u_TopArea, - QrivSurf[i] / Riv[i].u_TopArea,
+//                       DY[iRIV]);
+//                i=i;
+//            }
         }
-//        DY[iRIV] = 0.0;
 #ifdef DEBUG
         CheckNANi(DY[i + 3 * NumEle], i, "DY[i] of river (Model_Data::f_applyDY)");
+#endif
+    }
+    for(int i = 0; i < NumLake; i++){
+//        DY[i + 3 * NumEle + NumRiv]
+        DY[iLAKE] = qLakePrcp[i] - qLakeEvap[i]  +
+                    (QLakeRivIn[i] - QLakeRivOut[i] + QLakeSub[i] + QLakeSurf[i] ) / y2LakeArea[i] ;        
+//        if(fabs(DY[iLAKE]) > 1.0e-4){
+//            printf("%f: %g + %g\n",t, yLakeStg[i], DY[iLAKE]);
+//            i=i;
+//        }
+#ifdef DEBUG
+        CheckNANi(DY[iLAKE], i, "DY[i] of LAKE (Model_Data::f_applyDY)");
 #endif
     }
 }
@@ -115,7 +170,7 @@ void Model_Data::PassValue(){
         Qe2r_Sub[ie] += -QsegSub[i];
     }
     for (i = 0; i < NumRiv; i++) {
-        if(iDownStrm >= 0){
+        if(iDownStrm >= 0 && Riv[i].toLake <= 0){
             QrivUp[iDownStrm] += - QrivDown[i];
         }
     }

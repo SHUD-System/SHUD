@@ -40,10 +40,11 @@
 #define i_rh 3
 #define i_wind 4
 #define i_rn 5
+#define SecADay 86400
 
 /*========Physical Constant value===============*/
 #define PI 3.1415926
-#define MINRIVSLOPE 1e-4
+#define MINRIVSLOPE 4e-4
 #define C_air 1004.0
 #define THRESH 0.0
 #define dTdZ  .00065  /* Adiabatic Lapse Rate 6.5 [K/km]*/
@@ -57,11 +58,12 @@
 #define Tsnow  -3.0  //Threshold for Snow
 #define Train  1.0
 #define To  0.0
-
+#define ROUGHNESS_WATER 0.00137 // Page 4.15 Handbook of Hydrology
 #define CONST_RH 0.01  //0.01 is the minimum value for Relative Humidity. [m]
-#define CONST_HC 0.01  //0.01 is the minimum Height of CROP. [m]
+#define CONST_HC 0.12  //0.01 is the minimum Height of CROP. [m]
 #define IC_MAX 0.0002  // Maximum Interception on caonpy.
 #define IC_MAX_SNOW  0.003
+#define MAXYSURF 0.5
 
 #define CKconst  273.15 /* Kelvin Constant */
 #define VON_KARMAN     0.4        /* Von Karman's constant */
@@ -79,7 +81,8 @@
 #define ERRCONSIS   20
 #define NA_VALUE -9999
 /*=======================*/
-#define ID 94 // debug only.
+#define ID_ELE 3246 // debug only.
+#define ID_RIV 22 // debug only.
 //extern int debug_mode;
 //extern int verbose_mode;
 //extern int sinks_remove;

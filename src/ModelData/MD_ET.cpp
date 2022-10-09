@@ -17,7 +17,7 @@ void Model_Data::updateforcing(double t){
     }
     tsd_MF.movePointer(t);
     tsd_LAI.movePointer(t);
-    tsd_RL.movePointer(t);
+//    tsd_RL.movePointer(t);
     for(i = 0; i < NumEle; i++){
         Ele[i].updateElement(uYsf[i], uYus[i], uYgw[i]);
         tReadForcing(t,i);
@@ -25,35 +25,33 @@ void Model_Data::updateforcing(double t){
 }
 void Model_Data::tReadForcing(double t, int i){
     int idx = Ele[i].iForc - 1;
-    double etp, ra, rs, t0;
+    double etp, ra, rs, t0, hc, U2, Uz, Zmeasure, lai;
+    double GroundHeatFlux, RG;
     t_prcp[i] = tsd_weather[idx].getX(t, i_prcp) * gc.cPrep;
-    
     t0= tsd_weather[idx].getX(t, i_temp);
     t_temp[i] = TemperatureOnElevation(t0, Ele[i].zmax, tsd_weather[idx].xyz[2]) +  gc.cTemp;
-    
-    
     t_lai[i] = tsd_LAI.getX(t, Ele[i].iLC) * gc.cLAItsd ;
+    lai = t_lai[i];
     t_mf[i] = tsd_MF.getX(t, Ele[i].iMF) * gc.cMF / 1440.;  /*  [m/day/C] to [m/min/C].
                                                             1.6 ~ 6.0 mm/day/C is typical value in USDA book
                                                             Input is 1.4 ~ 3.0 mm/d/c */
     t_rn[i] = tsd_weather[idx].getX(t, i_rn) * (1 - Ele[i].Albedo);
-    t_wind[i] = (fabs(tsd_weather[idx].getX(t, i_wind) ) + 0.001); // +.001 voids ZERO.
+    Uz = t_wind[i] = (fabs(tsd_weather[idx].getX(t, i_wind) ) + 0.001); // +.001 voids ZERO.
     t_rh[i] = tsd_weather[idx].getX(t, i_rh);
-    t_hc[i] = tsd_RL.getX(t, Ele[i].iLC);
+//    t_hc[i] = tsd_RL.getX(t, Ele[i].iLC);
 //    t_hc[i] = max(t_hc[i], CONSt_hc);
     /* Precipitation  */
-    t_prcp[i]   = t_prcp[i] * 0.001 / 1440 ; // [mm d-1] to [m min-1]
-    
+    t_prcp[i]   = t_prcp[i] * 0.001 / 1440. ; // [mm d-1] to [m min-1]
     /* Potential ET */
     t_rn[i]     = t_rn[i] * 1.0e-6;  // [W m-2] to [MJ m-2 s-1]
-//    t_wind[i]   = t_wind[i] ; /* [m s-1] */
-//    t_temp[i]   = t_temp[i]; /* C  to C */
-    t_rh[i]     = t_rh[i] * 0.01;  /* % to 1 */
+    /*
+     t_wind [m s-1] ;
+     t_temp  [C] ;
+     t_rh  [0-1] ;
+     */
     t_rh[i]     = min(max(t_rh[i], CONST_RH), 1.0); // [value is b/w 0~1 ]
     
     qElePrep[i] = t_prcp[i];
-    
-    
     double lambda = LatentHeat(t_temp[i]);                      // eq 4.2.1  [MJ/kg]
     double Gamma = PsychrometricConstant(Ele[i].FixPressure, lambda); // eq 4.2.28  [kPa C-1]
     double es = VaporPressure_Sat(t_temp[i]);                   // eq 4.2.2 [kpa]
@@ -61,18 +59,51 @@ void Model_Data::tReadForcing(double t, int i){
     double ed = es - ea ;  // [kPa]
     double Delta = SlopeSatVaporPressure(t_temp[i], es);        // eq 4.2.3 [kPa C-1]
     double rho = AirDensity(Ele[i].FixPressure, t_temp[i]);;    // eq 4.2.4 [kg m-3]
-    rs = ra = AerodynamicResistance(t_wind[i], CONST_HC, Ele[i].windH, 2.);     // eq 4.2.25  [s m-1]
-    double RG = t_rn[i] * 0.9;  /* R - G in the PM equation.*/
-    qPotEvap[i] = gc.cETP * PET_Penman_Monteith(Ele[i].FixPressure, RG, rho,
-                                            ed, Delta, ra, rs, Gamma, lambda) * 60.;                // eq 4.2.27
-    if(t_lai[i] > 0.){
-        rs = BulkSurfaceResistance(t_lai[i]);                  // eq 4.2.22 (bulk) surface resistances. [s m-1]
-        ra = AerodynamicResistance(t_wind[i], t_lai[i] / 24, Ele[i].windH, 2.);     // eq 4.2.22 & 4.2.25  [s m-1]
-        qPotTran[i] = gc.cETP * PET_Penman_Monteith(Ele[i].FixPressure, RG, rho,
-                                                    ed, Delta, ra, rs, Gamma, lambda) * 60.;                // eq 4.2.27
-        etp = qPotTran[i] * Ele[i].VegFrac + qPotEvap[i] * (1. - Ele[i].VegFrac);
+    /* R - G in the PM equation.*/
+    if(Ele[i].iLake > 0 ){
+        GroundHeatFlux = 0.;
+        RG = t_rn[i];
     }else{
+        if(lai > 0){
+            GroundHeatFlux = 0.4 * exp(-0.5 * lai) * t_rn[i];
+        }else{
+            GroundHeatFlux = 0.1 * t_rn[i];
+        }
+        RG = t_rn[i] - GroundHeatFlux;
+    }
+    
+    U2 = WindProfile(2.0, t_wind[i], Ele[i].windH, 0., ROUGHNESS_WATER); // [m s-1]
+    qPotEvap[i] = gc.cETP * PET_PM_openwater(Delta, Gamma, lambda, RG, ed, U2) * 60.; // eq 4.2.30
+    if(Ele[i].iLake > 0){        /* Open-water */
+        qPotTran[i] = gc.cETP * 0.;
         etp = qPotEvap[i];
+    }else if(lai <= 0.){        /* Bare soiln */
+        qPotTran[i] = gc.cETP * 0.;
+        etp = qPotEvap[i];
+    }else{
+//        hc = lai2hc(lai);
+        hc = lai * 0.5;
+        Zmeasure = hc*1.3333; /* When hc > Zm, Zm = hc + 5.0m */
+        ra = AerodynamicResistance(Uz, hc, Zmeasure, Zmeasure); // eq 4.2.25  [s m-1]
+//        if( Zmeasure > HeightWindMeasure){ /* Veg Height > Wind Measure Height */
+//            ra = AerodynamicResistance(Uz, hc, Zmeasure, Zmeasure); // eq 4.2.25  [s m-1]
+//        }else{
+//            ra = AerodynamicResistance(Uz, hc, HeightWindMeasure, 2.0); // eq 4.2.25  [s m-1]
+//        }
+//        ra = min(300., ra);
+//        if(ra < 0){
+//            ra = AerodynamicResistance(Uz, hc, Zmeasure, Zmeasure); // eq 4.2.25  [s m-1]
+//            ra = AerodynamicResistance(Uz, hc, HeightWindMeasure, 2.0); // eq 4.2.25  [s m-1]
+//        }
+        CheckNonZero(ra, i, "Aerodynamic Resistance");
+//        CheckNANi(ra, i, "Aerodynamic Resistance");
+        rs = BulkSurfaceResistance(lai);  // eq 4.2.22 & 4.2.25  [s m-1]
+        qPotTran[i] = gc.cETP * PET_Penman_Monteith(RG, rho, ed, Delta, ra, rs, Gamma, lambda) * 60.;// eq 4.2.27
+        etp = qPotTran[i] * Ele[i].VegFrac + qPotEvap[i] * (1. - Ele[i].VegFrac);
+        CheckNANi(qPotTran[i], i, "qPotTran[i]");
+    }
+    if(qPotTran[i] < 0.){
+        i=i;
     }
     qEleETP[i] = etp;
 }
@@ -110,6 +141,7 @@ void Model_Data::ET(double t, double tnext){
         snAcc = snFrac * prcp;
         snMelt = (T > To ? (T - To) * MF : 0.);    /* eq. 7.3.14 in Maidment */
         snMelt = min(max(0., snStg / DT_min), max(0., snMelt));
+//        CheckNonNegative(snMelt, i, "Snow Melting");
         snStg += (snAcc - snMelt) * DT_min;
         
         /* Interception */
@@ -130,8 +162,12 @@ void Model_Data::ET(double t, double tnext){
         yEleIS[i] = icStg * vgFrac;
         yEleSnow[i] = snStg;
         qEleE_IC[i] = icEvap * vgFrac;
-        qEleNetPrep[i] = prcp + snMelt - snAcc - icAcc * vgFrac ;
+        qEleNetPrep[i] = (1. - snFrac) * prcp + snMelt - icAcc * vgFrac ;
+        if(qEleE_IC[i] < 0. ){ // DEBUG ONLY
+            i = i;
+        }
         CheckNonNegative(qEleNetPrep[i], i, "Net Precipitation");
+        CheckNonNegative(qEleE_IC[i], i, "qEleE_IC");
     }
 }
 void Model_Data::f_etFlux(int i, double t){
@@ -185,15 +221,15 @@ void Model_Data::f_etFlux(int i, double t){
     if(qEleETA[i] > qEleETP[i] * 2.){
         printf("Warning: More AET(%.3E) than PET(%.3E) on Element (%d).", qEleETA[i], qEleETP[i], i+1);
     }
-#ifdef DEBUG
     CheckNonNegative(Es, i, "Es"); // Debug Only
     CheckNonNegative(Eu, i, "Eu");
     CheckNonNegative(Eg, i, "Eg");
     CheckNonNegative(Tu, i, "Tu");
     CheckNonNegative(Tg, i, "Tg");
-    CheckNANi(ETp, i, "Potential ET (Model_Data::EvapoTranspiration)");
+    CheckNANi(qEleETA[i], i, "Potential ET (Model_Data::EvapoTranspiration)");
     CheckNANi(qEleEvapo[i], i, "Transpiration (Model_Data::EvapoTranspiration)");
     CheckNANi(qEleTrans[i], i, "Soil Evaporation (Model_Data::EvapoTranspiration)");
+#ifdef DEBUG
 #endif
 }
 
