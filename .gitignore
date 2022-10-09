@@ -7,7 +7,8 @@ Build/
 	shud.dSYM/
 	sundials-master.zip
 	sundials-master/
-
+*.zip
+scr.2*
 output
 *.sh
 shud
