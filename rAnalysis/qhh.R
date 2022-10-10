@@ -32,5 +32,4 @@ qq = cbind('SIM' = qs, 'OBS' = qo/86400)[ts,]
 
 autoplot(qq)
 
-xl = loaddata()
-wb = wb.all(xl=xl)
+loaddata()

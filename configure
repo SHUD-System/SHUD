@@ -14,10 +14,11 @@ echo ""
 rm -rf $installPath
 #rm -rf sundials-master
 
-echo "download from github: \n wget https://codeload.github.com/LLNL/sundials/zip/master"
+echo "download from github:  wget https://codeload.github.com/LLNL/sundials/zip/master"
 #wget -c https://codeload.github.com/LLNL/sundials/zip/master -O sundials.zip
 #echo "unzip sundials.zip"
 #unzip sundials.zip
+echo "git clone https://github.com/LLNL/sundials.git"
 git clone https://github.com/LLNL/sundials.git
 
 mkdir $installPath
