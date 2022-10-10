@@ -31,7 +31,7 @@ void SHUDlogo(void){
     printf("      /  \\__██ |      ██ |  ██ |      ██ \\__██ |      ██ |__██ |\n");
     printf("      ██    ██/       ██ |  ██ |      ██    ██/       ██    ██/ \n");
     printf("       ██████/        ██/   ██/        ██████/        ███████/  \n\n");
-    printf("     Simulator for Hydrologic Unstructured Domains v1.0  2019   \n");
+    printf("     Simulator for Hydrologic Unstructured Domains v2.0  2022   \n");
     printf("  ________________________________________________________________\n");
 }
 
