@@ -22,3 +22,4 @@ SHUD.*
 .DS_Store
 forcing
 rAnalysis/test.R
+*.*.swp
