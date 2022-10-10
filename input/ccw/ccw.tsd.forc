@@ -1,4 +1,4 @@
-1 20020101
+1 20000101
 ./input/ccw/
 ID	Lon	Lat	X	Y	Z	Filename
   1	-122.7100	39.195	-2255410    2116135	-9999	forcing.csv

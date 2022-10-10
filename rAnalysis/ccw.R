@@ -30,7 +30,7 @@ to = time(qo)
 ct= ts[to %in% ts]
 qq = cbind('SIM' = qs, 'OBS' = qo/86400)[ts,]
 
-autoplot(qq)
+autoplot(qq[,1])
 
 xl = loaddata()
 wb = wb.all(xl=xl)
