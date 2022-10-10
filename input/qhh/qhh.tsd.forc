@@ -1,0 +1,4 @@
+1 20020101
+./input/qhh
+ID	Lon	Lat	X	Y	Z	Filename
+  1	100.95	36.25	675202.8	4013441	-9999	forcing.csv

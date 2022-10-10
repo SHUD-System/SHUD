@@ -1,7 +1,5 @@
-5 20000101
-forcing/
-x18y114.csv
-x19y114.csv
-x20y114.csv
-x18y115.csv
-x19y115.csv
+1 20020101
+./input/ccw/
+ID	Lon	Lat	X	Y	Z	Filename
+  1	-122.7100	39.195	-2255410    2116135	-9999	forcing.csv
+

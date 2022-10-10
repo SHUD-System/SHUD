@@ -8,10 +8,10 @@ Ongoing applications of the SHUD model include hydrologic analyses of hillslope 
 
 
 
-- **Maintainner**: Lele Shu ([lele.shu@gmail.com](mailto:lele.shu@gmail.com))
-- **Website (中文)**: [www.shud.xyz/zh/](https://www.shud.xyz/zh/)
+- **Maintainner**: Lele Shu ([shulele@lzb.ac.cn](mailto:shulele@lzb.ac.cn))
+- **Website (中文)**: [www.shud.xyz/](https://www.shud.xyz/)
 - **Website (English)**: [www.shud.xyz/en/](https://www.shud.xyz/en/)
-- **User Guide**: https://www.shud.xyz/_book/
+- **User Guide**: [https://www.shud.xyz/book_cn/](https://www.shud.xyz/book_cn/)
 - **Support tools**: rSHUD.  [https://github.com/SHUD-System/rSHUD](https://github.com/SHUD-System/rSHUD)
 - **Programming**: C/C++
 - **Platform**: Mac OS, Linux and Windows
@@ -20,11 +20,8 @@ Ongoing applications of the SHUD model include hydrologic analyses of hillslope 
 
 ## Overview
 
-The Simulator for Hydrologic Unstructured Domains (SHUD) is a multi-process, multi-scale model where major hydrologic processes are fully coupled using the **Finite Volume Method (FVM)**. SHUD encapsulates the strategy for the synthesis of multi-state distributed hydrologic models using the integral representation of the underlying physical process equations and state variables. As an intellectual descendant of Penn State Integrated Hydrologic Model (**PIHM**), the SHUD model is a continuation of 16 years of PIHM model development in hydrology and related fields since the release of its first PIHM version  (Qu, 2004).
+The Simulator for Hydrologic Unstructured Domains (SHUD) is a multi-process, multi-scale model where major hydrologic processes are fully coupled using the **Finite Volume Method (FVM)**. SHUD encapsulates the strategy for the synthesis of multi-state distributed hydrologic models using the integral representation of the underlying physical process equations and state variables.
 
-
-
-![Figure_tree](Fig/Figure_tree.png)
 
 The conceptual structure of the ***two-state integral-balance*** model for soil moisture and groundwater dynamics was originally devised by (Duffy, 1996), in which the partial volumes occupied by unsaturated and saturated moisture storage were integrated directly into a local conservation equation. This two-state integral-balance structure simplified the hydrologic dynamics while preserving the natural spatial and temporal scales contributing to runoff response.
 
@@ -32,7 +29,15 @@ SHUD's design is based on a concise representation of a watershed and river basi
 
 ![figure1](Fig/figure1.png)
 
-### We now summarize the formulation and results from SHUD. 
+The latest version of SHUD (v2.0) supports the simulation of coupled lake model.
+![Lake coupling](Fig/lake.png)
+
+
+As an intellectual descendant of Penn State Integrated Hydrologic Model (**PIHM**), the SHUD model is a continuation of 16 years of PIHM model development in hydrology and related fields since the release of its first PIHM version  (Qu, 2004).
+
+![Figure_tree](Fig/Figure_tree.png)
+
+###The formulation and results from SHUD. 
 
 - SHUD is a physically-based process spatially distributed catchment model. The model applies national geospatial data resources to simulate surface and subsurface flow in gaged or ungaged catchments. SHUD represents the spatial heterogeneity that influences the hydrology of the region based on national soil data and superficial geology. Several other groups have used PIHM, a SHUD ancestor to couple processes from biochemistry, reaction transport, landscape, geomorphology, limnology, and other related research areas.
 
@@ -49,7 +54,7 @@ SHUD's design is based on a concise representation of a watershed and river basi
   
 
 
-## Compliation (Linux or Mac) and run the example watersheds
+## Compilation (Linux or Mac) and run the example watersheds
 
 **Step 0: download the latest source code**
 
@@ -58,13 +63,13 @@ git clone git@github.com:SHUD-System/SHUD.git
 cd SHUD
 ```
 
-**Step 1: Install SUNDIALS/CVODE:**
+**Step 1: Install SUNDIALS/CVODE 6.x:**
 
 ```
 ./configure
 ```
 
-This configure is to download teh SUNDIALS from GitHub and install it on your computer.
+This configure is to download the SUNDIALS from GitHub and install it on your computer.
 
 **Step 2: Compile SHUD with gcc**
 
