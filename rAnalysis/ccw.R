@@ -28,9 +28,9 @@ qs = ts2Daily(qdown[, oid])
 ts = time(qs)
 to = time(qo)
 ct= ts[to %in% ts]
-qq = cbind('SIM' = qs, 'OBS' = qo/86400)[ts,]
+qq = cbind('SIM' = qs, 'OBS' = qo)[ts,]
 
-autoplot(qq[,1])
+autoplot(qq[,])
 
 xl = loaddata()
 wb = wb.all(xl=xl)
