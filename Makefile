@@ -56,7 +56,7 @@ MAIN_DEBUG 		= ${SRC_DIR}/main.cpp
 
 CC       = /usr/bin/g++
 MPICC    = /usr/local/bin/mpic++
-CFLAGS   = -O3 -g  -std=c++11
+CFLAGS   = -O3 -g  -std=c++14
 #STCFLAG     = -static
 
 SRC    	= ${SRC_DIR}/classes/*.cpp \
