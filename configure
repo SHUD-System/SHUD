@@ -45,7 +45,7 @@ cmake -DCMAKE_INSTALL_PREFIX=$path \
  -DBUILD_IDA=OFF \
  -DBUILD_IDAS=OFF \
  -DBUILD_KINSOL=OFF \
- -DOPENMP_ENABLE=OFF \
+ -DOPENMP_ENABLE=ON \
  ../../sundials
 
 echo "make"
