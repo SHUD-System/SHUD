@@ -53,17 +53,23 @@ void PrintFinalStats(void *cvode_mem)
     flag = CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
     check_flag(&flag, "CVodeGetNumNonlinSolvConvFails", 1);
     
-    flag = CVSpilsGetWorkSpace(cvode_mem, &lenrwLS, &leniwLS);
+//    flag = CVSpilsGetWorkSpace(cvode_mem, &lenrwLS, &leniwLS);
+    flag = CVodeGetLinWorkSpace(cvode_mem, &lenrwLS, &leniwLS);
     check_flag(&flag, "CVSpilsGetWorkSpace", 1);
-    flag = CVSpilsGetNumLinIters(cvode_mem, &nli);
+//    flag = CVSpilsGetNumLinIters(cvode_mem, &nli);
+    flag = CVodeGetNumLinIters(cvode_mem, &nli);
     check_flag(&flag, "CVSpilsGetNumLinIters", 1);
-    flag = CVSpilsGetNumPrecEvals(cvode_mem, &npe);
+//    flag = CVSpilsGetNumPrecEvals(cvode_mem, &npe);
+    flag = CVodeGetNumPrecEvals(cvode_mem, &npe);
     check_flag(&flag, "CVSpilsGetNumPrecEvals", 1);
-    flag = CVSpilsGetNumPrecSolves(cvode_mem, &nps);
+//    flag = CVSpilsGetNumPrecSolves(cvode_mem, &nps);
+    flag = CVodeGetNumPrecSolves(cvode_mem, &nps);
     check_flag(&flag, "CVSpilsGetNumPrecSolves", 1);
-    flag = CVSpilsGetNumConvFails(cvode_mem, &ncfl);
+//    flag = CVSpilsGetNumConvFails(cvode_mem, &ncfl);
+    flag = CVodeGetNumLinConvFails(cvode_mem, &ncfl);
     check_flag(&flag, "CVSpilsGetNumConvFails", 1);
-    flag = CVSpilsGetNumRhsEvals(cvode_mem, &nfeLS);
+//    flag = CVSpilsGetNumRhsEvals(cvode_mem, &nfeLS);
+    flag = CVodeGetNumLinRhsEvals(cvode_mem, &nfeLS);
     check_flag(&flag, "CVSpilsGetNumRhsEvals", 1);
     
     printf("\nFinal Statistics.. \n\n");
@@ -83,7 +89,7 @@ void CVODEstatus(void *cvode_mem, N_Vector u, realtype t){
   long int nst;
   int qu, retval;
   realtype hu, *udata;
-  udata = N_VGetArrayPointer(u);
+//  udata = N_VGetArrayPointer(u);
 
   retval = CVodeGetNumSteps(cvode_mem, &nst);
   check_flag(&retval, "CVodeGetNumSteps", 1);

@@ -54,8 +54,8 @@ double SHUD(FileIn *fin, FileOut *fout){
 #ifdef _OPENMP_ON
     omp_set_num_threads(MD->CS.num_threads);
     screeninfo("\nopenMP: ON. No of Threads = %d\n", MD->CS.num_threads);
-    udata = N_VNew_OpenMP(NY, MD->CS.num_threads);
-    du = N_VNew_Serial(NY);
+    udata = N_VNew_OpenMP(NY, MD->CS.num_threads, sunctx);
+    du = N_VNew_OpenMP(NY, MD->CS.num_threads, sunctx);
 #else
     screeninfo("\nopenMP: OFF\n");
     udata = N_VNew_Serial(NY, sunctx);
@@ -100,7 +100,7 @@ double SHUD(FileIn *fin, FileOut *fout){
         }
         //            CVODEstatus(mem, udata, t);
         MD->summary(udata);
-        fout->writeTime(t);
+        if(global_verbose_mode) fout->writeTime(t);
         MD->CS.ExportResults(t);
         MD->flood->FloodWarning(t);
     }

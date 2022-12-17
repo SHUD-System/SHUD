@@ -66,6 +66,7 @@ public:
     int NumMeltF = 0;        /* Number of Melt Factor Time series */
     int NumRivType = 0;        /* Number of River Shape */
     int NumRivNode = 0;
+    int *io_ele, *io_riv, *io_lake; /* Wether Export the data of these elements */
     
     _TimeSeriesData *tsd_weather;
     _TimeSeriesData tsd_LAI;
@@ -259,7 +260,7 @@ private:
     void RiverTable(const char *fn);
     
     void LakeTable(const char *fn);
-    int LakeUniqueID();
+    int  LakeUniqueID();
     void LakeInitialize();
     void lake_readBathy(const char *fn);
     void lake_readIC(const char *fn);
@@ -290,7 +291,10 @@ private:
     void read_riv(const char *fn);
     void read_rivseg(const char *fn);
     void read_mesh(const char *fn);
-    
+    void read_cfgout(const char *fn);
+    void setIO_ele(int x);
+    void setIO_riv(int x);
+    void setIO_lake(int x);
     
     void read_att(const char *fn);
     void read_soil(const char *fn);

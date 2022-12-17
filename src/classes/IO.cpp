@@ -88,6 +88,7 @@ void FileIn:: setInFilePath(char * indir, char *  pjrname){
     sprintf(file_geol, "%s/%s.%s", inpath, projectname, "para.geol");
     
     /* model configuration */
+    sprintf(file_cfgout, "%s/%s.%s", inpath, projectname, "cfg.output");
     sprintf(file_para, "%s/%s.%s", inpath, projectname, "cfg.para");
     sprintf(file_calib, "%s/%s.%s", inpath, projectname, "cfg.calib");
     sprintf(file_init, "%s/%s.%s", inpath, projectname, "cfg.ic");
@@ -200,11 +201,12 @@ void FileOut::updateFilePath(){
     sprintf(floodout, "%s/%s%s.flood.csv", outpath, projectname, suffix);
     sprintf(obs_sim, "%s/%s%s.ovs.csv", outpath, projectname, suffix);
     
-    
-    sprintf(File_Time, "%s/%s%s.time.csv", outpath, projectname, suffix);
-    fid_time = fopen(File_Time, "w");
-    CheckFile(fid_time, "Time log file");
-    fprintf(fid_time, "time_Minutes \t Time_Days \t Clock_s\n");
+    if(global_verbose_mode){
+        sprintf(File_Time, "%s/%s%s.time.csv", outpath, projectname, suffix);
+        fid_time = fopen(File_Time, "w");
+        CheckFile(fid_time, "Time log file");
+        fprintf(fid_time, "time_Minutes \t Time_Days \t Clock_s\n");
+    }
 }
 void FileOut::createDir(){
     mkdir_p(outpath, 0777);

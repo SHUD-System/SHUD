@@ -69,9 +69,8 @@ void Model_Data::tReadForcing(double t, int i){
         }else{
             GroundHeatFlux = 0.1 * t_rn[i];
         }
-        RG = t_rn[i] - GroundHeatFlux;
     }
-    
+    RG = t_rn[i] - GroundHeatFlux;
     U2 = WindProfile(2.0, t_wind[i], Ele[i].windH, 0., ROUGHNESS_WATER); // [m s-1]
     qPotEvap[i] = gc.cETP * PET_PM_openwater(Delta, Gamma, lambda, RG, ed, U2) * 60.; // eq 4.2.30
     if(Ele[i].iLake > 0){        /* Open-water */

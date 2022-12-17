@@ -39,6 +39,7 @@ public:
     char file_init[MAXLEN];
     char file_para[MAXLEN];
     char file_calib[MAXLEN];
+    char file_cfgout[MAXLEN];
     
     /* physical parameters */
     char file_lc[MAXLEN];

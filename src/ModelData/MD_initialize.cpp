@@ -237,89 +237,90 @@ void Model_Data::initialize(){
     }
     initializeLake();
     malloc_Y();
+    read_cfgout(pf_in->file_cfgout);
 }
 void Model_Data:: initialize_output (){
     int ip = 0;
     /* Storage */
     if (CS.dt_ye_ic > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_ic, CS.dt_ye_ic,yEleIS, 0);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_ic, CS.dt_ye_ic,yEleIS, 0, io_ele);
     if (CS.dt_ye_snow > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_snow, CS.dt_ye_snow, yEleSnow, 0);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_snow, CS.dt_ye_snow, yEleSnow, 0, io_ele);
     if (CS.dt_ye_surf > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_surf, CS.dt_ye_surf, yEleSurf, 0);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_surf, CS.dt_ye_surf, yEleSurf, 0, io_ele);
     if (CS.dt_ye_unsat > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_unsat, CS.dt_ye_unsat, yEleUnsat, 0);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_unsat, CS.dt_ye_unsat, yEleUnsat, 0, io_ele);
     
     if (CS.dt_ye_gw > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_gw, CS.dt_ye_gw, yEleGW, 0);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_y_gw, CS.dt_ye_gw, yEleGW, 0, io_ele);
     /* Fluxes */
     if (CS.dt_qe_prcp > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_prcp, CS.dt_qe_prcp, qElePrep, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_prcp, CS.dt_qe_prcp, qElePrep, 1, io_ele);
     if (CS.dt_qe_prcp > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_netprcp, CS.dt_qe_prcp, qEleNetPrep, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_netprcp, CS.dt_qe_prcp, qEleNetPrep, 1, io_ele);
     if (CS.dt_qe_etp > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ETP, CS.dt_qe_etp, qEleETP, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ETP, CS.dt_qe_etp, qEleETP, 1, io_ele);
     if (CS.dt_qe_eta > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ETA, CS.dt_qe_eta, qEleETA, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ETA, CS.dt_qe_eta, qEleETA, 1, io_ele);
     if (CS.dt_qe_rech > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_rech, CS.dt_qe_rech, qEleRecharge, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_rech, CS.dt_qe_rech, qEleRecharge, 1, io_ele);
     if (CS.dt_Qe_sub > 0){
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_subTot, CS.dt_Qe_sub, QeleSubTot, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_subTot, CS.dt_Qe_sub, QeleSubTot, 1, io_ele);
     }
     if (CS.dt_Qe_subx > 0){
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub0, CS.dt_Qe_sub, QeleSub, 0, 1);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub1, CS.dt_Qe_sub, QeleSub, 1, 1);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub2, CS.dt_Qe_sub, QeleSub, 2, 1);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub0, CS.dt_Qe_sub, QeleSub, 0, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub1, CS.dt_Qe_sub, QeleSub, 1, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub2, CS.dt_Qe_sub, QeleSub, 2, 1, io_ele);
     }
     if (CS.dt_Qe_surf > 0){
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_surfTot, CS.dt_Qe_surf, QeleSurfTot, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_surfTot, CS.dt_Qe_surf, QeleSurfTot, 1, io_ele);
     }
     if (CS.dt_Qe_surfx > 0){
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf0, CS.dt_Qe_surf, QeleSurf, 0, 1);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf1, CS.dt_Qe_surf, QeleSurf, 1, 1);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf2, CS.dt_Qe_surf, QeleSurf, 2, 1);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf0, CS.dt_Qe_surf, QeleSurf, 0, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf1, CS.dt_Qe_surf, QeleSurf, 1, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf2, CS.dt_Qe_surf, QeleSurf, 2, 1, io_ele);
     }
     if (CS.dt_Qe_rsub > 0){
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_rsub, CS.dt_Qe_rsub, Qe2r_Sub, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_rsub, CS.dt_Qe_rsub, Qe2r_Sub, 1, io_ele);
     }
     if (CS.dt_Qe_rsurf > 0){
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_rsurf, CS.dt_Qe_rsurf, Qe2r_Surf, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_rsurf, CS.dt_Qe_rsurf, Qe2r_Surf, 1, io_ele);
     }
     if (CS.dt_qe_infil > 0){
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_infil, CS.dt_qe_infil, qEleInfil, 1);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_exfil, CS.dt_qe_infil, qEleExfil, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_infil, CS.dt_qe_infil, qEleInfil, 1, io_ele);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_exfil, CS.dt_qe_infil, qEleExfil, 1, io_ele);
     }
     
     /* ET  2d array */
     if (CS.dt_qe_et > 0){
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ET[0], CS.dt_qe_et, qEleE_IC, 1);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ET[1], CS.dt_qe_et, qEleTrans, 1);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ET[2], CS.dt_qe_et, qEleEvapo, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ET[0], CS.dt_qe_et, qEleE_IC, 1, io_ele);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ET[1], CS.dt_qe_et, qEleTrans, 1, io_ele);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_q_ET[2], CS.dt_qe_et, qEleEvapo, 1, io_ele);
     }
     
     
     /* Print control for River */
     if (CS.dt_Qr_up > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_Q_up, CS.dt_Qr_up, QrivUp, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_Q_up, CS.dt_Qr_up, QrivUp, 1, io_riv);
     if (CS.dt_Qr_down > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_Q_down, CS.dt_Qr_down, QrivDown, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_Q_down, CS.dt_Qr_down, QrivDown, 1, io_riv);
     if (CS.dt_Qr_sub > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_Q_sub, CS.dt_Qr_sub, QrivSub, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_Q_sub, CS.dt_Qr_sub, QrivSub, 1, io_riv);
     if (CS.dt_Qr_surf > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_Q_surf, CS.dt_Qr_surf, QrivSurf, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_Q_surf, CS.dt_Qr_surf, QrivSurf, 1, io_riv);
     if (CS.dt_yr_stage > 0)
-        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_y_stage, CS.dt_yr_stage, yRivStg, 0);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumRiv, pf_out->riv_y_stage, CS.dt_yr_stage, yRivStg, 0, io_riv);
     
     /* Print control for Lake */
     if (CS.dt_lake > 0 && NumLake > 0){
-        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_y_stage, CS.dt_lake, yLakeStg, 0);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_a_area, CS.dt_lake, y2LakeArea, 0);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_q_evap, CS.dt_lake, qLakeEvap, 1);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_q_prcp, CS.dt_lake, qLakePrcp, 1);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_Q_rivin, CS.dt_lake, QLakeRivIn, 1);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_Q_rivout, CS.dt_lake, QLakeRivOut, 1);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_Q_surf, CS.dt_lake, QLakeSurf, 1);
-        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_Q_sub, CS.dt_lake, QLakeSub, 1);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_y_stage, CS.dt_lake, yLakeStg, 0, io_lake);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_a_area, CS.dt_lake, y2LakeArea, 0, io_lake);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_q_evap, CS.dt_lake, qLakeEvap, 1, io_lake);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_q_prcp, CS.dt_lake, qLakePrcp, 1, io_lake);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_Q_rivin, CS.dt_lake, QLakeRivIn, 1, io_lake);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_Q_rivout, CS.dt_lake, QLakeRivOut, 1, io_lake);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_Q_surf, CS.dt_lake, QLakeSurf, 1, io_lake);
+        CS.PCtrl[ip++].Init(ForcStartTime, NumLake, pf_out->lake_Q_sub, CS.dt_lake, QLakeSub, 1, io_lake);
     }
     CS.NumPrint = ip;
     

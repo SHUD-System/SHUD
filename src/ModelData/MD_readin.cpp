@@ -6,6 +6,104 @@ void Model_Data::read_calib(const char *fn){
 void Model_Data::read_para(const char *fn){
     CS.read(fn);
 }
+
+void Model_Data::setIO_ele(int x){
+    for(int i = 0; i < NumEle; i++){
+        io_ele[i] = x;
+    }
+}
+void Model_Data::setIO_riv(int x){
+    for(int i = 0; i < NumRiv; i++){
+        io_riv[i] = x;
+    }
+}
+void Model_Data::setIO_lake(int x){
+    for(int i = 0; i < NumLake; i++){
+        io_lake[i] = x;
+    }
+}
+void Model_Data::read_cfgout(const char *fn){
+    TabularData tb;
+    int idx, val;
+    
+    io_ele      = new int[NumEle];
+    if(NumRiv > 0) io_riv      = new int[NumRiv];
+    if(NumLake > 0) io_lake     = new int[NumLake];
+    setIO_ele(1);
+    setIO_riv(1);
+    setIO_lake(1);
+    
+    FILE *fp;
+    fp =  fopen(fn, "r");
+    if (fp == NULL) {
+        /* IF file is missing.
+         ALL is 1*/
+    }else{
+        int nline;
+        nline = tb.read(fp);
+        if(tb.ncol != 2){
+            printf("The column of element in cfg.output should be: \n");
+            printf("%s\t%s\n", "index", "OFF/ON");
+            printf("Actual column is:\n%s", tb.header);
+            myexit(ERRFileIO);
+        }
+        setIO_ele(atoi(tb.header));
+        for (int i = 0; i < nline; i++){
+            idx     = (int) tb.x[i][0] - 1;
+            val     = (int) tb.x[i][1];
+            if(val > 0){
+                io_ele[idx] = 1;
+            }else{
+                io_ele[idx] = 0;  /* output OFF for the element */
+            }
+            printf("%d: %d, %d\n", i+1, idx, io_ele[idx]);
+        }
+        
+        if(NumRiv > 0 ){
+            nline = tb.read(fp);
+            if(tb.ncol != 2){
+                printf("The column of river in cfg.output should be: \n");
+                printf("%s\t%s\n", "index", "OFF/ON");
+                printf("Actual column is:\n%s", tb.header);
+                myexit(ERRFileIO);
+            }
+            setIO_riv(atoi(tb.header));
+            for (int i = 0; i < nline; i++){
+                idx     = (int) tb.x[i][0] - 1;
+                val     = (int) tb.x[i][1];
+                if(val > 0){
+                    io_riv[idx] = 1;
+                }else{
+                    io_riv[idx] = 0;  /* output OFF for the River reach */
+                }
+                printf("%d: %d, %d\n", i+1, idx, io_ele[idx]);
+            }
+        }
+            
+        if(NumLake > 0 ){
+            nline = tb.read(fp);
+            if(tb.ncol != 2){
+                printf("The column of lake in cfg.output should be: \n");
+                printf("%s\t%s\n", "index", "OFF/ON");
+                printf("Actual column is:\n%s", tb.header);
+                myexit(ERRFileIO);
+            }
+            setIO_lake(atoi(tb.header));
+            for (int i = 0; i < nline; i++){
+                idx     = (int) tb.x[i][0] - 1;
+                val     = (int) tb.x[i][1];
+                if(val > 0){
+                    io_lake[idx] = 1;
+                }else{
+                    io_lake[idx] = 0;  /* output OFF for the River reach */
+                }
+                printf("%d: %d, %d\n", i+1, idx, io_ele[idx]);
+            }
+        }
+        
+    }
+    fclose(fp);
+}
 void Model_Data::read_rivseg(const char *fn){
     TabularData tb;
     NumSegmt = tb.read(fn);
@@ -427,6 +525,10 @@ void Model_Data::FreeData(){
         delete[] QeleSurf[i] ;
         delete[] QeleSub[i] ;
     }
+    
+    delete[]    io_ele;
+    delete[]    io_riv;
+    delete[]    io_lake;
     
     delete[]    QeleSurf;
     delete[]    QeleSub;

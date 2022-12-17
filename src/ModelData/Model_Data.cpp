@@ -75,6 +75,7 @@ void Model_Data::malloc_Y(){
 }
 
 void Model_Data::malloc_EleRiv(){
+    
     /* allocate memory storage to flux terms */
     QeleSurf    = new double *[NumEle];
     QeleSub     = new double *[NumEle];
@@ -138,6 +139,7 @@ void Model_Data::malloc_EleRiv(){
     uYus = new double[NumEle];
     uYgw = new double[NumEle];
 //    uYele = new double[NumY1];  // 35
+    
     if(NumRiv > 0){
         uYriv = new double[NumRiv];  // 35.1
     }

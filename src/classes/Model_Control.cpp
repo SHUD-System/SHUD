@@ -236,7 +236,9 @@ void Control_Data::getValue(const char *varname){
     
 }
 Print_Ctrl::Print_Ctrl(){}
-
+void Print_Ctrl::setHeader(const char *s){
+    strcpy(header, s);
+}
 void Print_Ctrl::open_file(int a, int b){
     Ascii = a;
     Binary = b;
@@ -249,10 +251,13 @@ void Print_Ctrl::open_file(int a, int b){
     if (Binary){
         fid_bin = fopen (fileb, "wb");
         CheckFile(fid_bin, fileb);
-        tmp = (double) NumVar;
-        fwrite( &tmp, sizeof(tmp), 1, fid_bin);
+        fwrite(header, sizeof(char), 1024, fid_bin);
         tmp = (double) StartTime;
         fwrite( &tmp, sizeof(tmp), 1, fid_bin);
+        tmp = (double) NumVar;
+        fwrite( &tmp, sizeof(tmp), 1, fid_bin);
+        fwrite( icol, sizeof(double), NumVar, fid_bin);
+        fflush(fid_bin);
     }
     if (Ascii){
         fid_asc = fopen (filea, "w");
@@ -263,13 +268,15 @@ void Print_Ctrl::open_file(int a, int b){
             fprintf(fid_asc, " \tX%d", i + 1);
         }
         fprintf(fid_asc, "\n");
+        fflush(fid_asc);
     }
 }
 void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlux){
     StartTime = st;
-    NumVar = n;
+    NumVar  = n;
     PrintVar = new double*[NumVar];
-    buffer = new double[NumVar];
+    buffer  = new double[NumVar];
+    icol    = new double[NumVar];
     strcpy(filename, s);
     if(strlen(filename) < 1){
         fprintf(stderr, "WARNING: filename (%s)is empty.\n;", filename);
@@ -279,6 +286,7 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
     }
     Interval = dt;
     for(int i=0; i<NumVar; i++){
+        icol[i] = (double) (i + 1);
         PrintVar[i] = &x[i];
 //        *(PrintVar[i]) = 0.0;
         buffer[i] = 0.0;
@@ -291,19 +299,97 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
 }
 void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux){
     StartTime = st;
-    NumVar = n;
+    NumVar  = n;
     PrintVar = new double*[NumVar];
-    buffer = new double[NumVar];
+    buffer  = new double[NumVar];
+    icol    = new double[NumVar];
     strcpy(filename, s);
     if(dt == 0 ){
         myexit(ERRCONSIS);
     }
     Interval = dt;
     for(int i=0; i<NumVar; i++){
+        icol[i] = (double) (i + 1);
         PrintVar[i] = &(x[i][j]);
 //        *(PrintVar[i]) = 0.0;
         buffer[i] = 0.0;
     }
+    if(iFlux){
+        tau = 1440.;
+    }else{
+        tau = 1;
+    }
+}
+
+void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlux, int *flag_IO){
+    StartTime = st;
+    strcpy(filename, s);
+    if(strlen(filename) < 1){
+        fprintf(stderr, "WARNING: filename (%s)is empty.\n;", filename);
+    }
+    if(dt == 0 ){
+        myexit(ERRCONSIS);
+    }
+    
+    Interval = dt;
+    NumVar = 0;
+    for(int i = 0; i < n; i++){
+        if(flag_IO[i]){ /* IO is TRUE*/
+            NumVar++;
+        }
+    }
+    if(NumVar <= 0){
+        fprintf(stderr, "WARNING: Empty columns in %s.\n;", filename);
+    }
+    buffer = new double[NumVar];
+    PrintVar = new double*[NumVar];
+    icol    = new double[NumVar];
+    int k = 0;
+    for(int i = 0; i < n; i++){
+        if(flag_IO[i]){ /* IO is TRUE*/
+            PrintVar[k] = &x[i];
+            icol[k] = (double) (i + 1);
+            k++;
+        }
+    }
+    if(iFlux){
+        tau = 1440.;
+    }else{
+        tau = 1.;
+    }
+}
+
+void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux, int *flag_IO){
+    StartTime = st;
+    NumVar = n;
+    PrintVar = new double*[NumVar];
+    buffer = new double[NumVar];
+    icol    = new double[NumVar];
+    strcpy(filename, s);
+    if(dt == 0 ){
+        myexit(ERRCONSIS);
+    }
+    Interval = dt;
+    NumVar = 0;
+    for(int i = 0; i < n; i++){
+        if(flag_IO[i]){ /* IO is TRUE*/
+            NumVar++;
+        }
+    }
+    if(NumVar <= 0){
+        fprintf(stderr, "WARNING: Empty columns in %s.\n;", filename);
+    }
+    buffer = new double[NumVar];
+    PrintVar = new double*[NumVar];
+    int k = 0;
+    for(int i = 0; i < n; i++){
+        if(flag_IO[i]){ /* IO is TRUE*/
+            PrintVar[k] = &(x[i][j]);
+            icol[k] = (double) (i + 1);
+            k++;
+        }
+    }
+    
     if(iFlux){
         tau = 1440.;
     }else{
@@ -320,7 +406,7 @@ Print_Ctrl::~Print_Ctrl(){
 void Print_Ctrl::fun_printBINARY(double t, double dt){
     fwrite (&t, sizeof (double), 1, fid_bin);
     fwrite (buffer, sizeof (double), NumVar, fid_bin);
-    fflush (fid_bin);
+    fflush (fid_bin); // DEBUG
 }
 void Print_Ctrl::fun_printASCII(double t, double dt){
     fprintf(fid_asc, "%.1f\t", t);
@@ -328,7 +414,7 @@ void Print_Ctrl::fun_printASCII(double t, double dt){
         fprintf (fid_asc, "%e\t", buffer[i]);
     }
     fprintf (fid_asc, "\n");
-    fflush (fid_asc);
+//    fflush (fid_asc); // DEBUG
 }
 void Print_Ctrl::close_file(){
     if (Binary){

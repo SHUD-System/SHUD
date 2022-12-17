@@ -14,9 +14,11 @@
 class Print_Ctrl{
 private:
     char    filename[MAXLEN];
+    char    header[1024];
     int     Interval = NA_VALUE;
     int     NumVar = NA_VALUE;
     int     NumUpdate = 0;
+    double  *icol;
     double  **PrintVar = NULL;
     double  *buffer = NULL;
     int     Binary = 1;
@@ -32,8 +34,11 @@ public:
     ~Print_Ctrl();
     void    open_file(int a, int b);
     void    PrintData (double dt, double t);
+    void    setHeader(const char *s);
     void    Init(long st, int n, const char *s, int dt, double *x, int iFlux);
     void    InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux);
+    void    Init(long st, int n, const char *s, int dt, double *x, int iFlux, int *flag);
+    void    InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux, int *flag);
 private:
     void    fun_printASCII(double t, double dt);
     void    fun_printBINARY(double t, double dt);
