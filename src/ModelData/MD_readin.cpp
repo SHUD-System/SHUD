@@ -275,7 +275,7 @@ void Model_Data::read_soil(const char *fn){
     TabularData tb;
     NumSoil = tb.read(fn);
     if(tb.ncol != 9){
-        printf("The column of Soil should be: \n");
+        printf("The column of Soil file should be: \n");
         printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", "index", "infKsatV", "ThetaS", "ThetaR", "infD", "Alpha","Beta","hAreaF", "macKsatV");
         printf("Actual column is:\n%s", tb.header);
         myexit(ERRFileIO);
@@ -309,7 +309,7 @@ void Model_Data::read_geol(const char *fn){
     TabularData tb;
     NumGeol = tb.read(fn);
     if(tb.ncol != 8){
-        printf("The column of Geol should be: \n");
+        printf("The column of Geol file should be: \n");
         printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", "index", "KsatH","KsatV", "geo_ThetaS", "geo_ThetaR", "geo_ThetaR", "macKsatH","macD");
         printf("Actual column is:\n%s", tb.header);
         myexit(ERRFileIO);
@@ -331,7 +331,7 @@ void Model_Data::read_lc(const char *fn){
     TabularData tb;
     NumLC = tb.read(fn);
     if(tb.ncol < 7 | tb.ncol > 8){
-        printf("The column of Geol should be: \n");
+        printf("The column of LandCover file should be: \n");
         printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n", "index",
                "Albedo", "VegFrac", "Rough","RzD", "SoilDgrd", "ImpAF");
         printf("Actual column is:\n%s", tb.header);
