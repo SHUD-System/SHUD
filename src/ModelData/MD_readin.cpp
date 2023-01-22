@@ -100,9 +100,8 @@ void Model_Data::read_cfgout(const char *fn){
                 printf("%d: %d, %d\n", i+1, idx, io_ele[idx]);
             }
         }
-        
+        fclose(fp);
     }
-    fclose(fp);
 }
 void Model_Data::read_rivseg(const char *fn){
     TabularData tb;
