@@ -101,9 +101,6 @@ void Model_Data::tReadForcing(double t, int i){
         etp = qPotTran[i] * Ele[i].VegFrac + qPotEvap[i] * (1. - Ele[i].VegFrac);
         CheckNANi(qPotTran[i], i, "qPotTran[i]");
     }
-    if(qPotTran[i] < 0.){
-        i=i;
-    }
     qEleETP[i] = etp;
 }
 void Model_Data::ET(double t, double tnext){
@@ -114,7 +111,7 @@ void Model_Data::ET(double t, double tnext){
     double  ta_surf, ta_sub;
     int i;
 #ifdef _OPENMP_ON
-#pragma omp for parallel default(shared) private(i) num_threads(CS.num_threads)
+#pragma omp for
 #endif
     for(i = 0; i < NumEle; i++) {
         T = t_temp[i];
@@ -162,11 +159,9 @@ void Model_Data::ET(double t, double tnext){
         yEleSnow[i] = snStg;
         qEleE_IC[i] = icEvap * vgFrac;
         qEleNetPrep[i] = (1. - snFrac) * prcp + snMelt - icAcc * vgFrac ;
-        if(qEleE_IC[i] < 0. ){ // DEBUG ONLY
-            i = i;
-        }
-        CheckNonNegative(qEleNetPrep[i], i, "Net Precipitation");
-        CheckNonNegative(qEleE_IC[i], i, "qEleE_IC");
+
+//        CheckNonNegative(qEleNetPrep[i], i, "Net Precipitation");
+//        CheckNonNegative(qEleE_IC[i], i, "qEleE_IC");
     }
 }
 void Model_Data::f_etFlux(int i, double t){
