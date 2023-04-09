@@ -51,7 +51,7 @@ void Model_Data::CheckInput_forc(){
         instead of Celcius[RIGHT]
      *******************************************/
     for(int i = 0; i < NumForc; i++){
-        tsd_weather[i].checkValue(i_prcp, 0., 300, "Prcp"); /* 300 mm/day is hurricane level*/
+        tsd_weather[i].checkValue(i_prcp, 0., 400, "Prcp"); /* 300 mm/day is hurricane level*/
         /*******************************************
          Maximum hourly precipitation. 0.4 m/hr.
          ref: http://www.nws.noaa.gov/oh/hdsc/record_precip/record_precip_world.html
