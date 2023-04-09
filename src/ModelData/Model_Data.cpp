@@ -293,8 +293,12 @@ int Model_Data::ScreenPrint(double t, unsigned long it){
 #else
     static double tnext = t;
     static unsigned long ncall = 0;
+    double sec_use, Perctage;
     if (t >= tnext) {
-        printf("%.2f day \t %.2f%% \t %.2f sec \t %ld \n", tnext / 1440, 100.0 * it / CS.NumSteps, getSecond(), nFCall - ncall);
+        sec_use = getSecond();
+        Perctage = 100.0 * it / CS.NumSteps;
+        printf("%.2f day \t %.2f%% \t %.2f sec \t %ld \n", tnext / 1440, Perctage, sec_use, nFCall - ncall);
+        pf_out->writeTime(t, Perctage, sec_use, nFCall - ncall);
         tnext += CS.screenIntv;
         ncall = nFCall;
         flag = 1;
