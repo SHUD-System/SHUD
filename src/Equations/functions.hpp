@@ -123,13 +123,15 @@ double max(double a, double b){
 inline double Quadratic(double a, double b, double c){
     double ret = 0.;
     double cc = b * b - 4 * a * c;
-    if (cc > 0.) {
-        ret = (-b + sqrt(cc)) / (2*a);
-    }else if (cc == 0) {
+    if( cc < ZERO){
+        if( cc < -1 * ZERO){
+            fprintf(stderr, "Error in Quadratic\n");
+        }
         ret = -1. * b / ( 2. * a );
     }else{
-        fprintf(stderr, "Error in Quadratic\n");
+        ret = (-b + sqrt(cc)) / (2 * a);
     }
+    
     return ret;
 }
 inline double fun_dAtodY(double dA, double w_top, double s){
@@ -141,7 +143,11 @@ inline double fun_dAtodY(double dA, double w_top, double s){
     if( fabs(s) < EPS_SLOPE ){
         dy = dA / w_top;
     }else{
-        dy = Quadratic(s, w_top, -1. * dA);
+        if(dA > 0){
+            dy = Quadratic(s, w_top, -1. * dA);
+        }else{
+            dy = Quadratic(-1. * s, w_top, -1. * dA);
+        }
     }
     return dy;
 }
