@@ -151,6 +151,7 @@ public:
     void createDir();
     void setOutpath(const char *fn);
     void writeTime(double t);
+    void writeTime(double t, double Percentage, double sec_use, unsigned long NumStep);
     void copy(FileOut *fout);
 private:
     clock_t t0 = clock();

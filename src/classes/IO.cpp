@@ -205,7 +205,7 @@ void FileOut::updateFilePath(){
         sprintf(File_Time, "%s/%s%s.time.csv", outpath, projectname, suffix);
         fid_time = fopen(File_Time, "w");
         CheckFile(fid_time, "Time log file");
-        fprintf(fid_time, "time_Minutes \t Time_Days \t Clock_s\n");
+        fprintf(fid_time, "time_Minutes \t Time_Days \t Task_perc \t Clock_s \t Num_Iteration \n");
     }
 }
 void FileOut::createDir(){
@@ -371,6 +371,11 @@ void FileOut::writeTime(double t){
         sec = (double)(t1 - t0) / CLOCKS_PER_SEC;
         t0 = t1;
         fprintf(fid_time, "%.2f \t %.2f \t %.2f\n", t, t / 1440., sec);
-        fflush(fid_time);
+//        fflush(fid_time);
     }
+}
+void FileOut::writeTime(double t, double Percentage, double sec_use, unsigned long NumStep){
+    fprintf(fid_time, "%.2f \t %.2f \t %.2f%% \t %.2f \t %ld \n",
+            t, t / 1440., Percentage, sec_use, NumStep);
+//        fflush(fid_time);
 }
