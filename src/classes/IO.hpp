@@ -16,6 +16,7 @@
 #include <time.h>
 #include "Macros.hpp"
 #include "functions.hpp"
+#include "funPlatform.hpp"
 
 class FileIn {
 public:
@@ -151,14 +152,12 @@ public:
     void createDir();
     void setOutpath(const char *fn);
     void writeTime(double t);
-    void writeTime(double t, double Percentage, double sec_use, unsigned long NumStep);
+    void writeTime(double t, double Percentage, double sec_cpu, double sec_wall, unsigned long NumStep);
     void copy(FileOut *fout);
 private:
     clock_t t0 = clock();
     clock_t t1 = t0;
     double sec;
 };
-
-void mkdir_p( char *dir, int mode);
 
 #endif /* IO_h */
