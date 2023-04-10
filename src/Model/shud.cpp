@@ -73,7 +73,7 @@ double SHUD(FileIn *fin, FileOut *fout){
     tnext = t;
     //CheckInput(MD, &CS);
     /* start solver in loops */
-    getSecond();
+//    getSecond();
     MD->modelSummary(0);
     MD->debugData(fout->outpath);
     MD->gc.write(fout->Calib_bak);
@@ -100,7 +100,6 @@ double SHUD(FileIn *fin, FileOut *fout){
         }
         //            CVODEstatus(mem, udata, t);
         MD->summary(udata);
-        if(global_verbose_mode) fout->writeTime(t);
         MD->CS.ExportResults(t);
         MD->flood->FloodWarning(t);
     }
@@ -185,7 +184,7 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     double tnext = t;
     //CheckInput(MD, &CS);
     /* start solver in loops */
-    getSecond();
+//    getSecond();
     MD->modelSummary(0);
     MD->debugData(fout->outpath);
     MD->gc.write(fout->Calib_bak);

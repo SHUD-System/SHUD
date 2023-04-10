@@ -101,8 +101,7 @@ void CheckNANij(double x, int i, const char *s)
         myexit(ERRNAN);
     }
 }
-double getSecond(void)
-{
+double getSecond_wall(void){
 #ifdef _OPENMP_ON
     static double t0 = 0.;
     double t1;
@@ -111,16 +110,41 @@ double getSecond(void)
     sec = (double)(t1 - t0);
     t0 = t1;
 #else
-    static clock_t t0 = 0;
-    clock_t t1;
     double sec;
-    t1 = clock();
-    sec = (double)(t1 - t0) / CLOCKS_PER_SEC;
+//    clock_t t1;
+//    static clock_t t0 = 0;
+//    t1 = clock();
+//    sec = (double)(t1 - t0) / CLOCKS_PER_SEC;
+    static double t0 = get_wall_time();
+    double t1;
+    t1 = get_wall_time();
+    sec = (double)(t1 - t0);
     t0 = t1;
 #endif
     return sec;
 }
-
+double getSecond_cpu(void){
+#ifdef _OPENMP_ON
+    static double t0 = 0.;
+    double t1;
+    double sec;
+    t1 = omp_get_wtime();
+    sec = (double)(t1 - t0);
+    t0 = t1;
+#else
+    double sec;
+//    clock_t t1;
+//    static clock_t t0 = 0;
+//    t1 = clock();
+//    sec = (double)(t1 - t0) / CLOCKS_PER_SEC;
+    static double t0 = get_cpu_time();
+    double t1;
+    t1 = get_cpu_time();
+    sec = (double)(t1 - t0);
+    t0 = t1;
+#endif
+    return sec;
+}
 void CheckNonNegative(double x, int i, const char *s)
 {
     if (x < 0.0 || isnan(x) || isinf(x) || fabs(x - NA_VALUE) < ZERO) {
@@ -270,3 +294,4 @@ double ZOnLine(double x1, double y1, double z1,
     double dz = z2 - z1;
     return z1 + dz / D  * dx;
 }
+

@@ -8,12 +8,14 @@
 #include <time.h>
 #include <string.h>
 #include "Macros.hpp"
+#include "funPlatform.hpp"
 using namespace std;
 /* Time Interpolation */
 double timeInterp(double t, double t0, double t1, double x0, double x1);
 
 /*==========Screen print function===============*/
-double getSecond(void);
+double getSecond_cpu(void);
+double getSecond_wall(void);
 
 inline
 int atInterval(double x, int intv){

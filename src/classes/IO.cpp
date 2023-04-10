@@ -1,23 +1,5 @@
 #include "IO.hpp"
 
-void mkdir_p( char *dir, int mode) {
-    /* MODIFIED FROM http://nion.modprobe.de/blog/archives/357-Recursive-directory-creation.html */
-    char tmp[MAXLEN];
-    char *p = NULL;
-    size_t len;
-    
-    snprintf(tmp, sizeof(tmp),"%s",dir);
-    len = strlen(tmp);
-    if(tmp[len - 1] == '/')
-        tmp[len - 1] = 0;
-    for(p = tmp + 1; *p; p++)
-        if(*p == '/') {
-            *p = 0;
-            mkdir(tmp, mode);
-            *p = '/';
-        }
-    mkdir(tmp, mode);
-}
 void FileIn::saveProject(){
     FILE *fp;
     char fn[MAXLEN];
@@ -205,7 +187,7 @@ void FileOut::updateFilePath(){
         sprintf(File_Time, "%s/%s%s.time.csv", outpath, projectname, suffix);
         fid_time = fopen(File_Time, "w");
         CheckFile(fid_time, "Time log file");
-        fprintf(fid_time, "time_Minutes \t Time_Days \t Task_perc \t Clock_s \t Num_Iteration \n");
+        fprintf(fid_time, "time_Minutes \t Time_Days \t Task_perc \t CPUTime_s \t WallTime_s \t Num_fcall \n");
     }
 }
 void FileOut::createDir(){
@@ -374,8 +356,8 @@ void FileOut::writeTime(double t){
 //        fflush(fid_time);
     }
 }
-void FileOut::writeTime(double t, double Percentage, double sec_use, unsigned long NumStep){
-    fprintf(fid_time, "%.2f \t %.2f \t %.2f%% \t %.2f \t %ld \n",
-            t, t / 1440., Percentage, sec_use, NumStep);
-//        fflush(fid_time);
+void FileOut::writeTime(double t, double Percentage, double sec_cpu, double sec_wall, unsigned long NumStep){
+    fprintf(fid_time, "%.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %ld \n",
+            t, t / 1440., Percentage, sec_cpu, sec_wall, NumStep);
+        fflush(fid_time);
 }
