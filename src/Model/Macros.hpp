@@ -91,6 +91,7 @@
 //extern int ilog;
 
 extern int dummy_mode;
+extern int global_fflush_mode;
 extern int global_implicit_mode;
 extern int global_verbose_mode;
 extern int lakeon;

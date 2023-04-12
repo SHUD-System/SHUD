@@ -298,7 +298,7 @@ int Model_Data::ScreenPrint(double t, unsigned long it){
         sec_cpu = getSecond_cpu();
         sec_wall = getSecond_wall();
         Perctage = 100.0 * it / CS.NumSteps;
-        printf("%.2f day \t %.2f%% \t %.2f s \t %ld \n", tnext / 1440, Perctage, sec_wall, nFCall - ncall);
+        printf("%.2f day \t %.2f%% \t %.2f s \t %.2f s \t %ld \n", tnext / 1440, Perctage, sec_cpu, sec_wall, nFCall - ncall);
         pf_out->writeTime(t, Perctage, sec_cpu, sec_wall, nFCall - ncall);
         tnext += CS.screenIntv;
         ncall = nFCall;

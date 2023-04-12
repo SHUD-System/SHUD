@@ -183,12 +183,11 @@ void FileOut::updateFilePath(){
     sprintf(floodout, "%s/%s%s.flood.csv", outpath, projectname, suffix);
     sprintf(obs_sim, "%s/%s%s.ovs.csv", outpath, projectname, suffix);
     
-    if(global_verbose_mode){
-        sprintf(File_Time, "%s/%s%s.time.csv", outpath, projectname, suffix);
-        fid_time = fopen(File_Time, "w");
-        CheckFile(fid_time, "Time log file");
-        fprintf(fid_time, "time_Minutes \t Time_Days \t Task_perc \t CPUTime_s \t WallTime_s \t Num_fcall \n");
-    }
+    sprintf(File_Time, "%s/%s%s.time.csv", outpath, projectname, suffix);
+    fid_time = fopen(File_Time, "w");
+    CheckFile(fid_time, "Time log file");
+    fprintf(fid_time, "time_Minutes \t Time_Days \t Task_perc \t CPUTime_s \t WallTime_s \t Num_fcall \n");
+
 }
 void FileOut::createDir(){
     mkdir_p(outpath, 0777);
@@ -359,5 +358,7 @@ void FileOut::writeTime(double t){
 void FileOut::writeTime(double t, double Percentage, double sec_cpu, double sec_wall, unsigned long NumStep){
     fprintf(fid_time, "%.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %ld \n",
             t, t / 1440., Percentage, sec_cpu, sec_wall, NumStep);
+    if(global_fflush_mode){
         fflush(fid_time);
+    }
 }

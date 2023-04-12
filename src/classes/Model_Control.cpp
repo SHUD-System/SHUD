@@ -257,7 +257,9 @@ void Print_Ctrl::open_file(int a, int b){
         tmp = (double) NumVar;
         fwrite( &tmp, sizeof(tmp), 1, fid_bin);
         fwrite( icol, sizeof(double), NumVar, fid_bin);
-        fflush(fid_bin);
+        if(global_fflush_mode){
+            fflush(fid_bin);
+        }
     }
     if (Ascii){
         fid_asc = fopen (filea, "w");
@@ -268,7 +270,9 @@ void Print_Ctrl::open_file(int a, int b){
             fprintf(fid_asc, " \tX%d", i + 1);
         }
         fprintf(fid_asc, "\n");
-        fflush(fid_asc);
+        if(global_fflush_mode){
+            fflush(fid_asc);
+        }
     }
 }
 void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlux){
@@ -406,7 +410,9 @@ Print_Ctrl::~Print_Ctrl(){
 void Print_Ctrl::fun_printBINARY(double t, double dt){
     fwrite (&t, sizeof (double), 1, fid_bin);
     fwrite (buffer, sizeof (double), NumVar, fid_bin);
-    fflush (fid_bin); // DEBUG
+    if(global_fflush_mode){
+        fflush (fid_bin); // DEBUG
+    }
 }
 void Print_Ctrl::fun_printASCII(double t, double dt){
     fprintf(fid_asc, "%.1f\t", t);
@@ -414,7 +420,9 @@ void Print_Ctrl::fun_printASCII(double t, double dt){
         fprintf (fid_asc, "%e\t", buffer[i]);
     }
     fprintf (fid_asc, "\n");
+    if(global_fflush_mode){
 //    fflush (fid_asc); // DEBUG
+    }
 }
 void Print_Ctrl::close_file(){
     if (Binary){

@@ -9,6 +9,7 @@ void CommandIn::SHUD_help(void ){
     printf ("\n\nUsage:\n");
     printf ("./shud [-0gv] [-p project_file] [-c Calib_file] [-o output] [-n Num_Threads] <project_name>\n\n");
     printf (" -0 Dummy simulation. Load input and write output, but no calculation.\n");
+    printf (" -f fflush for each time interval. fflush export data frequently, but slow down performance on cluster.\n");
     printf (" -g Sequential coupled Surface-Unsaturated-Saturated-River mode.\n");
     printf (" -v Dummy simulation. Load input and write output, but no calculation.\n");
     printf (" -c Calibration file (.cfg.calib). \n");
@@ -22,10 +23,13 @@ void CommandIn::parse(int argc, char **argv){
         SHUD_help();
         myexit(ERRSUCCESS);
     }
-    while ((c = getopt (argc, argv, "0gvc:e:n:o:p:")) != -1){
+    while ((c = getopt (argc, argv, "0fgvc:e:n:o:p:")) != -1){
         switch (c){
             case '0':
                 dummy_mode = 1;
+                break;
+            case 'f':
+                global_fflush_mode = 1;
                 break;
             case 'g':
                 global_implicit_mode = 0;

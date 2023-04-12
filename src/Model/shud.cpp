@@ -23,6 +23,7 @@ double *uYlake;
 double *globalY;
 double timeNow;
 int dummy_mode = 0;
+int global_fflush_mode = 0;
 int global_implicit_mode = 1;
 int global_verbose_mode = 1;
 int lakeon = 0; /* Whether lake module ON(1), OFF(0) */
