@@ -198,22 +198,22 @@ double Model_Data::getArea(){
     return WatershedArea;
 }
 void Model_Data::rmSinks(){
-    double zmin, z;
+    double zmin_nb, zmax_current;
     int inabr;
     for(int i = 0; i < NumEle; i++){
-        z =  Ele[i].zmax;
-        zmin = 1.0e200;
+        zmax_current =  Ele[i].z_surf;
+        zmin_nb = 1.0e200;
         for(int j = 0; j < 3; j++){
             inabr = Ele[i].nabr[j] - 1;
             if(inabr >= 0){ /* Nabr exists */
-                zmin = min(zmin, Ele[inabr].zmax);
+                zmin_nb = min(zmin_nb, Ele[inabr].z_surf);
             }
         }
-        if( zmin > z){
+        if( zmin_nb > zmax_current){
             if(Ele[i].RivID <= 0) {
-                fprintf(stderr, "Warning: remove sink on %d, from %.2f to %.2f. dz = %.2f\n", i+1, z, zmin, zmin - z);
-                Ele[i].zmax = zmin;
-                Ele[i].zmin = zmin - Ele[i].AquiferDepth;
+                fprintf(stderr, "Warning: remove sink on %d, from %.2f to %.2f. dz = %.2f\n", i+1, zmax_current, zmin_nb, zmin_nb - zmax_current);
+                Ele[i].z_surf = zmin_nb;
+                Ele[i].z_bottom = zmin_nb - Ele[i].AquiferDepth;
                 
             }else{
                 /* Void*/

@@ -29,7 +29,7 @@ void Model_Data::tReadForcing(double t, int i){
     double GroundHeatFlux, RG;
     t_prcp[i] = tsd_weather[idx].getX(t, i_prcp) * gc.cPrep;
     t0= tsd_weather[idx].getX(t, i_temp);
-    t_temp[i] = TemperatureOnElevation(t0, Ele[i].zmax, tsd_weather[idx].xyz[2]) +  gc.cTemp;
+    t_temp[i] = TemperatureOnElevation(t0, Ele[i].z_surf, tsd_weather[idx].xyz[2]) +  gc.cTemp;
     t_lai[i] = tsd_LAI.getX(t, Ele[i].iLC) * gc.cLAItsd ;
     lai = t_lai[i];
     t_mf[i] = tsd_MF.getX(t, Ele[i].iMF) * gc.cMF / 1440.;  /*  [m/day/C] to [m/min/C].

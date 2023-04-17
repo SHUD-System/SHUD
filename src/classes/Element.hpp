@@ -31,8 +31,8 @@ public:
     double Dist2Edge[3];
     double x = NA_VALUE;    /* x of centroid */
     double y = NA_VALUE;    /* y of centroid */
-    double zmin = NA_VALUE;    /* z_min of centroid */
-    double zmax = NA_VALUE;    /* z_max of centroid */
+    double z_bottom = NA_VALUE;    /* Aquifer Bottom Elevation of the triangle centroid */
+    double z_surf = NA_VALUE;    /* Surface Elevation of the triangle centroid */
     double zcentroid = NA_VALUE;
     void printHeader(FILE *fp);
     void printInfo(FILE *fp);

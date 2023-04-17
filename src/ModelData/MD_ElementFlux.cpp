@@ -47,8 +47,8 @@ void Model_Data::fun_Ele_surface(int i, double t){
             nsf = yLakeStg[ilake];
             nsf = nsf < 0. ? 0. : nsf;
             Q = WeirFlow_jtoi(lake[ilake].zmin, nsf,
-                              Ele[i].zmax, isf,
-                              Ele[i].zmax, 0.6, B, 0.01); /* func WeirFlow_jtoi is */
+                              Ele[i].z_surf, isf,
+                              Ele[i].z_surf, 0.6, B, 0.01); /* func WeirFlow_jtoi is */
             QLakeSurf[ilake] += Q;  /* Positive of QLakeSurf = Element to Lake */
 //            CheckNANi( QLakeSurf[ilake] , i, "QLakeSurf[ilake] in Model_Data::fun_Ele_surface");
         }else if (inabr >= 0) {
@@ -58,9 +58,9 @@ void Model_Data::fun_Ele_surface(int i, double t){
 //            nsf = uYsf[inabr] - qEleInfil[inabr] + qEleExfil[inabr];
             nsf = uYsf[inabr];
             nsf = nsf < 0. ? 0. : nsf;
-            dh = (isf + Ele[i].zmax) - (nsf + Ele[inabr].zmax);
-            Ymean = avgY_sf(Ele[i].zmax, isf,
-                            Ele[inabr].zmax, nsf,
+            dh = (isf + Ele[i].z_surf) - (nsf + Ele[inabr].z_surf);
+            Ymean = avgY_sf(Ele[i].z_surf, isf,
+                            Ele[inabr].z_surf, nsf,
                             Ele[i].depression);
             Ymean = min(Ymean, MAXYSURF);/* HARD CODE.When Ymean > 0.5, the solver oscilates; namely, the program slows down dramatically. */
 //            Ymean = min(Ymean, fabs(dh));
@@ -105,13 +105,13 @@ void Model_Data::fun_Ele_sub(int i, double t){
         inabr = Ele[i].nabr[j] - 1;
         ilake = Ele[i].lakenabr[j] - 1;
         if(ilake >= 0){ /* For Lake element */
-            dh = (uYgw[i] + Ele[i].zmin) - (yLakeStg[ilake] + lake[ilake].bathymetry.yi[0]);
+            dh = (uYgw[i] + Ele[i].z_bottom) - (yLakeStg[ilake] + lake[ilake].bathymetry.yi[0]);
             if(dh > 0. && uYgw[i] <= 0.02){ /* Depression condition */
                 Q = 0.;
             }else if(dh < 0. && yLakeStg[ilake]<= 0.02){ /* Depression condition */
                 Q = 0.;
             }else{
-                Ymean = avgY_gw(Ele[i].zmin, uYgw[i], lake[ilake].bathymetry.yi[0], yLakeStg[ilake], 0.002);
+                Ymean = avgY_gw(Ele[i].z_bottom, uYgw[i], lake[ilake].bathymetry.yi[0], yLakeStg[ilake], 0.002);
                 grad = dh / Ele[i].Dist2Nabor[j];
                 /* It should be weighted average. However, there is an ambiguity about distance used */
                 Kmean = 0.5 * (Ele[i].u_effKH + Ele[inabr].u_effKH);
@@ -123,13 +123,13 @@ void Model_Data::fun_Ele_sub(int i, double t){
             /***************************************************************************/
             /* Subsurface Lateral Flux Calculation between Triangular elements Follows */
             /***************************************************************************/
-            dh = (uYgw[i] + Ele[i].zmin) - (uYgw[inabr] + Ele[inabr].zmin);
+            dh = (uYgw[i] + Ele[i].z_bottom) - (uYgw[inabr] + Ele[inabr].z_bottom);
             if(dh > 0. && uYgw[i] <= 0.02){
                 Q = 0.;
             }else if(dh < 0. && uYgw[inabr]<= 0.02){
                 Q = 0.;
             }else{
-                Ymean = avgY_gw(Ele[i].zmin, uYgw[i], Ele[inabr].zmin, uYgw[inabr], 0.002);  
+                Ymean = avgY_gw(Ele[i].z_bottom, uYgw[i], Ele[inabr].z_bottom, uYgw[inabr], 0.002);  
                 grad = dh / Ele[i].Dist2Nabor[j];
                 /* It should be weighted average. However, there is an ambiguity about distance used */
                 Kmean = 0.5 * (Ele[i].u_effKH + Ele[inabr].u_effKH);

@@ -101,9 +101,9 @@ void Model_Data::fun_Seg_surface(int iEle, int iRiv, int i){
     //Surface Flux from River Segment to Element;
     double isf  = uYsf[iEle] - qEleInfil[iEle] + qEleExfil[iEle];
     isf = max(0., isf);
-    QsegSurf[i] = WeirFlow_jtoi(Ele[iEle].zmax, isf,
-                           Ele[iEle].zmax - Riv[iRiv].depth, uYriv[iRiv],
-                           Ele[iEle].zmax + Riv[iRiv].zbank, RivSeg[i].Cwr, RivSeg[i].length, Ele[iEle].depression);
+    QsegSurf[i] = WeirFlow_jtoi(Ele[iEle].z_surf, isf,
+                           Ele[iEle].z_surf - Riv[iRiv].depth, uYriv[iRiv],
+                           Ele[iEle].z_surf + Riv[iRiv].zbank, RivSeg[i].Cwr, RivSeg[i].length, Ele[iEle].depression);
 //    QrivSurf[iRiv]    +=  QsegSurf[i]; // Positive from River to Element
 //    Qe2r_Surf[iEle]   += -QsegSurf[i]; // Positive from Element to River
     
@@ -113,8 +113,8 @@ void Model_Data::fun_Seg_surface(int iEle, int iRiv, int i){
 }
 void Model_Data::fun_Seg_sub( int iEle, int iRiv, int i){
     //Subsurface Flux from River Segment to Element;
-    QsegSub[i] = flux_R2E_GW(uYriv[iRiv], Ele[iEle].zmax - Riv[iRiv].depth,
-                             uYgw[iEle], Ele[iEle].zmin,
+    QsegSub[i] = flux_R2E_GW(uYriv[iRiv], Ele[iEle].z_surf - Riv[iRiv].depth,
+                             uYgw[iEle], Ele[iEle].z_bottom,
                              Ele[iEle].u_effKH, Riv[iRiv].KsatH,  
                              RivSeg[i].length,Riv[iRiv].BedThick);
     QsegSub[i] *= fu_Sub[iEle];

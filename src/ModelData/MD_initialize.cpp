@@ -153,7 +153,7 @@ void Model_Data::initializeLake(){
         //        lake_readIC(fin->file_lake_ic);
         for(int i = 0; i < NumEle; i++){
             if(Ele[i].iLake > 0){
-                if(Ele[i].zmax < lake[Ele[i].iLake - 1].zmin){
+                if(Ele[i].z_surf < lake[Ele[i].iLake - 1].zmin){
                     printf("WARNING: lake(%d) zmin is higher than element(%d) zmax\n", Ele[i].iLake, i+1);
                 }
             }

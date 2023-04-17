@@ -34,8 +34,8 @@ void Triangle::printInfo(FILE *fp){
     fprintf(fp, "%g\t", area);
     fprintf(fp, "%g\t", x);
     fprintf(fp, "%g\t", y);
-    fprintf(fp, "%g\t", zmin);
-    fprintf(fp, "%g\t", zmax);
+    fprintf(fp, "%g\t", z_bottom);
+    fprintf(fp, "%g\t", z_surf);
 }
 void AttriuteIndex::printHeader(FILE *fp){
     fprintf(fp, "%s\t", "iSoil");
@@ -83,19 +83,19 @@ void _Element::applyGeometry(_Node *Node){
     
     area = 0.5 * ((x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1));
     
-    zmax = (zmax1 + zmax2 + zmax3) / 3.0;
-    zmin = (zmin1 + zmin2 + zmin3) / 3.0;
-    if(zmin >= zmax){
-        printf("WARNING: zmin(%f) >= zmax(%f) at element %d.", zmin, zmax, index);
+    z_surf = (zmax1 + zmax2 + zmax3) / 3.0;
+    z_bottom = (zmin1 + zmin2 + zmin3) / 3.0;
+    if(z_bottom >= z_surf){
+        printf("WARNING: zmin(%f) >= zmax(%f) at element %d.", z_bottom, z_surf, index);
     }
     if(zcentroid != NA_VALUE){
-        z0 = zmax;
-        aqd = zmax - zmin;
+        z0 = z_surf;
+        aqd = z_surf - z_bottom;
 //        zmax = (zmax+ zcentroid) * 0.5;
-        zmax = (zmax1 + zmax2 + zmax3 + zcentroid) / 4.0;
+        z_surf = (zmax1 + zmax2 + zmax3 + zcentroid) / 4.0;
 //        zmax = (zmax1 + zmax2 + zmax3) / 3.0;  // debug
-        zmin = zmax - aqd;
-        if(fabs(z0 - zmax) > 10.){
+        z_bottom = z_surf - aqd;
+        if(fabs(z0 - z_surf) > 10.){
 //            printf("DZ(%d) = %f\n", index, z0 - zmax);
         }
     }
@@ -123,15 +123,15 @@ void _Element::applyGeometry(_Node *Node){
     pz1 = ZOnLine(x2, y2, zmax2, x3, y3, zmax3, px1, py1);
     pz2 = ZOnLine(x3, y3, zmax3, x1, y1, zmax1, px2, py2);
     pz3 = ZOnLine(x1, y1, zmax1, x2, y2, zmax2, px3, py3);
-    slope[0] =  (zmax - pz1)/ d1;
-    slope[1] =  (zmax - pz2)/ d1;
-    slope[2] =  (zmax - pz3)/ d1;
+    slope[0] =  (z_surf - pz1)/ d1;
+    slope[1] =  (z_surf - pz2)/ d1;
+    slope[2] =  (z_surf - pz3)/ d1;
 }
 void _Element::InitElement(){
-    AquiferDepth = zmax - zmin;
+    AquiferDepth = z_surf - z_bottom;
     WetlandLevel = AquiferDepth - infD;
     RootReachLevel = AquiferDepth - RzD;
-    FixPressure = PressureElevation(zmax); // P atmospheric pressure [kPa]
+    FixPressure = PressureElevation(z_surf); // P atmospheric pressure [kPa]
 //    FixGamma = PsychrometricConstant(FixPressure);
     MacporeLevel = AquiferDepth - macD;
     
@@ -141,8 +141,8 @@ void _Element::InitElement(){
     CheckNonZero(RootReachLevel, index-1, "RootReachLevel");
     CheckNonZero(FixPressure, index-1, "FixPressure");
     CheckNonZero(area, index-1, "area");
-    CheckNA(zmax, "zmax");
-    CheckNA(zmin, "zmin");
+    CheckNA(z_surf, "zmax");
+    CheckNA(z_bottom, "zmin");
     for(int i = 0; i < 3; i++){
         CheckNonZero(edge[i], index-1, "edge");
     }
