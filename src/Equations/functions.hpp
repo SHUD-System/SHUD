@@ -103,7 +103,7 @@ inline
 void Sub2Global(int n1, int n2, int n3){
     Sub2Global(uYsf, uYus, uYgw, uYriv, uYlake, n1, n2, n3);
 }
-double Quadratic(double a, double b, double c);
+double Quadratic(double s, double w, double dA);
 double fun_dAtodY(double dA, double w0, double s);
 
 
@@ -122,20 +122,22 @@ double max(double a, double b){
     return (a < b ? b : a);
 }
 
-inline double Quadratic(double a, double b, double c){
-    double ret = 0.;
-    double cc = b * b - 4 * a * c;
+inline double Quadratic(double s, double w, double dA){
+    /* dA can be positive or negative. */
+    double ret = 0., cc;
+    s = fabs(s);
+    cc = w * w + 4 * s * dA;
     if( cc < ZERO){
-        if( cc < -1 * ZERO){
+        if( cc < -1. * ZERO){
             fprintf(stderr, "Error in Quadratic\n");
         }
-        ret = -1. * b / ( 2. * a );
+        ret = -1. * w / ( 2. * s );
     }else{
-        ret = (-b + sqrt(cc)) / (2 * a);
+        ret = (-w + sqrt(cc)) / (2 * s);
     }
-    
     return ret;
 }
+
 inline double fun_dAtodY(double dA, double w_top, double s){
     /* Delta_A_cs of flux to Dy in river stage @t=t+1*/
     /* w_top = topwidth at t */
@@ -145,11 +147,7 @@ inline double fun_dAtodY(double dA, double w_top, double s){
     if( fabs(s) < EPS_SLOPE ){
         dy = dA / w_top;
     }else{
-        if(dA > 0){
-            dy = Quadratic(s, w_top, -1. * dA);
-        }else{
-            dy = Quadratic(-1. * s, w_top, -1. * dA);
-        }
+        dy = Quadratic(s, w_top,  dA);
     }
     return dy;
 }
