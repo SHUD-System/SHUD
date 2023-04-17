@@ -122,6 +122,9 @@ void Model_Data::f_applyDY(double *DY, double t){
             DY[iRIV] = 0.;
         }else{
             DY[iRIV] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].Length; // dA on CS
+            if(DY[iRIV] < -1. * Riv[i].u_CSarea){ /* The negative dA cannot larger then Availalbe Area. */
+                DY[iRIV] = -1. * Riv[i].u_CSarea;
+            }
             DY[iRIV] = fun_dAtodY(DY[iRIV], Riv[i].u_topWidth, Riv[i].bankslope);
             
 //            if(i+1 == ID_RIV && fabs(DY[iRIV])> 0.001){
