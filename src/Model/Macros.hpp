@@ -47,11 +47,12 @@
 #define MINRIVSLOPE 4e-4
 #define C_air 1004.0
 #define THRESH 0.0
-#define dTdZ  .00065  /* Adiabatic Lapse Rate 6.5 [K/km]*/
+#define dTdZ  0.0065  /* Adiabatic Lapse Rate 6.5 [K/km]*/
 #define GRAV 9.8		/* m/s^2 Note the dependence on physical units */
 
 #define C_air 1004.0
-#define Lv 2503000.0 //Volumetric latent heat of vaporization. Energy required per water volume vaporized. (Lv = 2453 MJ m−3 on wiki)
+//#define Lv 2503000.0 //Volumetric latent heat of vaporization. Energy required per water volume vaporized. (Lv = 2453 MJ m−3 on wiki)
+#define Lm 333550.0 /* Weight latent heat of fusion (melting). Energy required per kilograme water meling. (Lm = 333.55 J g-1 on wiki: https://en.wikipedia.org/wiki/Enthalpy_of_fusion) */
 #define SIGMA 3.402e-6
 #define R_dry 287.04
 #define R_v 461.5
