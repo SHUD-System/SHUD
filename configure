@@ -14,12 +14,12 @@ echo ""
 rm -rf $installPath
 #rm -rf sundials-master
 
-echo "download from github:  wget https://codeload.github.com/LLNL/sundials/zip/master"
-#wget -c https://codeload.github.com/LLNL/sundials/zip/master -O sundials.zip
-#echo "unzip sundials.zip"
-#unzip sundials.zip
-echo "git clone https://github.com/LLNL/sundials.git"
-git clone https://github.com/LLNL/sundials.git
+echo wget -c https://github.com/LLNL/sundials/releases/download/v6.0.0/cvode-6.0.0.tar.gz -O cvode.tar.gz
+#wget -c https://github.com/LLNL/sundials/releases/download/v6.0.0/cvode-6.0.0.tar.gz -O cvode.tar.gz
+
+echo tar xvf cvode.tar.gz
+tar xvf cvode.tar.gz
+
 
 mkdir $installPath
 
@@ -46,7 +46,7 @@ cmake -DCMAKE_INSTALL_PREFIX=$path \
  -DBUILD_IDAS=OFF \
  -DBUILD_KINSOL=OFF \
  -DOPENMP_ENABLE=ON \
- ../../sundials
+ ../../cvode-6.0.0
 
 echo "make"
 make
