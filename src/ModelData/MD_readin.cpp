@@ -122,6 +122,7 @@ void Model_Data::read_rivseg(const char *fn){
     }
 }
 void Model_Data::read_riv(const char *fn){
+    int iflag = 0;
     TabularData tb;
     FILE *fp;
     fp =  fopen(fn, "r");
@@ -146,6 +147,7 @@ void Model_Data::read_riv(const char *fn){
         if(Riv[i].Length < ZERO){
             printf("Debug: %d\t%d\t%d\t%d\t%f\t%f\n", i, Riv[i].index, Riv[i].down, Riv[i].type, Riv[i].BedSlope, Riv[i].Length );
             printf("\tThe RIV %d is ZERO/NEGATIVE length\n", i + 1 );
+            iflag = 1;
         }
         if(Riv[i].down < 1){
             printf("\tThe downstream of RIV %d is negtive (Outlet, %d)\n", i + 1, Riv[i].down);
@@ -159,6 +161,9 @@ void Model_Data::read_riv(const char *fn){
             irBC2 = 1;
         }
 //        printf("debug%d\t%d\t%d\t%d\t%f\t%f\n", i, Riv[i].index, Riv[i].down, Riv[i].type, Riv[i].BedSlope, Riv[i].Length );
+    }
+    if(iflag){
+        myexit(ERRDATAIN);
     }
     NumRivType = tb.read(fp);
     Riv_Type = new river_para[NumRivType];
