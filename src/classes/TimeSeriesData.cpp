@@ -55,7 +55,7 @@ void _TimeSeriesData::read_csv()
         }
 #endif
         for (int i = 0; i < MAXQUE * nQue + 2; i++) {
-            /* Line 1= size of table Line 2= Head of table */
+            /* Line 1= size of table; Line 2= Head of table */
             getline(file, str);
         }
         for (int i = 0; i < MAXQUE && getline(file, str); i++) {
