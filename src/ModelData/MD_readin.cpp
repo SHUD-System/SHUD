@@ -376,7 +376,7 @@ void Model_Data::read_forc_csv(const char *fn){
     sscanf(str, "%d %ld", &NumForc, &ForcStartTime);
     tsd_weather = new _TimeSeriesData[NumForc];
     for(int i=0; i < NumForc; i++){
-        tsd_weather[i].initialize(Nforc + 1); /* Nforc is number of forcing sites. */
+        tsd_weather[i].initialize(Nforc + 1); /* Nforc= number of forcing variables. */
     }
     fgets(str, MAXLEN, fp);
     if( strlen(str) > 1){
