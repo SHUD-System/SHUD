@@ -91,9 +91,7 @@ void _Element::applyGeometry(_Node *Node){
     if(zcentroid != NA_VALUE){
         z0 = z_surf;
         aqd = z_surf - z_bottom;
-//        zmax = (zmax+ zcentroid) * 0.5;
-        z_surf = (zmax1 + zmax2 + zmax3 + zcentroid) / 4.0;
-//        zmax = (zmax1 + zmax2 + zmax3) / 3.0;  // debug
+        z_surf = (zmax1 + zmax2 + zmax3) / 3.0;
         z_bottom = z_surf - aqd;
         if(fabs(z0 - z_surf) > 10.){
 //            printf("DZ(%d) = %f\n", index, z0 - zmax);
@@ -200,7 +198,7 @@ void _Element::Flux_Infiltration(double Ysurf, double Yunsat, double Ygw, double
                 u_effkInfi = u_satKr * infKsatV * (1 - hAreaF) + hAreaF * macKsatV * u_satn;
             }else{
                 /* Light rainfall */
-                u_effkInfi = 1. * infKsatV * (1 - hAreaF);
+                u_effkInfi = u_satKr * infKsatV * (1 - hAreaF);
             }
             u_qi = grad * u_effkInfi;
             u_qi = min(av, max(0., u_qi) );
