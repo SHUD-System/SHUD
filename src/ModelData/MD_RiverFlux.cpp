@@ -104,8 +104,8 @@ void Model_Data::fun_Seg_surface(int iEle, int iRiv, int i){
     QsegSurf[i] = WeirFlow_jtoi(Ele[iEle].z_surf, isf,
                            Ele[iEle].z_surf - Riv[iRiv].depth, uYriv[iRiv],
                            Ele[iEle].z_surf + Riv[iRiv].zbank, RivSeg[i].Cwr, RivSeg[i].length, Ele[iEle].depression);
-//    QrivSurf[iRiv]    +=  QsegSurf[i]; // Positive from River to Element
-//    Qe2r_Surf[iEle]   += -QsegSurf[i]; // Positive from Element to River
+    QrivSurf[iRiv]    +=  QsegSurf[i]; // Positive from River to Element
+    Qe2r_Surf[iEle]   += -QsegSurf[i]; // Positive from Element to River
     
 #ifdef DEBUG
     CheckNANi(QsegSurf[i], i, "River Flux Surface (Functopm:f_Segement_surface)");
@@ -118,8 +118,8 @@ void Model_Data::fun_Seg_sub( int iEle, int iRiv, int i){
                              Ele[iEle].u_effKH, Riv[iRiv].KsatH,  
                              RivSeg[i].length,Riv[iRiv].BedThick);
     QsegSub[i] *= fu_Sub[iEle];
-//    QrivSub[iRiv] += QsegSub[i];
-//    Qe2r_Sub[iEle] += -QsegSub[i];
+    QrivSub[iRiv] += QsegSub[i];
+    Qe2r_Sub[iEle] += -QsegSub[i];
 #ifdef DEBUG
     CheckNANi(QsegSub[i], i, "River Flux Sub(Functopm:fun_Seg_sub)");
 #endif
