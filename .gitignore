@@ -24,3 +24,25 @@ forcing
 rAnalysis/test.R
 *.*.swp
 *.DS_Store
+local_docs/
+SHUD_improved/
+build/
+output/
+
+# compiler output
+shud_debug
+shud_omp
+shud
+*.o
+*.dSYM
+*.exe
+*.out
+*.log
+*.err
+*.warn
+*.info
+
+# Apple Case-Sensitive 文件系统冲突文件夹
+# Apple Case-Sensitive filesystem conflict folders
+_*_WhiteSpaceConflict/
+_*.*_*_WhiteSpaceConflict/

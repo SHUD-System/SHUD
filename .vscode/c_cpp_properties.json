@@ -1,0 +1,27 @@
+{
+  "configurations": [
+    {
+      "name": "Mac",
+      "includePath": [
+        "${workspaceFolder}/src/classes",
+        "${workspaceFolder}/src/Equations",
+        "${workspaceFolder}/src/Model",
+        "${workspaceFolder}/src/ModelData",
+        "${workspaceFolder}/src",
+        "/usr/local/include",
+        "/Library/Developer/CommandLineTools/usr/lib/clang/*/include",
+        "/Library/Developer/CommandLineTools/usr/include"
+      ],
+      "defines": [],
+      "macFrameworkPath": [
+        "/System/Library/Frameworks",
+        "/Library/Frameworks"
+      ],
+      "compilerPath": "/usr/bin/clang++",
+      "cStandard": "c11",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "macos-clang-x64"
+    }
+  ],
+  "version": 4
+} 

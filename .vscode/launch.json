@@ -1,0 +1,44 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug HEIHE",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/shud_debug",
+      "args": ["-o", "${workspaceFolder}/output/heihe.out", "heihe"],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "preLaunchTask": "build shud_debug"
+    },
+    {
+      "name": "Debug CCW",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/shud_debug",
+      "args": ["-o", "${workspaceFolder}/output/ccw.out", "ccw"],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb", 
+      "preLaunchTask": "build shud_debug"
+    },
+    {
+      "name": "Debug MC",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/shud_debug",
+      "args": ["-o", "${workspaceFolder}/output/MC.out", "MC"],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb", 
+      "preLaunchTask": "build shud_debug"
+    }
+  ]
+} 
