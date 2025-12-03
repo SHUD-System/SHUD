@@ -1,20 +1,48 @@
 # Simulator of Hydrologic Unstructured Domains (SHUD)
 
-# Relation with PIHM family
 
+## SHUD v2.1 (2025.12)
 
-## SHUD v1.0 (2019.12)
+MODIFICATIONS/ADDITIONS from v2.0
 
-MODIFICATIONS/ADDITIONS in SHUD V1.0 from previous PIHM family.
+1. **Real-Time System (TimeManager) Implementation**
+   - Introduced unified time management system with `TimeManager` class
+   - Established `modelBaseDate` as the single authoritative time reference from forcing file (YYYYMMDD format)
+   - Implemented comprehensive time variable tracking (t0, t1, dt, jd, timelocal, timeutc)
+   - Added high-precision time handling using C++11 `std::chrono` library
+   - Unified time formatting with 7 output formats (from year to microsecond precision)
 
-  0. Change the language and structure of code from C to C++.
-  1. Update the CVODE from v2.2 to v5.0.
-  2. Support OpenMP Parrallel computing.
-  3. Change the input/output format. Check the Manual of SHUD on github.
-  4. Change the structure of River.
-  5. The functions to handle the time-series data, including forcing, LAI,
-     Roughness Length, Boundary Condition, Melting factor.
-  6. Lake Module is added into the hydrological process.
+2. **Time Stamp Validation System**
+   - Automatic validation of timestamps across all input files (forcing, LAI, TSD files)
+   - Detection and reporting of timestamp inconsistencies with detailed warnings
+   - Interactive user confirmation mechanism for handling inconsistent timestamps
+   - Clear warning messages showing file names, timestamps, and differences from base date
+
+3. **Enhanced Output and User Experience**
+   - All output files now include `modelBaseDate` timestamp in headers
+   - Screen output enhanced with real-time information alongside relative time
+   - Model summary displays base time, start time, and end time in human-readable format
+   - Improved progress tracking with actual calendar dates during simulation
+
+4. **Code Quality and Testing**
+   - Added `TimeManager` class with comprehensive time management functionality
+   - Extended `_TimeSeriesData` class with `getStartTime()` accessor method
+   - Integrated time validation into model initialization workflow
+   - Created comprehensive test suites for regression and timestamp validation
+   - All existing test cases (ccw, heihe, qhh) pass with 100% success rate
+
+5. **Technical Improvements**
+   - Minimal code changes following "minimum modification, maximum stability" principle
+   - Backward compatible with existing input/output formats
+   - No performance degradation (time system overhead is negligible)
+   - Clean separation of concerns with dedicated TimeManager class
+   - Proper encapsulation and const-correctness in time-related APIs
+
+6. **Documentation**
+   - Complete specification documents (requirements, design, tasks)
+   - Comprehensive verification reports for all implemented features
+   - Detailed test scripts for integration and regression testing
+   - User-friendly error messages and validation feedback
 
 ## SHUD v2.0 (2022.04)
 
@@ -39,4 +67,31 @@ MODIFICATIONS/ADDITIONS from v1.0
 
  
 
+## SHUD v1.0 (2019.12)
+
+MODIFICATIONS/ADDITIONS in SHUD V1.0 from previous PIHM family.
+
+  0. Change the language and structure of code from C to C++.
+  1. Update the CVODE from v2.2 to v5.0.
+  2. Support OpenMP Parrallel computing.
+  3. Change the input/output format. Check the Manual of SHUD on github.
+  4. Change the structure of River.
+  5. The functions to handle the time-series data, including forcing, LAI,
+     Roughness Length, Boundary Condition, Melting factor.
+  6. Lake Module is added into the hydrological process.
+
+
+
+# Relation with PIHM family
+
+SHUD is developed from PIHM family. The main differences are:
+
+1. SHUD is developed in C++, while PIHM is developed in Fortran.
+2. SHUD is developed in a modularized structure, while PIHM is developed in a monolithic structure.
+3. SHUD is developed in a object-oriented structure, while PIHM is developed in a procedural structure.
+4. SHUD is developed in a parallelized structure, while PIHM is developed in a sequential structure.
+5. SHUD is developed in a platform-independent structure, while PIHM is developed in a platform-dependent structure.
+6. SHUD is developed in a user-friendly structure, while PIHM is developed in a user-unfriendly structure.
+7. SHUD is developed in a flexible structure, while PIHM is developed in a rigid structure.
+8. SHUD is developed in a scalable structure, while PIHM is developed in a non-scalable structure.
 

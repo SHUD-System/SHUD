@@ -41,6 +41,8 @@ OBJDIR       ?= build
 
 # ========== 编译器与选项 / Compiler and Flags ==========
 CXX          ?= g++
+# 依赖关系跟踪选项 / Dependency tracking flags
+DEPFLAGS     = -MMD -MP
 CXXFLAGS     ?= -std=c++14 -O3 -g
 CXXFLAGS_DBG ?= -std=c++14 -O0 -g -DDEBUG
 CXXFLAGS_OMP ?= -std=c++14 -O3 -g -D_OPENMP_ON -fopenmp
@@ -75,6 +77,10 @@ OBJ_CPP_OMP  := $(patsubst $(SRC_DIR)/%.cpp, $(OBJDIR)/%.omp.o, $(SRC_CPP))
 OMP_OBJ      := $(OBJ_CPP_OMP)
 OBJ_CPP_DBG  := $(patsubst $(SRC_DIR)/%.cpp, $(OBJDIR)/%.dbg.o, $(SRC_CPP))
 DBG_OBJ      := $(OBJ_CPP_DBG)
+# 依赖关系文件 / Dependency files
+DEP_CPP      := $(patsubst $(SRC_DIR)/%.cpp, $(OBJDIR)/%.d, $(SRC_CPP))
+DEP_CPP_OMP  := $(patsubst $(SRC_DIR)/%.cpp, $(OBJDIR)/%.omp.d, $(SRC_CPP))
+DEP_CPP_DBG  := $(patsubst $(SRC_DIR)/%.cpp, $(OBJDIR)/%.dbg.d, $(SRC_CPP))
 
 # ========== 目标文件 / Targets ==========
 TARGET        = $(BUILDDIR)/shud
@@ -113,13 +119,18 @@ $(OBJDIR):
 	@mkdir -p $(OBJDIR)
 $(OBJDIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJDIR)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) $(INCLUDES) -c $< -o $@
 $(OBJDIR)/%.omp.o: $(SRC_DIR)/%.cpp | $(OBJDIR)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS_OMP) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS_OMP) $(DEPFLAGS) $(INCLUDES) -c $< -o $@
 $(OBJDIR)/%.dbg.o: $(SRC_DIR)/%.cpp | $(OBJDIR)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS_DBG) -fsanitize=address $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS_DBG) $(DEPFLAGS) -fsanitize=address $(INCLUDES) -c $< -o $@
+
+# ========== 包含依赖关系文件 / Include dependency files ==========
+-include $(DEP_CPP)
+-include $(DEP_CPP_OMP)
+-include $(DEP_CPP_DBG)
 
 # ========== 分文件编译规则 / Per-file Build Rules ==========
 # 1. Release

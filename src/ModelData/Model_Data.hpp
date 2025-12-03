@@ -20,6 +20,7 @@
 #include "Flux_RiverElement.hpp"
 #include "Macros.hpp"
 #include "AccTemperature.hpp"
+#include "TimeManager.hpp"
 using namespace std;
 class Model_Data {        /* Model_data definition */
 public:
@@ -186,9 +187,11 @@ public:
     int NumSegmt;
     RiverSegement *RivSeg;
     
-    long ForcStartTime;
+    // Time management (public for access to modelBaseDate)
+    TimeManager tm;
     
 private:
+    
     double *t_prcp;
     double *t_temp;
     double *t_rh;
@@ -206,6 +209,7 @@ public:
     ~Model_Data();
     /* Model input/output */
     void loadinput();
+    void validateTimeStamps();
     void initialize();
     void initializeLake();
     void initialize_output();
@@ -251,13 +255,16 @@ public:
     void f_etFlux(int i, double t);
     void ET(double t, double tnext);
     void updateforcing(double t);
+    void updateTimeVariables(double t);
     double getArea();
     void PassValue();
+    long getModelBaseDate() const { return tm.getModelBaseDate(); }
 private:
     void fillpits(int i);
     void tReadForcing(double t, int i);
     void ElementTable(const char *fn);
     void RiverTable(const char *fn);
+    bool promptUserConfirmation(const char* message);
     
     void LakeTable(const char *fn);
     int  LakeUniqueID();
@@ -300,7 +307,7 @@ private:
     void read_soil(const char *fn);
     void read_geol(const char *fn);
     void read_lc(const char *fn);
-    void read_forc_csv(const char *fn);
+    void read_forc(const char *fn);
 //    void read_rl(const char *fn);
     void read_lai(const char *fn);
     void read_mf(const char *fn);

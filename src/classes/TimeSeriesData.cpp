@@ -54,12 +54,14 @@ void _TimeSeriesData::read_csv()
             std::cout << "No of Queue = " << nQue << std::endl;;
         }
 #endif
+        
         for (int i = 0; i < MAXQUE * nQue + 2; i++) {
             /* Line 1= size of table; Line 2= Head of table */
             getline(file, str);
+            // std::cout << str << std::endl;
         }
         for (int i = 0; i < MAXQUE && getline(file, str); i++) {
-            //std::cout << str << endl;
+            // std::cout << str << std::endl;
             std::istringstream iss(str);
             Length++;
             for (int j = 0; j < ncol; j++) {

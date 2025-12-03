@@ -28,7 +28,7 @@ private:
     FILE    *fid_asc = NULL;
     char    filea[MAXLEN];
     char    fileb[MAXLEN];
-    long    StartTime;
+    long    startTime_day;
 public:
     Print_Ctrl();
     ~Print_Ctrl();

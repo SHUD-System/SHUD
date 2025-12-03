@@ -361,7 +361,7 @@ void Model_Data::read_lc(const char *fn){
 //               );
     }
 }
-void Model_Data::read_forc_csv(const char *fn){
+void Model_Data::read_forc(const char *fn){
     FILE *fp = fopen(fn, "r");
     CheckFile(fp, fn);
     char path[MAXLEN];
@@ -373,7 +373,12 @@ void Model_Data::read_forc_csv(const char *fn){
     path[0] = '\0';
     str[0] = '\0';
     fgets(str, MAXLEN, fp); // Dimension of the table
-    sscanf(str, "%d %ld", &NumForc, &ForcStartTime);
+    long forcStartTime;
+    sscanf(str, "%d %ld", &NumForc, &forcStartTime);
+    
+    // Initialize TimeManager with the base date from forcing file
+    tm.setModelBaseDate(forcStartTime);
+    
     tsd_weather = new _TimeSeriesData[NumForc];
     for(int i=0; i < NumForc; i++){
         tsd_weather[i].initialize(Nforc + 1); /* Nforc= number of forcing variables. */
@@ -400,6 +405,7 @@ void Model_Data::read_forc_csv(const char *fn){
     printf("\tNumber of csv files: %d\n", NumForc);
     for(int i=0; i < NumForc; i++){
         printf("\t Reading %d/%d: \t%s\n", i+1, NumForc, tsd_weather[i].fn.c_str());
+        tsd_weather[i].readDimensions();
         tsd_weather[i].read_csv();
     }
 }
@@ -428,7 +434,7 @@ void Model_Data::loadinput(){
     if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_lc);
     read_lc(pf_in->file_lc);
     if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_forc);
-    read_forc_csv(pf_in->file_forc);
+    read_forc(pf_in->file_forc);
     if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_lai);
     read_lai(pf_in->file_lai);
 //    if(flag) fprintf(stdout,"%d \t Reading file: %s\n", nt++,pf_in->file_rl);
@@ -647,3 +653,185 @@ void Model_Data::FreeData(){
     delete flood;
 }
 
+
+/**
+ * Validate timestamps across all input files
+ * 
+ * This function checks that all TSD files have consistent timestamps with the
+ * modelBaseDate (from TimeManager). If inconsistencies are found, it displays
+ * warnings and prompts the user for confirmation to continue.
+ * 
+ * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6
+ */
+void Model_Data::validateTimeStamps() {
+    // 1. Get modelBaseDate from TimeManager (already initialized in read_forc)
+    long baseDate = tm.getModelBaseDate();
+    
+    std::vector<std::string> warnings;
+    char msg[512];
+    
+    // 2. Check all forcing files (tsd_weather array)
+    for (int i = 0; i < NumForc; i++) {
+        long timeStamp = tsd_weather[i].getStartTime();
+        if (timeStamp != baseDate) {
+            sprintf(msg, "  - tsd_weather[%d] (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    i, tsd_weather[i].fn.c_str(), timeStamp, baseDate, (timeStamp - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    // 3. Check LAI file
+    long timeLAI = tsd_LAI.getStartTime();
+    if (timeLAI != baseDate) {
+        sprintf(msg, "  - tsd_LAI (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                tsd_LAI.fn.c_str(), timeLAI, baseDate, (timeLAI - baseDate) / 100);
+        warnings.push_back(std::string(msg));
+    }
+    
+    // 4. Check Melt Factor file (if exists)
+    if (NumMeltF > 0) {
+        long timeMF = tsd_MF.getStartTime();
+        if (timeMF != baseDate) {
+            sprintf(msg, "  - tsd_MF (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    tsd_MF.fn.c_str(), timeMF, baseDate, (timeMF - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    // 5. Check Element Source/Sink file (if exists)
+    if (ieSS) {
+        long timeSS = tsd_eleSS.getStartTime();
+        if (timeSS != baseDate) {
+            sprintf(msg, "  - tsd_eleSS (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    tsd_eleSS.fn.c_str(), timeSS, baseDate, (timeSS - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    // 6. Check Element BC files (if exist)
+    if (ieBC1) {
+        long timeBC1 = tsd_eyBC.getStartTime();
+        if (timeBC1 != baseDate) {
+            sprintf(msg, "  - tsd_eyBC (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    tsd_eyBC.fn.c_str(), timeBC1, baseDate, (timeBC1 - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    if (ieBC2) {
+        long timeBC2 = tsd_eqBC.getStartTime();
+        if (timeBC2 != baseDate) {
+            sprintf(msg, "  - tsd_eqBC (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    tsd_eqBC.fn.c_str(), timeBC2, baseDate, (timeBC2 - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    // 7. Check River BC files (if exist)
+    if (irBC1) {
+        long timeRBC1 = tsd_ryBC.getStartTime();
+        if (timeRBC1 != baseDate) {
+            sprintf(msg, "  - tsd_ryBC (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    tsd_ryBC.fn.c_str(), timeRBC1, baseDate, (timeRBC1 - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    if (irBC2) {
+        long timeRBC2 = tsd_rqBC.getStartTime();
+        if (timeRBC2 != baseDate) {
+            sprintf(msg, "  - tsd_rqBC (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    tsd_rqBC.fn.c_str(), timeRBC2, baseDate, (timeRBC2 - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    // 8. Check Lake BC files (if exist)
+    if (ilBC1) {
+        long timeLBC1 = tsd_lyBC.getStartTime();
+        if (timeLBC1 != baseDate) {
+            sprintf(msg, "  - tsd_lyBC (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    tsd_lyBC.fn.c_str(), timeLBC1, baseDate, (timeLBC1 - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    if (ilBC2) {
+        long timeLBC2 = tsd_lqBC.getStartTime();
+        if (timeLBC2 != baseDate) {
+            sprintf(msg, "  - tsd_lqBC (%s): timestamp %ld differs from base %ld (diff: %ld days)", 
+                    tsd_lqBC.fn.c_str(), timeLBC2, baseDate, (timeLBC2 - baseDate) / 100);
+            warnings.push_back(std::string(msg));
+        }
+    }
+    
+    // 9. Display warnings and request user confirmation if inconsistencies found
+    if (!warnings.empty()) {
+        printf("\n========== Time Stamp Validation Warnings ==========\n");
+        printf("Model base date (from %s): %ld\n", pf_in->file_forc, baseDate);
+        printf("Number of inconsistencies: %zu\n", warnings.size());
+        printf("\nInconsistent files:\n");
+        for (const auto& warning : warnings) {
+            printf("%s\n", warning.c_str());
+        }
+        printf("====================================================\n\n");
+        
+        if (!promptUserConfirmation("Time stamps are inconsistent. Continue? [Y]/n: ")) {
+            printf("Model execution terminated by user.\n");
+            exit(1);
+        }
+        printf("Continuing with inconsistent timestamps as per user confirmation.\n\n");
+    } else {
+        printf("Time stamp validation passed. All files use base date: %ld\n", baseDate);
+    }
+}
+
+/**
+ * Prompt user for confirmation
+ * 
+ * Displays a message and waits for user input. Returns true if user confirms
+ * (Y, y, or Enter), false if user declines (n, N).
+ * 
+ * Requirements: 3.4, 3.5, 3.6
+ * 
+ * @param message The prompt message to display
+ * @return true if user confirms, false if user declines
+ */
+bool Model_Data::promptUserConfirmation(const char* message) {
+    char response[10];
+    int attempts = 0;
+    const int maxAttempts = 3;
+    
+    while (attempts < maxAttempts) {
+        printf("%s", message);
+        fflush(stdout);
+        
+        if (fgets(response, sizeof(response), stdin) == NULL) {
+            // EOF or error
+            return false;
+        }
+        
+        // Remove newline if present
+        size_t len = strlen(response);
+        if (len > 0 && response[len - 1] == '\n') {
+            response[len - 1] = '\0';
+        }
+        
+        // Check response
+        if (strlen(response) == 0 || strcmp(response, "Y") == 0 || strcmp(response, "y") == 0) {
+            // Empty (Enter) or Y/y means continue
+            return true;
+        } else if (strcmp(response, "n") == 0 || strcmp(response, "N") == 0) {
+            // n/N means terminate
+            return false;
+        } else {
+            // Invalid input
+            printf("Invalid input. Please enter Y (yes) or n (no).\n");
+            attempts++;
+        }
+    }
+    
+    // After max attempts, default to terminate (safer option)
+    printf("Maximum attempts reached. Defaulting to 'n' (terminate).\n");
+    return false;
+}

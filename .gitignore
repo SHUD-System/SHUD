@@ -11,6 +11,7 @@ Build/
 scr.2*
 output
 *.sh
+!benchmark/**/*.sh
 shud
 shud.*
 Build
@@ -42,7 +43,20 @@ shud
 *.warn
 *.info
 
+# benchmark directory: only track source files, ignore executables and obj files
+benchmark/**
+!benchmark/**/*.cpp
+!benchmark/**/*.hpp
+!benchmark/**/*.R
+!benchmark/**/*.r
+!benchmark/**/*.py
+!benchmark/**/*.sh
+
 # Apple Case-Sensitive 文件系统冲突文件夹
 # Apple Case-Sensitive filesystem conflict folders
 _*_WhiteSpaceConflict/
 _*.*_*_WhiteSpaceConflict/
+
+# AI folders
+.kiro
+.cursor

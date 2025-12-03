@@ -252,7 +252,9 @@ void Print_Ctrl::open_file(int a, int b){
         fid_bin = fopen (fileb, "wb");
         CheckFile(fid_bin, fileb);
         fwrite(header, sizeof(char), 1024, fid_bin);
-        tmp = (double) StartTime;
+        // Write modelBaseDate (StartTime) as the time marker (TIME4)
+        // This is the baseline timestamp from PRJNAME.tsd.forc
+        tmp = (double) startTime_day;
         fwrite( &tmp, sizeof(tmp), 1, fid_bin);
         tmp = (double) NumVar;
         fwrite( &tmp, sizeof(tmp), 1, fid_bin);
@@ -264,7 +266,9 @@ void Print_Ctrl::open_file(int a, int b){
     if (Ascii){
         fid_asc = fopen (filea, "w");
         CheckFile(fid_asc, filea);
-        fprintf(fid_asc, "%d\t %d\t %ld\n", 0, NumVar, StartTime);
+        // Write modelBaseDate (StartTime) as the time marker (TIME4)
+        // This is the baseline timestamp from PRJNAME.tsd.forc
+        fprintf(fid_asc, "%d\t %d\t %ld\n", 0, NumVar, startTime_day);
         fprintf(fid_asc, "%s", "Time_min");
         for(int i = 0; i < NumVar; i++){
             fprintf(fid_asc, " \tX%d", i + 1);
@@ -276,7 +280,7 @@ void Print_Ctrl::open_file(int a, int b){
     }
 }
 void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlux){
-    StartTime = st;
+    startTime_day = st;
     NumVar  = n;
     PrintVar = new double*[NumVar];
     buffer  = new double[NumVar];
@@ -302,7 +306,7 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
     }
 }
 void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux){
-    StartTime = st;
+    startTime_day = st;
     NumVar  = n;
     PrintVar = new double*[NumVar];
     buffer  = new double[NumVar];
@@ -326,7 +330,7 @@ void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j
 }
 
 void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlux, int *flag_IO){
-    StartTime = st;
+    startTime_day = st;
     strcpy(filename, s);
     if(strlen(filename) < 1){
         fprintf(stderr, "WARNING: filename (%s)is empty.\n;", filename);
@@ -364,7 +368,7 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
 }
 
 void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux, int *flag_IO){
-    StartTime = st;
+    startTime_day = st;
     NumVar = n;
     PrintVar = new double*[NumVar];
     buffer = new double[NumVar];

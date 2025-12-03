@@ -1,5 +1,16 @@
 #include "Model_Data.hpp"
 
+void Model_Data::updateTimeVariables(double t){
+    // Update TimeManager with current simulation time
+    tm.updateTime(t);
+    
+    // Synchronize Model_Data time variables with TimeManager
+    t0 = tm.getT0();
+    t1 = tm.getT1();
+    dt = tm.getDT();
+    tnow = t;
+}
+
 void Model_Data::f_updatei(double  *Y, double *DY, double t, int flag){
     switch (flag) {
         case 1:
@@ -232,7 +243,8 @@ int Model_Data::PrintInit (const char *fn, double t){
     fp = fopen (fn, "w");
     CheckFile(fp, fn);
     /************* Element status **************/
-    fprintf (fp, "%d\t %d \t%lf\n", NumEle, 6, t);
+    std::string time_str = tm.formatLocalTime(6, false); // Format: YYYYMMDDhhmmss
+    fprintf (fp, "%d\t %d \t%s\n", NumEle, 6, time_str.c_str());
     fprintf (fp, "%s\t%s\t%s\t%s\t%s\t%s\n","Index",
              "Canopy", "Snow", "Surface", "Unsat", "GW");
     for (int i = 0; i < NumEle; i++){

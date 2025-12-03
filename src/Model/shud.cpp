@@ -47,6 +47,7 @@ double SHUD(FileIn *fin, FileOut *fout){
     /* allocate memory for model data structure */
     MD = new Model_Data(fin, fout);
     MD->loadinput();
+    MD->validateTimeStamps();
     MD->initialize();
     MD->CheckInputData();
     fout->updateFilePath();
@@ -80,7 +81,6 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->gc.write(fout->Calib_bak);
 //    f(t, udata, du, MD); /* Initialized the status */
     for (int i = 0; i < MD->CS.NumSteps && !ierr; i++) {
-        printDY(MD->file_debug);
 #ifdef DEBUG
         printDY(MD->file_debug);
 #endif
@@ -90,6 +90,7 @@ double SHUD(FileIn *fin, FileOut *fout){
         tnext += MD->CS.SolverStep;
         while (t < tnext) {
             MD->updateforcing(t);
+            MD->updateTimeVariables(t);  // Update time variables
             /* calculate Interception Storage */
             MD->ET(t, tnext);
             if(dummy_mode){
@@ -100,6 +101,7 @@ double SHUD(FileIn *fin, FileOut *fout){
             }
         }
         //            CVODEstatus(mem, udata, t);
+        MD->updateTimeVariables(t);  // Update time variables after time step
         MD->summary(udata);
         MD->CS.ExportResults(t);
         MD->flood->FloodWarning(t);
@@ -141,6 +143,7 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     /* allocate memory for model data structure */
     MD = new Model_Data(fin, fout);
     MD->loadinput();
+    MD->validateTimeStamps();
     MD->initialize();
     MD->CheckInputData();
     fout->updateFilePath();
@@ -207,6 +210,7 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
 //            }
             dt = tout - t;
             MD->updateforcing(t);
+            MD->updateTimeVariables(t);  // Update time variables
 //            if(t >= tnext_et){
                 /* calculate Interception Storage */
                 MD->ET(t, tnext);
@@ -242,6 +246,7 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
             }
         }
         t0 = t;
+        MD->updateTimeVariables(t);  // Update time variables after time step
         MD->summary(u1, u2, u3, u4, u5);
         MD->CS.ExportResults(t);
         flag = MD->ScreenPrintu(t, i);

@@ -38,11 +38,35 @@ void Model_Data::modelSummary(int end){
     screeninfo("\tOutput path:\t %s\n", pf_in->outpath);
     screeninfo("\tCalibration file:\t %s\n", pf_in->file_calib);
     screeninfo("\tParameter file:\t %s\n", pf_in->file_para);
-    screeninfo("\tModel starts at: %.2f day\n", CS.StartTime / 1440);
-    screeninfo("\tModel ends at: %.2f day\n", CS.EndTime / 1440);
-    screeninfo("\tModel time step(max): %.2f minutes\n", CS.MaxStep);
+    
+    // Display base time from forcing file (using actual project name)
+    sprintf(str, "\tBase time from %s: %ld\n", pf_in->file_forc, tm.getModelBaseDate());
+    screeninfo(str);
+    
+    // Calculate and display model start time (relative day + real time)
+    double startDay = CS.StartTime / 1440;
+    double endDay = CS.EndTime / 1440;
+    
+    // Calculate real start time
+    tm.updateTime(CS.StartTime);
+    std::string trueStartTime = tm.formatLocalTime();
+    
+    // Calculate real end time
+    tm.updateTime(CS.EndTime);
+    std::string trueEndTime = tm.formatLocalTime();
+    
+    // Use printf directly for multi-parameter output
+    sprintf(str, "\tModel start time: %.2f day (%s)\n", startDay, trueStartTime.c_str());
+    screeninfo(str);
+    sprintf(str, "\tModel end time: %.2f day (%s)\n", endDay, trueEndTime.c_str());
+    screeninfo(str);
+    
+    // Restore time to start time for model execution
+    tm.updateTime(CS.StartTime);
+    
+    screeninfo("\tModel maximum time step: %.2f minutes\n", CS.MaxStep);
 //    screeninfo("\tModel time step(normal): %.2f minutes\n", CS.SolverStep);
-    screeninfo("\tModel total number of steps(minimum): %d \n", CS.NumSteps);
+    screeninfo("\tModel minimum steps: %d \n", CS.NumSteps);
     sprintf(str,"\tSize of model: \tNcell = %d \tNriver = %d\t NSeg = %d", NumEle, NumRiv, NumSegmt);
     screeninfo(str);
 #ifdef _OPENMP_ON
@@ -54,6 +78,8 @@ void Model_Data::modelSummary(int end){
         tic = omp_get_wtime();
         nFCall = 0;
         screeninfo("\nModel Starting ... \n\n");
+        printf("%6s %20s %10s %6s %6s %6s\n",
+            "Day", "Date_Time(Local)", "Percentage(%)", "CPU_Time(s)", "Wall_Time(s)", "Steps");
     }
 #else
     screeninfo("\n\tOpenMP disable");
@@ -65,6 +91,8 @@ void Model_Data::modelSummary(int end){
         nFCall = 0;
 //        nFCall2 = 0;
         screeninfo("\nModel Starting ... \n\n");
+        printf("%6s %20s %10s %6s %6s %6s\n",
+            "Day", "Date_Time(Local)", "Percentage(%)", "CPU_Time(s)", "Wall_Time(s)", "Steps");
     }
 #endif
 }
@@ -270,8 +298,12 @@ int Model_Data::ScreenPrintu(double t, unsigned long it){
     static double tnext = t;
     static unsigned long ncall1 = 0, ncall2 = 0, ncall3 = 0, ncall4 = 0, ncall5 = 0;
     if (t >= tnext) {
-        printf("%6.2f d \t %5.2f%% \t %6.2f s \t %6ld %6ld %6ld %6ld %6ld\n",
-               t / 1440, 100.0 * it / CS.NumSteps, getSecond_wall(),
+        // Update time manager and get real time string
+        tm.updateTime(t);
+        std::string realTime = tm.formatLocalTime();
+        
+        printf("%6.2f d \t %s \t %5.2f%% \t %6.2f s \t %6ld %6ld %6ld %6ld %6ld\n",
+               t / 1440, realTime.c_str(), 100.0 * it / CS.NumSteps, getSecond_wall(),
                nFCall1 - ncall1, nFCall2 - ncall2, nFCall3 - ncall3, nFCall4 - ncall4, nFCall5 - ncall5
                );
         tnext += CS.screenIntv;
@@ -291,6 +323,7 @@ int Model_Data::ScreenPrint(double t, unsigned long it){
     printf("%.0f min ~ %.4f day\t %.2f%% \n", t, t / 1440., (double)it / CS.NumSteps * 100 );
     flag = 1;
 #else
+#endif
     static double tnext = t;
     static unsigned long ncall = 0;
     double sec_cpu, sec_wall, Perctage;
@@ -298,13 +331,18 @@ int Model_Data::ScreenPrint(double t, unsigned long it){
         sec_cpu = getSecond_cpu();
         sec_wall = getSecond_wall();
         Perctage = 100.0 * it / CS.NumSteps;
-        printf("%.2f day \t %.2f%% \t %.2f s \t %.2f s \t %ld \n", tnext / 1440, Perctage, sec_cpu, sec_wall, nFCall - ncall);
+        
+        // Update time manager and get real time string
+        tm.updateTime(tnext);
+        std::string realTime = tm.formatLocalTime();
+        
+        printf("%6.2f %20s %10.2f%% %10.2f %10.2f %10ld\n", 
+               tnext / 1440, realTime.c_str(), Perctage, sec_cpu, sec_wall, nFCall - ncall);
         pf_out->writeTime(t, Perctage, sec_cpu, sec_wall, nFCall - ncall);
         tnext += CS.screenIntv;
         ncall = nFCall;
         flag = 1;
     }
-#endif
     return flag;
 }
 
