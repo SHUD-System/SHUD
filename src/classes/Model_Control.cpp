@@ -353,6 +353,7 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
         if(flag_IO[i]){ /* IO is TRUE*/
             PrintVar[k] = &x[i];
             icol[k] = (double) (i + 1);
+            buffer[k] = 0.0;
             k++;
         }
     }
@@ -365,10 +366,6 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
 
 void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux, int *flag_IO){
     StartTime = st;
-    NumVar = n;
-    PrintVar = new double*[NumVar];
-    buffer = new double[NumVar];
-    icol    = new double[NumVar];
     strcpy(filename, s);
     if(dt == 0 ){
         myexit(ERRCONSIS);
@@ -385,11 +382,13 @@ void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j
     }
     buffer = new double[NumVar];
     PrintVar = new double*[NumVar];
+    icol    = new double[NumVar];
     int k = 0;
     for(int i = 0; i < n; i++){
         if(flag_IO[i]){ /* IO is TRUE*/
             PrintVar[k] = &(x[i][j]);
             icol[k] = (double) (i + 1);
+            buffer[k] = 0.0;
             k++;
         }
     }
@@ -401,10 +400,9 @@ void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j
     }
 }
 Print_Ctrl::~Print_Ctrl(){
-    if(NumVar > 0){
-        if(PrintVar != NULL ) delete[] PrintVar;
-        if(buffer != NULL ) delete[] buffer;
-    }
+    if(PrintVar != NULL ) delete[] PrintVar;
+    if(buffer != NULL ) delete[] buffer;
+    if(icol != NULL ) delete[] icol;
     close_file();
 }
 void Print_Ctrl::fun_printBINARY(double t, double dt){
