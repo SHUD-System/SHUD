@@ -13,12 +13,12 @@
 
 class Print_Ctrl{
 private:
-    char    filename[MAXLEN];
-    char    header[1024];
+    char    filename[MAXLEN] = {};
+    char    header[1024] = {};
     int     Interval = NA_VALUE;
     int     NumVar = NA_VALUE;
     int     NumUpdate = 0;
-    double  *icol;
+    double  *icol = NULL;
     double  **PrintVar = NULL;
     double  *buffer = NULL;
     int     Binary = 1;
@@ -26,11 +26,13 @@ private:
     double  tau = 1440.;    // time unit in calculation. [min]
     FILE    *fid_bin = NULL;
     FILE    *fid_asc = NULL;
-    char    filea[MAXLEN];
-    char    fileb[MAXLEN];
-    long    StartTime;
+    char    filea[MAXLEN] = {};
+    char    fileb[MAXLEN] = {};
+    long    StartTime = 0;
 public:
     Print_Ctrl();
+    Print_Ctrl(const Print_Ctrl&) = delete;
+    Print_Ctrl& operator=(const Print_Ctrl&) = delete;
     ~Print_Ctrl();
     void    open_file(int a, int b);
     void    PrintData (double dt, double t);
