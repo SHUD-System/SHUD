@@ -1,0 +1,17 @@
+{
+  "name" : "shud",
+  "version" : "2.0",
+  "dependencies" : [  {
+    "name" : "sundials",
+    "version>=" : "6.2.0"
+  },
+    {
+      "name" : "gtest",
+      "version>=" : "1.14.0#1"
+    }],
+  "builtin-baseline" : "c8582b4d83dbd36e1bebc08bf166b5eb807996b0",
+  "overrides" : [ {
+    "name" : "sundials",
+    "version" : "6.2.0#0"
+  } ]
+}

@@ -24,3 +24,9 @@ forcing
 rAnalysis/test.R
 *.*.swp
 *.DS_Store
+/vcpkg/
+/Testing/
+/dist/
+/build/
+/.idea/
+/cmake-build-debug-msys2/

@@ -6,7 +6,7 @@
 #ifndef River_hpp
 #define River_hpp
 
-#include <stdio.h>
+#include <cstdio>
 #include "Macros.hpp"
 #include "Node.hpp"
 #include "functions.hpp"
