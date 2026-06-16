@@ -14,30 +14,50 @@
 # -----------------------------------------------------------------
 
 # -----------------------------------------------------------------
-# B0 baseline lock — disallowed-flag guard
-# -----------------------------------------------------------------
-# Fast-fail if the user attempts to inject IEEE-754-violating flags
-# via ANY of the standard flag-carrying variables. Scanning only
-# $(CXXFLAGS) historically left CFLAGS/CPPFLAGS/LDFLAGS as silent
-# bypass paths — sealed here so `make CFLAGS=-ffast-math …` also fails.
-DISALLOWED_FLAGS := -ffast-math -Ofast -funsafe-math-optimizations
-ifneq (,$(filter $(DISALLOWED_FLAGS),$(CFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(MAKEOVERRIDES) $(MAKEFLAGS)))
-$(error disallowed flag detected (one of $(DISALLOWED_FLAGS)) in CFLAGS/CXXFLAGS/CPPFLAGS/LDFLAGS/MAKEOVERRIDES/MAKEFLAGS; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
-endif
-
-# -----------------------------------------------------------------
 # B0 baseline lock — flag variables (do not edit without OpenSpec change)
 # -----------------------------------------------------------------
-CXX_BASE_FLAGS    = -O2 -g -ffp-contract=off -fno-fast-math -std=c++14
+# Two-tier override: CXX_BASE_FLAGS is canonical; SHUD_BUILD_CFLAGS is an
+# alias kept for backward-compat with readers that grep the recipe line.
+# Both use GNU make's `override … :=` so a `make VAR=…` CLI override is
+# silently ignored (per GNU make manual: override on `:=` immunizes against
+# make-CLI assignment). Both must stay `override`-protected.
+override CXX_BASE_FLAGS    := -O2 -g -ffp-contract=off -fno-fast-math -std=c++14
+override SHUD_BUILD_CFLAGS := $(CXX_BASE_FLAGS)
 CXX_OPENMP_DEFINE = -D_OPENMP_ON
 
-# SHUD_BUILD_CFLAGS is the canonical, lock-protected flag set used by the
-# rule recipes. User-supplied `make CFLAGS=…` is captured by the disallowed
-# scan above but does NOT clobber the recipe's locked flags. We still keep
-# CFLAGS = $(CXX_BASE_FLAGS) for backward-compat with any external tooling
-# that reads $(CFLAGS); but build recipes invoke $(SHUD_BUILD_CFLAGS).
-SHUD_BUILD_CFLAGS = $(CXX_BASE_FLAGS)
+# CFLAGS is left as a non-override alias for backward-compat tooling that
+# reads $(CFLAGS); recipes invoke $(SHUD_BUILD_CFLAGS) directly, so a user-
+# supplied `make CFLAGS=…` cannot clobber the locked flag set even before
+# the disallowed-flag scan below catches the injection.
 CFLAGS            = $(CXX_BASE_FLAGS)
+
+# -----------------------------------------------------------------
+# B0 baseline lock — disallowed-flag guard
+# -----------------------------------------------------------------
+# Fast-fail if the user attempts to inject IEEE-754-violating flags via
+# ANY user-controllable flag carrier. Two layers:
+#
+# Layer 1 (filter): scans the 6 standard carriers (CFLAGS / CXXFLAGS /
+# CPPFLAGS / LDFLAGS / MAKEOVERRIDES / MAKEFLAGS) and the 2 project-local
+# lock variables (SHUD_BUILD_CFLAGS / CXX_BASE_FLAGS). `filter` works
+# word-level, so it catches `CXXFLAGS=-ffast-math …`. The two project-
+# local variables are also `override`-protected above (so their values
+# always equal the locked flag set); the scan extension is defense-in-
+# depth in case a future refactor reverts the `override`.
+#
+# Layer 2 (findstring on MAKEOVERRIDES): catches CLI assignments to ANY
+# project-local lock variable (e.g. `make SHUD_BUILD_CFLAGS=-Ofast`),
+# which the `override :=` directive would otherwise silently ignore.
+# Without this layer the user could think "the build accepted my flag"
+# while in reality the locked flag set is still used — Layer 2 turns the
+# silent rejection into a loud error.
+DISALLOWED_FLAGS := -ffast-math -Ofast -funsafe-math-optimizations
+ifneq (,$(filter $(DISALLOWED_FLAGS),$(CFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(MAKEOVERRIDES) $(MAKEFLAGS) $(SHUD_BUILD_CFLAGS) $(CXX_BASE_FLAGS)))
+$(error disallowed flag detected (one of $(DISALLOWED_FLAGS)) in CFLAGS/CXXFLAGS/CPPFLAGS/LDFLAGS/MAKEOVERRIDES/MAKEFLAGS/SHUD_BUILD_CFLAGS/CXX_BASE_FLAGS; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
+endif
+ifneq (,$(or $(findstring -ffast-math,$(MAKEOVERRIDES)),$(findstring -Ofast,$(MAKEOVERRIDES)),$(findstring -funsafe-math-optimizations,$(MAKEOVERRIDES))))
+$(error disallowed flag detected (one of $(DISALLOWED_FLAGS)) in a make-CLI assignment (MAKEOVERRIDES=[$(MAKEOVERRIDES)]); attempts to inject via SHUD_BUILD_CFLAGS / CXX_BASE_FLAGS / etc are also rejected; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
+endif
 
 # -----------------------------------------------------------------
 # Platform-conditional OpenMP flags
