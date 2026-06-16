@@ -45,18 +45,38 @@ CFLAGS            = $(CXX_BASE_FLAGS)
 # always equal the locked flag set); the scan extension is defense-in-
 # depth in case a future refactor reverts the `override`.
 #
-# Layer 2 (findstring on MAKEOVERRIDES): catches CLI assignments to ANY
-# project-local lock variable (e.g. `make SHUD_BUILD_CFLAGS=-Ofast`),
-# which the `override :=` directive would otherwise silently ignore.
-# Without this layer the user could think "the build accepted my flag"
-# while in reality the locked flag set is still used — Layer 2 turns the
-# silent rejection into a loud error.
-DISALLOWED_FLAGS := -ffast-math -Ofast -funsafe-math-optimizations
+# Layer 2 (anchored `=value` scan on MAKEOVERRIDES): iterates over the
+# VAR=value tokens of $(MAKEOVERRIDES) and uses `filter %=$(f)` to detect
+# exact-match `VAR=<disallowed-flag>` CLI assignments (e.g.
+# `make SHUD_BUILD_CFLAGS=-Ofast`), which the `override :=` directive on
+# the lock variables would otherwise silently ignore. The earlier
+# `findstring -Ofast,$(MAKEOVERRIDES)` form was a literal-substring scan
+# that false-positived on paths like `SUNDIALS_DIR=/opt/sundials-Ofast-tuned`;
+# the anchored form pins to the `=` boundary and the end of the token, so
+# only true `VAR=-Ofast` CLI assignments fire. Without this layer the
+# user could think "the build accepted my flag" while in reality the
+# locked flag set is still used — Layer 2 turns the silent rejection into
+# a loud error.
+#
+# `DISALLOWED_FLAGS` itself is `override`-protected so a user-supplied
+# `make DISALLOWED_FLAGS=` cannot disarm the scan list. Binary safety is
+# also guaranteed by `override :=` on the lock variables above, but
+# Layer 1/2 are the user-facing UX — keep them armed.
+override DISALLOWED_FLAGS := -ffast-math -Ofast -funsafe-math-optimizations
 ifneq (,$(filter $(DISALLOWED_FLAGS),$(CFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(MAKEOVERRIDES) $(MAKEFLAGS) $(SHUD_BUILD_CFLAGS) $(CXX_BASE_FLAGS)))
 $(error disallowed flag detected (one of $(DISALLOWED_FLAGS)) in CFLAGS/CXXFLAGS/CPPFLAGS/LDFLAGS/MAKEOVERRIDES/MAKEFLAGS/SHUD_BUILD_CFLAGS/CXX_BASE_FLAGS; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
 endif
-ifneq (,$(or $(findstring -ffast-math,$(MAKEOVERRIDES)),$(findstring -Ofast,$(MAKEOVERRIDES)),$(findstring -funsafe-math-optimizations,$(MAKEOVERRIDES))))
-$(error disallowed flag detected (one of $(DISALLOWED_FLAGS)) in a make-CLI assignment (MAKEOVERRIDES=[$(MAKEOVERRIDES)]); attempts to inject via SHUD_BUILD_CFLAGS / CXX_BASE_FLAGS / etc are also rejected; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
+# Layer 2: anchored scan of $(MAKEOVERRIDES) for `VAR=<disallowed-flag>` CLI
+# assignments. We split MAKEOVERRIDES into VAR=value tokens and, for each
+# token, look for an exact-match `VAR=<flag>` (via `filter %=$(f)`). This
+# avoids the previous literal-findstring false-positive on paths/values that
+# legitimately contain a disallowed flag as a substring (e.g.
+# `SUNDIALS_DIR=/opt/sundials-Ofast-tuned`), while still catching
+# `make shud SHUD_BUILD_CFLAGS=-Ofast` / `CXX_BASE_FLAGS=-Ofast`, which the
+# `override :=` directive would otherwise silently drop.
+LAYER2_HITS := $(strip $(foreach tok,$(MAKEOVERRIDES),$(foreach f,$(DISALLOWED_FLAGS),$(if $(filter %=$(f),$(tok)),$(f)))))
+ifneq (,$(LAYER2_HITS))
+$(error disallowed flag detected ($(LAYER2_HITS)) in a make-CLI assignment (MAKEOVERRIDES=[$(MAKEOVERRIDES)]); attempts to inject via SHUD_BUILD_CFLAGS / CXX_BASE_FLAGS / etc are also rejected; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
 endif
 
 # -----------------------------------------------------------------
