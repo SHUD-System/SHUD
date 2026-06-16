@@ -24,3 +24,10 @@ forcing
 rAnalysis/test.R
 *.*.swp
 *.DS_Store
+
+# SUNDIALS 6.0.0 install staging (per ./configure, B0 baseline lock)
+InstallSundials/
+cvode.tar.gz
+cvode-6.0.0/
+shud_omp
+shud_omp.dSYM/

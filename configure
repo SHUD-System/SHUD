@@ -1,55 +1,115 @@
 #!/bin/bash
-path="~/sundials"
-installPath="InstallSundials"
-echo "Trying to download and install SUNDIALS/CVODE solver for you."
-echo ""
-#read -p "Where to install?(Default: $path) :" path
-#path=${path:-~/sundials}
-echo $path
+# -----------------------------------------------------------------
+# SHUD configure script — install SUNDIALS/CVODE 6.0.0
+# B0 baseline lock: SUNDIALS major version 6.x, installed under
+# $(pwd)/InstallSundials (co-located with the SHUD submodule).
+# Idempotent: re-runs are no-ops once SUNDIALS 6.x is detected.
+# -----------------------------------------------------------------
+set -euo pipefail
 
-echo "Installing SUNDIALS to $path"
-echo "Installing examples to $path/example" 
-echo ""
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+installPath="${SCRIPT_DIR}/InstallSundials"
+SUNDIALS_TARBALL="cvode.tar.gz"
+SUNDIALS_URL="https://github.com/LLNL/sundials/releases/download/v6.0.0/cvode-6.0.0.tar.gz"
+SUNDIALS_SRC_DIR="cvode-6.0.0"
+CONFIG_H="${installPath}/include/sundials/sundials_config.h"
 
-rm -rf $installPath
-#rm -rf sundials-master
+echo "SHUD configure: SUNDIALS install prefix = ${installPath}"
 
-echo wget -c https://github.com/LLNL/sundials/releases/download/v6.0.0/cvode-6.0.0.tar.gz -O cvode.tar.gz
-#wget -c https://github.com/LLNL/sundials/releases/download/v6.0.0/cvode-6.0.0.tar.gz -O cvode.tar.gz
+# --- Idempotent short-circuit ------------------------------------------------
+if [ -f "${CONFIG_H}" ]; then
+  if grep -q "define SUNDIALS_VERSION_MAJOR 6" "${CONFIG_H}"; then
+    installed_version=$(grep "define SUNDIALS_VERSION " "${CONFIG_H}" \
+      | head -n1 | awk '{print $3}' | tr -d '"' || true)
+    echo "Already installed: SUNDIALS ${installed_version:-6.x} at ${installPath}"
+    exit 0
+  else
+    echo "WARNING: ${CONFIG_H} exists but is not SUNDIALS major 6; rebuilding."
+    rm -rf "${installPath}"
+  fi
+fi
 
-echo tar xvf cvode.tar.gz
-tar xvf cvode.tar.gz
+cd "${SCRIPT_DIR}"
 
+# --- Download (wget preferred, curl fallback for macOS) ----------------------
+if [ ! -f "${SUNDIALS_TARBALL}" ]; then
+  echo "Downloading ${SUNDIALS_URL}"
+  if command -v wget >/dev/null 2>&1; then
+    wget -c "${SUNDIALS_URL}" -O "${SUNDIALS_TARBALL}"
+  elif command -v curl >/dev/null 2>&1; then
+    curl -L -o "${SUNDIALS_TARBALL}" "${SUNDIALS_URL}"
+  else
+    echo "ERROR: neither wget nor curl available; cannot download SUNDIALS." >&2
+    exit 2
+  fi
+else
+  echo "Using cached tarball ${SUNDIALS_TARBALL}"
+fi
 
-mkdir $installPath
+# --- Extract -----------------------------------------------------------------
+if [ ! -d "${SUNDIALS_SRC_DIR}" ]; then
+  echo "Extracting ${SUNDIALS_TARBALL}"
+  tar xf "${SUNDIALS_TARBALL}"
+fi
 
-echo "cd $installPath"
-cd $installPath
-
+# --- Build & install ---------------------------------------------------------
+mkdir -p "${installPath}"
+cd "${installPath}"
 rm -rf builddir
-
-echo "makedir builddir"
 mkdir builddir
+cd builddir
 
-echo "cd builddir"
-cd builddir/
+echo "Running cmake..."
+# CMAKE_POLICY_VERSION_MINIMUM=3.5: SUNDIALS 6.0.0 declares
+# cmake_minimum_required(VERSION 3.1.3), which CMake 4.x rejects under
+# its default policy floor. Pinning the policy version keeps the legacy
+# CMakeLists.txt working without modifying upstream sources.
+#
+# OpenMP discovery on macOS / Apple Clang: Apple Clang does not ship
+# libomp; Homebrew provides it as a keg-only formula. We feed the
+# OpenMP_*_FLAGS / library hints directly so SUNDIALS' find_package(OpenMP)
+# succeeds without exporting global LDFLAGS/CPPFLAGS.
+OPENMP_CMAKE_ARGS=()
+if [ "$(uname -s)" = "Darwin" ]; then
+  LIBOMP_PREFIX="$(brew --prefix libomp 2>/dev/null || true)"
+  if [ -z "${LIBOMP_PREFIX}" ] || [ ! -d "${LIBOMP_PREFIX}/include" ]; then
+    echo "ERROR: libomp not found via brew; install with 'brew install libomp'." >&2
+    exit 2
+  fi
+  OPENMP_CMAKE_ARGS+=(
+    -DOpenMP_C_FLAGS="-Xpreprocessor -fopenmp -I${LIBOMP_PREFIX}/include"
+    -DOpenMP_C_LIB_NAMES=omp
+    -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp -I${LIBOMP_PREFIX}/include"
+    -DOpenMP_CXX_LIB_NAMES=omp
+    -DOpenMP_omp_LIBRARY="${LIBOMP_PREFIX}/lib/libomp.dylib"
+  )
+fi
 
-#ccmake ../../sundials/
-echo "start configure...."
-cmake -DCMAKE_INSTALL_PREFIX=$path \
- -DEXAMPLES_INSTALL_PATH="$path/example" \
- -DBUILD_CVODE=ON \
- -DBUILD_CVODES=OFF \
- -DBUILD_ARKODE=OFF \
- -DBUILD_CVODES=OFF \
- -DBUILD_IDA=OFF \
- -DBUILD_IDAS=OFF \
- -DBUILD_KINSOL=OFF \
- -DOPENMP_ENABLE=ON \
- ../../cvode-6.0.0
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+      -DCMAKE_INSTALL_PREFIX="${installPath}" \
+      -DEXAMPLES_INSTALL_PATH="${installPath}/example" \
+      -DBUILD_CVODE=ON \
+      -DBUILD_CVODES=OFF \
+      -DBUILD_ARKODE=OFF \
+      -DBUILD_IDA=OFF \
+      -DBUILD_IDAS=OFF \
+      -DBUILD_KINSOL=OFF \
+      -DOPENMP_ENABLE=ON \
+      "${OPENMP_CMAKE_ARGS[@]}" \
+      "${SCRIPT_DIR}/${SUNDIALS_SRC_DIR}"
 
-echo "make"
+echo "Building (make)..."
 make
 
-echo "make install"
+echo "Installing..."
 make install
+
+# --- Report ------------------------------------------------------------------
+if [ -f "${CONFIG_H}" ]; then
+  installed_version=$(grep "define SUNDIALS_VERSION " "${CONFIG_H}" \
+    | head -n1 | awk '{print $3}' | tr -d '"' || true)
+  echo "Installed SUNDIALS ${installed_version:-6.x} at ${installPath}"
+else
+  echo "ERROR: install completed but ${CONFIG_H} missing." >&2
+  exit 2
+fi
