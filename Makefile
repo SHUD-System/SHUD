@@ -16,10 +16,13 @@
 # -----------------------------------------------------------------
 # B0 baseline lock — disallowed-flag guard
 # -----------------------------------------------------------------
-# Fast-fail if the user attempts to inject IEEE-754-violating flags.
+# Fast-fail if the user attempts to inject IEEE-754-violating flags
+# via ANY of the standard flag-carrying variables. Scanning only
+# $(CXXFLAGS) historically left CFLAGS/CPPFLAGS/LDFLAGS as silent
+# bypass paths — sealed here so `make CFLAGS=-ffast-math …` also fails.
 DISALLOWED_FLAGS := -ffast-math -Ofast -funsafe-math-optimizations
-ifneq (,$(filter $(DISALLOWED_FLAGS),$(CXXFLAGS) $(MAKEOVERRIDES) $(MAKEFLAGS)))
-$(error disallowed flag detected (one of $(DISALLOWED_FLAGS)); B0 baseline requires strict IEEE-754 — see docs/build_manifest.md)
+ifneq (,$(filter $(DISALLOWED_FLAGS),$(CFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(MAKEOVERRIDES) $(MAKEFLAGS)))
+$(error disallowed flag detected (one of $(DISALLOWED_FLAGS)) in CFLAGS/CXXFLAGS/CPPFLAGS/LDFLAGS/MAKEOVERRIDES/MAKEFLAGS; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
 endif
 
 # -----------------------------------------------------------------
@@ -28,8 +31,13 @@ endif
 CXX_BASE_FLAGS    = -O2 -g -ffp-contract=off -fno-fast-math -std=c++14
 CXX_OPENMP_DEFINE = -D_OPENMP_ON
 
-# Existing rules read $(CFLAGS); keep them in sync with the locked flags.
-CFLAGS = $(CXX_BASE_FLAGS)
+# SHUD_BUILD_CFLAGS is the canonical, lock-protected flag set used by the
+# rule recipes. User-supplied `make CFLAGS=…` is captured by the disallowed
+# scan above but does NOT clobber the recipe's locked flags. We still keep
+# CFLAGS = $(CXX_BASE_FLAGS) for backward-compat with any external tooling
+# that reads $(CFLAGS); but build recipes invoke $(SHUD_BUILD_CFLAGS).
+SHUD_BUILD_CFLAGS = $(CXX_BASE_FLAGS)
+CFLAGS            = $(CXX_BASE_FLAGS)
 
 # -----------------------------------------------------------------
 # Platform-conditional OpenMP flags
@@ -37,6 +45,13 @@ CFLAGS = $(CXX_BASE_FLAGS)
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
   LIBOMP_PREFIX     ?= $(shell brew --prefix libomp 2>/dev/null)
+  # Guard libomp only when building shud_omp; serial `make shud` is fine
+  # without libomp installed.
+  ifeq ($(filter shud_omp,$(MAKECMDGOALS)),shud_omp)
+    ifeq ($(LIBOMP_PREFIX),)
+$(error libomp not found via 'brew --prefix libomp'; run 'brew install libomp' before make shud_omp)
+    endif
+  endif
   INC_OMP           ?= $(LIBOMP_PREFIX)/include
   LIB_OMP           ?= $(LIBOMP_PREFIX)/lib
   CXX_OPENMP_CFLAGS = -Xpreprocessor -fopenmp
@@ -74,8 +89,15 @@ MAIN_DEBUG = $(SRC_DIR)/main.cpp
 # Compiler — let user PATH resolve the toolchain.
 # On macOS, `g++` is Apple Clang's wrapper. On Linux, it is GCC (use
 # CXX=g++-12 to pin GCC 12 in CI per docs/build_manifest.md).
-# -----------------------------------------------------------------
-CXX   ?= g++
+#
+# NOTE: `CXX ?= g++` is a no-op — GNU make defines CXX = g++ as a built-in
+# default with origin `default`, so `?=` (which only assigns when the
+# variable is undefined) never fires, and reality defaults to `c++`.
+# We check the origin explicitly so only the make built-in is overridden;
+# any environment / CLI / Makefile-assigned value is preserved.
+ifeq ($(origin CXX),default)
+  CXX := g++
+endif
 MPICC ?= mpic++
 
 SRC = $(SRC_DIR)/classes/*.cpp \
@@ -95,9 +117,12 @@ INCLUDES = -I $(SUNDIALS_DIR)/include \
            -I $(SRC_DIR)/classes \
            -I $(SRC_DIR)/Equations
 
-LIBRARIES = -L $(LIB_OMP) \
-            -L $(LIB_SUN) \
-            -L $(LIB_SYS)
+# Use $(if …) so an empty $(LIB_OMP) / $(LIB_SYS) does NOT emit a bare `-L`
+# token (which gobbles the next argument and breaks the link line on Linux,
+# where LIB_OMP is empty by default).
+LIBRARIES = $(if $(LIB_OMP),-L$(LIB_OMP)) \
+            -L$(LIB_SUN) \
+            $(if $(LIB_SYS),-L$(LIB_SYS))
 
 RPATH = '-Wl,-rpath,$(LIB_SUN)'
 
@@ -107,16 +132,33 @@ LK_OMP   = $(CXX_OPENMP_LFLAGS) -lsundials_nvecopenmp
 LK_DYLN  = "LD_LIBRARY_PATH=$(LIB_SUN)"
 
 # -----------------------------------------------------------------
-# SUNDIALS major-version guard
+# SUNDIALS version + install-completeness guard
 # -----------------------------------------------------------------
+# - MAJOR pinned with `-Eq '^…6$'` (anchored regex) so substrings like
+#   60 / 600 / 6X cannot pass as "6".
+# - MINOR also pinned: 6.0.x is the supported series; 6.1+ is rejected.
+# - PATCH unenforced: future 6.0.x patches are acceptable.
+# - Library stat catches the "header present but libs missing" partial
+#   install that the old grep-only guard silently allowed.
 SUNDIALS_CFG_H = $(SUNDIALS_DIR)/include/sundials/sundials_config.h
 
-.PHONY: check_sundials
+.PHONY: check_sundials check_sundials_omp
 check_sundials:
 	@test -f $(SUNDIALS_CFG_H) || \
 	  (echo "ERROR: $(SUNDIALS_CFG_H) not found; run ./configure first"; exit 2)
-	@grep -q "define SUNDIALS_VERSION_MAJOR 6" $(SUNDIALS_CFG_H) || \
-	  (echo "ERROR: wrong SUNDIALS major version (expected 6) in $(SUNDIALS_CFG_H)"; exit 2)
+	@grep -Eq '^#define SUNDIALS_VERSION_MAJOR 6$$' $(SUNDIALS_CFG_H) || \
+	  (echo "ERROR: SUNDIALS major != 6 in $(SUNDIALS_CFG_H); B0 requires exactly 6.x"; exit 2)
+	@grep -Eq '^#define SUNDIALS_VERSION_MINOR 0$$' $(SUNDIALS_CFG_H) || \
+	  (echo "ERROR: SUNDIALS minor != 0; B0 requires 6.0.x; re-run ./configure to pin to 6.0.0"; exit 2)
+	@ls $(SUNDIALS_DIR)/lib/libsundials_cvode.* >/dev/null 2>&1 || \
+	  (echo "ERROR: libsundials_cvode.* not found under $(SUNDIALS_DIR)/lib; SUNDIALS install is incomplete; re-run ./configure"; exit 2)
+	@ls $(SUNDIALS_DIR)/lib/libsundials_nvecserial.* >/dev/null 2>&1 || \
+	  (echo "ERROR: libsundials_nvecserial.* not found under $(SUNDIALS_DIR)/lib; SUNDIALS install is incomplete; re-run ./configure"; exit 2)
+
+# OpenMP build additionally needs the nvecopenmp variant.
+check_sundials_omp: check_sundials
+	@ls $(SUNDIALS_DIR)/lib/libsundials_nvecopenmp.* >/dev/null 2>&1 || \
+	  (echo "ERROR: libsundials_nvecopenmp.* not found under $(SUNDIALS_DIR)/lib; SUNDIALS OpenMP variant missing; re-run ./configure"; exit 2)
 
 # -----------------------------------------------------------------
 # Targets
@@ -153,18 +195,18 @@ cvode CVODE:
 
 shud SHUD: check_sundials $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo '...Compiling shud (B0 serial) ...'
-	@echo  $(CXX) $(CFLAGS) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
+	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
 	@echo
-	$(CXX) $(CFLAGS) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
 	@echo
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
 
-shud_omp: check_sundials $(MAIN_OMP) $(SRC) $(SRC_H)
+shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
 	@echo '...Compiling shud_OpenMP ...'
-	@echo $(CXX) $(CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
 	@echo
-	$(CXX) $(CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
 	@echo
 	@echo " $(TARGET_OMP) is compiled successfully!"
 	@echo

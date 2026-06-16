@@ -17,14 +17,20 @@ CONFIG_H="${installPath}/include/sundials/sundials_config.h"
 echo "SHUD configure: SUNDIALS install prefix = ${installPath}"
 
 # --- Idempotent short-circuit ------------------------------------------------
+# Match Makefile's check_sundials guard: require anchored MAJOR=6 + MINOR=0
+# AND at least one libsundials_cvode.* file (catches partial / interrupted
+# installs where the header was written but make-install never ran).
 if [ -f "${CONFIG_H}" ]; then
-  if grep -q "define SUNDIALS_VERSION_MAJOR 6" "${CONFIG_H}"; then
+  cvode_libs=$(ls "${installPath}/lib/"libsundials_cvode.* 2>/dev/null | head -n1 || true)
+  if grep -Eq '^#define SUNDIALS_VERSION_MAJOR 6$' "${CONFIG_H}" \
+     && grep -Eq '^#define SUNDIALS_VERSION_MINOR 0$' "${CONFIG_H}" \
+     && [ -n "${cvode_libs}" ]; then
     installed_version=$(grep "define SUNDIALS_VERSION " "${CONFIG_H}" \
       | head -n1 | awk '{print $3}' | tr -d '"' || true)
-    echo "Already installed: SUNDIALS ${installed_version:-6.x} at ${installPath}"
+    echo "Already installed: SUNDIALS ${installed_version:-6.0.x} at ${installPath}"
     exit 0
   else
-    echo "WARNING: ${CONFIG_H} exists but is not SUNDIALS major 6; rebuilding."
+    echo "WARNING: ${CONFIG_H} exists but install is incomplete or not SUNDIALS 6.0.x; rebuilding."
     rm -rf "${installPath}"
   fi
 fi
@@ -47,10 +53,11 @@ else
 fi
 
 # --- Extract -----------------------------------------------------------------
-if [ ! -d "${SUNDIALS_SRC_DIR}" ]; then
-  echo "Extracting ${SUNDIALS_TARBALL}"
-  tar xf "${SUNDIALS_TARBALL}"
-fi
+# Always re-extract to avoid a stale / partial tree from an interrupted
+# prior run silently feeding a broken CMakeLists.txt or sources to cmake.
+echo "Extracting ${SUNDIALS_TARBALL} into ${SUNDIALS_SRC_DIR} (clean re-extract)"
+rm -rf "${SUNDIALS_SRC_DIR}"
+tar xf "${SUNDIALS_TARBALL}"
 
 # --- Build & install ---------------------------------------------------------
 mkdir -p "${installPath}"
@@ -106,9 +113,18 @@ make install
 
 # --- Report ------------------------------------------------------------------
 if [ -f "${CONFIG_H}" ]; then
+  if ! grep -Eq '^#define SUNDIALS_VERSION_MAJOR 6$' "${CONFIG_H}" \
+     || ! grep -Eq '^#define SUNDIALS_VERSION_MINOR 0$' "${CONFIG_H}"; then
+    echo "ERROR: post-install header does not pin to SUNDIALS 6.0.x; aborting." >&2
+    exit 2
+  fi
+  if ! ls "${installPath}/lib/"libsundials_cvode.* >/dev/null 2>&1; then
+    echo "ERROR: post-install libsundials_cvode.* missing under ${installPath}/lib." >&2
+    exit 2
+  fi
   installed_version=$(grep "define SUNDIALS_VERSION " "${CONFIG_H}" \
     | head -n1 | awk '{print $3}' | tr -d '"' || true)
-  echo "Installed SUNDIALS ${installed_version:-6.x} at ${installPath}"
+  echo "Installed SUNDIALS ${installed_version:-6.0.x} at ${installPath}"
 else
   echo "ERROR: install completed but ${CONFIG_H} missing." >&2
   exit 2
