@@ -1,4 +1,7 @@
 #include "Model_Data.hpp"
+#ifdef SHUD_DUMP_RHS
+#include "MD_rhs_dump.h"
+#endif
 
 void Model_Data::f_updatei(double  *Y, double *DY, double t, int flag){
     switch (flag) {
@@ -144,6 +147,9 @@ void Model_Data::f_update(double  *Y, double *DY, double t){
     for (int i = 0; i < NumY; i++){
         DY[i] = 0.;
     }
+#ifdef SHUD_DUMP_RHS
+    shud_rhs_dump_point("f_update", t, DY, NumY);
+#endif
 }
 void Model_Data::summary (N_Vector udata){
     double  *Y;

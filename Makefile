@@ -80,6 +80,32 @@ $(error disallowed flag detected ($(LAYER2_HITS)) in a make-CLI assignment (MAKE
 endif
 
 # -----------------------------------------------------------------
+# Optional RHS snapshot dump instrumentation (openmp issue #8 / S0-6)
+# -----------------------------------------------------------------
+# Off by default. Set `SHUD_DUMP_RHS=1` on the make CLI to compile in
+# the dump hooks at f_update / f_loop / f_applyDY exits. Hook bodies
+# are #ifdef SHUD_DUMP_RHS-guarded in the source, so DUMP=0 produces
+# preprocessor output identical to the unmodified codebase — keliya
+# `*.dat` SHA256 must match the pre-#8 baseline at the same flag set.
+#
+# Runtime env vars (consumed when SHUD_DUMP_RHS=1):
+#   SHUD_DUMP_OUTPUT_DIR  — directory for snapshot files (default: cwd)
+#   SHUD_DUMP_MANIFEST    — path to benchmark manifest.yaml driving
+#                           probe `t_values` (see benchmarks/<case>/)
+#
+# Writer impl is S0-7 (#9). This stage ships a no-op stub
+# (SHUD/src/ModelData/MD_rhs_dump.cpp) so SHUD_DUMP_RHS=1 builds link
+# and the main keliya output stays bitwise-equal to DUMP=0.
+SHUD_DUMP_RHS ?= 0
+ifeq ($(SHUD_DUMP_RHS),1)
+  SHUD_DUMP_DEFINE := -DSHUD_DUMP_RHS=1
+else ifeq ($(SHUD_DUMP_RHS),0)
+  SHUD_DUMP_DEFINE :=
+else
+$(error SHUD_DUMP_RHS must be 0 or 1, got '$(SHUD_DUMP_RHS)')
+endif
+
+# -----------------------------------------------------------------
 # Platform-conditional OpenMP flags
 # -----------------------------------------------------------------
 UNAME_S := $(shell uname -s)
@@ -223,6 +249,8 @@ help:
 	@echo "       make cvode        - install SUNDIALS/CVODE 6.x to ./InstallSundials"
 	@echo "       make shud         - build serial shud executable"
 	@echo "       make shud_omp     - build OpenMP shud_omp executable"
+	@echo "       make shud SHUD_DUMP_RHS=1     - serial build with RHS snapshot hooks compiled in"
+	@echo "       make shud_omp SHUD_DUMP_RHS=1 - OpenMP build with RHS snapshot hooks compiled in"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
 	@echo "       make clean        - remove binary outputs (preserves InstallSundials)"
 	@echo
@@ -235,18 +263,18 @@ cvode CVODE:
 
 shud SHUD: check_sundials $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo '...Compiling shud (B0 serial) ...'
-	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
+	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
 	@echo
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
 
 shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
 	@echo '...Compiling shud_OpenMP ...'
-	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
 	@echo
 	@echo " $(TARGET_OMP) is compiled successfully!"
 	@echo

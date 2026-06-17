@@ -5,6 +5,9 @@
 //
 
 #include "Model_Data.hpp"
+#ifdef SHUD_DUMP_RHS
+#include "MD_rhs_dump.h"
+#endif
 void Model_Data:: f_loop(double t){
     int i;
     for (i = 0; i < NumEle; i++) {
@@ -46,6 +49,9 @@ void Model_Data:: f_loop(double t){
     }
     /* Shared for both OpenMP and Serial, to update */
     PassValue();
+#ifdef SHUD_DUMP_RHS
+    shud_rhs_dump_point("f_loop", t, NULL, 0);
+#endif
 }
 
 void Model_Data::f_applyDY(double *DY, double t){
@@ -151,6 +157,9 @@ void Model_Data::f_applyDY(double *DY, double t){
         CheckNANi(DY[iLAKE], i, "DY[i] of LAKE (Model_Data::f_applyDY)");
 #endif
     }
+#ifdef SHUD_DUMP_RHS
+    shud_rhs_dump_point("f_applyDY", t, DY, 3 * NumEle + NumRiv + NumLake);
+#endif
 }
 
 void Model_Data::PassValue(){
