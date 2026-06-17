@@ -1,5 +1,21 @@
 #include "f.hpp"
+#ifdef SHUD_ENABLE_PROFILE
+#include "timer.h"
+#endif
 int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
+#ifdef SHUD_ENABLE_PROFILE
+    /* S0-10 / openMP #14 — t_RHS_total wraps the entire outer RHS
+     * callback: vector unwrap + sub-call dispatch + nFCall accounting +
+     * (debug-only) DY snapshot. The inner t_RHS_kernel timer below
+     * scopes ONLY the three flux-computation sub-calls (update / loop /
+     * applyDY), so kernel ≤ total; the difference is "outer overhead"
+     * (NV_DATA dereference, counter bump, etc.). Both #ifdef-guarded so
+     * PROFILE=0 builds are bitwise-equivalent to the un-instrumented
+     * baseline (timer.h header-only no-ops, but the RAII object would
+     * still emit an extra ctor/dtor frame at -O0 — guards keep the
+     * release build clean too). */
+    shud_profile::Timer _t_rhs_total("t_RHS_total");
+#endif
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
@@ -7,9 +23,14 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef _OPENMP_ON
     Y = NV_DATA_OMP(CV_Y);
     DY = NV_DATA_OMP(CV_Ydot);
-    MD->f_update_omp(Y, DY, t);
-    MD->f_loop_omp(Y, DY, t);
-    MD->f_applyDY_omp(DY, t);
+    {
+#ifdef SHUD_ENABLE_PROFILE
+        shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
+#endif
+        MD->f_update_omp(Y, DY, t);
+        MD->f_loop_omp(Y, DY, t);
+        MD->f_applyDY_omp(DY, t);
+    }
 #else
     Y = NV_DATA_S(CV_Y);
     DY = NV_DATA_S(CV_Ydot);
@@ -20,9 +41,14 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     printf("%f\n", x->data[0 + 3 * MD->NumEle]);
     printf("%f\n", x->data[0 + 3 * MD->NumEle + MD->NumRiv]);
      */
-    MD->f_update(Y, DY, t);
-    MD->f_loop(t);
-    MD->f_applyDY(DY, t);
+    {
+#ifdef SHUD_ENABLE_PROFILE
+        shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
+#endif
+        MD->f_update(Y, DY, t);
+        MD->f_loop(t);
+        MD->f_applyDY(DY, t);
+    }
 #endif
     MD->nFCall++;
 #ifdef DEBUG

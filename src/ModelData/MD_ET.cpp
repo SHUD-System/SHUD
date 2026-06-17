@@ -7,7 +7,18 @@
 //
 
 #include "Model_Data.hpp"
+#ifdef SHUD_ENABLE_PROFILE
+#include "timer.h"
+#endif
 void Model_Data::updateforcing(double t){
+#ifdef SHUD_ENABLE_PROFILE
+    /* S0-10 / openMP #14 — t_forcing_io covers the time-series interp
+     * call inside the inner solver loop. Even though the read is from
+     * an in-memory tsd structure (forcing.csv is loaded at startup), it
+     * still scales O(NumForc) per CVODE substep and master plan §S0.12
+     * tracks it as a discrete bucket for the profile decision matrix. */
+    shud_profile::Timer _t_forcing("t_forcing_io");
+#endif
     int i;
 #ifdef _OPENMP_ON
 #pragma omp for
@@ -104,6 +115,12 @@ void Model_Data::tReadForcing(double t, int i){
     qEleETP[i] = etp;
 }
 void Model_Data::ET(double t, double tnext){
+#ifdef SHUD_ENABLE_PROFILE
+    /* S0-10 / openMP #14 — t_ET wraps the canopy / soil-moisture / ETP
+     * kernel. RAII so an early-return in NumEle==0 corner case still
+     * accumulates the wall time. */
+    shud_profile::Timer _t_et("t_ET");
+#endif
     double  T=NA_VALUE,  LAI=NA_VALUE, MF =NA_VALUE, prcp = NA_VALUE;
     double  snFrac, snAcc, snMelt, snStg;
     double  icAcc, icEvap, icStg, icMax, vgFrac;

@@ -90,30 +90,48 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->debugData(fout->outpath);
     MD->gc.write(fout->Calib_bak);
 //    f(t, udata, du, MD); /* Initialized the status */
-    for (int i = 0; i < MD->CS.NumSteps && !ierr; i++) {
-        printDY(MD->file_debug);
-#ifdef DEBUG
-        printDY(MD->file_debug);
+    {
+#ifdef SHUD_ENABLE_PROFILE
+        /* S0-10 / openMP #14 — t_wall_total wraps the main solver loop
+         * (NumSteps iterations, each with forcing/ET/CVode/summary/
+         * ExportResults). Used in dump() to derive t_other = wall_total
+         * - (CVODE_raw + forcing + ET + output). Initialization /
+         * cvode_stats persistence / profile dump itself live outside
+         * this scope on purpose so they do not skew the loop wall. */
+        shud_profile::Timer _t_wall("t_wall_total");
 #endif
-        flag = MD->ScreenPrint(t, i);
-        MD->PrintInit(fout->Init_update, t);
-        /* inner loops to next output points with ET step size control */
-        tnext += MD->CS.SolverStep;
-        while (t < tnext) {
-            MD->updateforcing(t);
-            /* calculate Interception Storage */
-            MD->ET(t, tnext);
-            if(dummy_mode){
-                t = tnext;  /* dummy mode only. */
-            }else{
-                flag = CVode(mem, tnext, udata, &t, CV_NORMAL);
-                check_flag(&flag, "CVode", 1);
+        for (int i = 0; i < MD->CS.NumSteps && !ierr; i++) {
+            printDY(MD->file_debug);
+#ifdef DEBUG
+            printDY(MD->file_debug);
+#endif
+            flag = MD->ScreenPrint(t, i);
+            MD->PrintInit(fout->Init_update, t);
+            /* inner loops to next output points with ET step size control */
+            tnext += MD->CS.SolverStep;
+            while (t < tnext) {
+                MD->updateforcing(t);
+                /* calculate Interception Storage */
+                MD->ET(t, tnext);
+                if(dummy_mode){
+                    t = tnext;  /* dummy mode only. */
+                }else{
+#ifdef SHUD_ENABLE_PROFILE
+                    /* t_CVODE_raw includes the RHS sub-calls (CVode
+                     * invokes f() internally). dump() subtracts the
+                     * already-measured t_RHS_total to get the net
+                     * t_CVODE_internal bucket. */
+                    shud_profile::Timer _t_cvode("t_CVODE_raw");
+#endif
+                    flag = CVode(mem, tnext, udata, &t, CV_NORMAL);
+                    check_flag(&flag, "CVode", 1);
+                }
             }
+            //            CVODEstatus(mem, udata, t);
+            MD->summary(udata);
+            MD->CS.ExportResults(t);
+            MD->flood->FloodWarning(t);
         }
-        //            CVODEstatus(mem, udata, t);
-        MD->summary(udata);
-        MD->CS.ExportResults(t);
-        MD->flood->FloodWarning(t);
     }
     MD->ScreenPrint(t, MD->CS.NumSteps);
     MD->PrintInit(fout->Init_update, t);

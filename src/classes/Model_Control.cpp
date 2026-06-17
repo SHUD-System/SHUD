@@ -5,6 +5,9 @@
 //
 
 #include "Model_Control.hpp"
+#ifdef SHUD_ENABLE_PROFILE
+#include "timer.h"
+#endif
 void PrintOutDt::defaultmode(){
     int dt = 1440;
     /* Element storage */
@@ -75,6 +78,14 @@ Control_Data::~Control_Data(){
 //    delete Tout;
 }
 void Control_Data::ExportResults(double t){
+#ifdef SHUD_ENABLE_PROFILE
+    /* S0-10 / openMP #14 — t_output covers all NumPrint Print_Ctrl
+     * channels' PrintData calls per main-loop ExportResults invocation.
+     * PrintData performs the in-memory buffer accumulation and, on the
+     * tau-aligned tick, the fid_bin / fid_asc fwrite calls — i.e. the
+     * actual .dat file I/O. */
+    shud_profile::Timer _t_out("t_output");
+#endif
     for (int i = 0; i < NumPrint; i++){
         PCtrl[i].PrintData(dt, t);
     }
