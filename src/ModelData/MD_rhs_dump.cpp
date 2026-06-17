@@ -22,6 +22,7 @@
 
 #ifdef SHUD_DUMP_RHS
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -94,6 +95,38 @@ void init_config() {
 
     const char *tv = std::getenv("SHUD_DUMP_T_VALUES");
     c.targets = parse_t_values(tv);
+
+    /* F2-corr hygiene: drop non-finite targets (parse_t_values accepts
+     * "nan"/"inf" tokens because strtod does; reject them here so they
+     * cannot reach the filename buffer or the tolerance compare). */
+    {
+        auto fin = c.targets.begin();
+        for (double v : c.targets) {
+            if (std::isfinite(v)) *fin++ = v;
+            else std::fprintf(stderr,
+                "shud_rhs_dump: dropping non-finite target from SHUD_DUMP_T_VALUES\n");
+        }
+        c.targets.erase(fin, c.targets.end());
+    }
+
+    /* F1-corr hygiene: %%.0f filename precision means two targets within
+     * 1.0 of each other collapse to the same snapshot_t<rounded>.bin file
+     * and the second would silently overwrite the first. Reject at init. */
+    if (c.targets.size() > 1) {
+        std::vector<double> sorted(c.targets);
+        std::sort(sorted.begin(), sorted.end());
+        for (std::size_t i = 1; i < sorted.size(); ++i) {
+            if (std::fabs(sorted[i] - sorted[i - 1]) < 1.0) {
+                std::fprintf(stderr,
+                    "shud_rhs_dump: SHUD_DUMP_T_VALUES targets %g and %g "
+                    "collide under %%.0f filename precision; disabling\n",
+                    sorted[i - 1], sorted[i]);
+                c.disabled = true;
+                return;
+            }
+        }
+    }
+
     if (c.targets.empty()) {
         c.disabled = true;
     }
