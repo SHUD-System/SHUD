@@ -30,14 +30,14 @@ int check_flag(void *flagvalue, const char *funcname, int opt)
     }
     return (0);
 }
-void PrintFinalStats(void *cvode_mem)
+void PrintFinalStats(void *cvode_mem, FILE *fout)
 {
     long int lenrw, leniw;
     long int lenrwLS, leniwLS;
     long int nst, nfe, nsetups, nni, ncfn, netf;
     long int nli, npe, nps, ncfl, nfeLS;
     int flag;
-    
+
     flag = CVodeGetWorkSpace(cvode_mem, &lenrw, &leniw);
     check_flag(&flag, "CVodeGetWorkSpace", 1);
     flag = CVodeGetNumSteps(cvode_mem, &nst);
@@ -52,7 +52,7 @@ void PrintFinalStats(void *cvode_mem)
     check_flag(&flag, "CVodeGetNumNonlinSolvIters", 1);
     flag = CVodeGetNumNonlinSolvConvFails(cvode_mem, &ncfn);
     check_flag(&flag, "CVodeGetNumNonlinSolvConvFails", 1);
-    
+
 //    flag = CVSpilsGetWorkSpace(cvode_mem, &lenrwLS, &leniwLS);
     flag = CVodeGetLinWorkSpace(cvode_mem, &lenrwLS, &leniwLS);
     check_flag(&flag, "CVSpilsGetWorkSpace", 1);
@@ -71,7 +71,7 @@ void PrintFinalStats(void *cvode_mem)
 //    flag = CVSpilsGetNumRhsEvals(cvode_mem, &nfeLS);
     flag = CVodeGetNumLinRhsEvals(cvode_mem, &nfeLS);
     check_flag(&flag, "CVSpilsGetNumRhsEvals", 1);
-    
+
     printf("\nFinal Statistics.. \n\n");
     printf("lenrw   = %5ld     leniw   = %5ld\n", lenrw, leniw);
     printf("lenrwLS = %5ld     leniwLS = %5ld\n", lenrwLS, leniwLS);
@@ -81,6 +81,29 @@ void PrintFinalStats(void *cvode_mem)
     printf("nsetups = %5ld     netf    = %5ld\n", nsetups, netf);
     printf("npe     = %5ld     nps     = %5ld\n", npe, nps);
     printf("ncfn    = %5ld     ncfl    = %5ld\n\n", ncfn, ncfl);
+
+    /* S0-8a / openMP #10 — optional key=value persistence. stdout output
+     * above is unchanged so existing log-scraping continues to work.
+     * Field order is deterministic + machine-parseable; the six fields
+     * required by the b0-archive spec (nfe, nfeLS, nni, nli, nsetups,
+     * netf) lead the file, the remainder follow for completeness. */
+    if (fout != NULL) {
+        fprintf(fout, "nfe=%ld\n",     nfe);
+        fprintf(fout, "nfeLS=%ld\n",   nfeLS);
+        fprintf(fout, "nni=%ld\n",     nni);
+        fprintf(fout, "nli=%ld\n",     nli);
+        fprintf(fout, "nsetups=%ld\n", nsetups);
+        fprintf(fout, "netf=%ld\n",    netf);
+        fprintf(fout, "nst=%ld\n",     nst);
+        fprintf(fout, "npe=%ld\n",     npe);
+        fprintf(fout, "nps=%ld\n",     nps);
+        fprintf(fout, "ncfn=%ld\n",    ncfn);
+        fprintf(fout, "ncfl=%ld\n",    ncfl);
+        fprintf(fout, "lenrw=%ld\n",   lenrw);
+        fprintf(fout, "leniw=%ld\n",   leniw);
+        fprintf(fout, "lenrwLS=%ld\n", lenrwLS);
+        fprintf(fout, "leniwLS=%ld\n", leniwLS);
+    }
 }
 
 /* Print current t, step count, order, stepsize, and sampled c1,c2 values */

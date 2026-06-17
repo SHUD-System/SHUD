@@ -15,6 +15,14 @@
 #include "FloodAlert.hpp"
 #include "CommandIn.hpp"
 
+/* S0-8a / openMP #10 — wall-clock profile timer infrastructure. Header
+ * provides no-op stubs when SHUD_ENABLE_PROFILE is undefined, so the
+ * include is unconditional and the call sites below compile to bitwise-
+ * identical code in the PROFILE=0 build. Header lives in the outer
+ * `tools/profile/` directory; SHUD Makefile injects `-Itools/profile`
+ * + the impl source only when SHUD_ENABLE_PROFILE=1. */
+#include "timer.h"
+
 double *uYsf;
 double *uYus;
 double *uYgw;
@@ -110,8 +118,41 @@ double SHUD(FileIn *fin, FileOut *fout){
     /* Free memory */
     N_VDestroy_Serial(udata);
     N_VDestroy_Serial(du);
+
+    /* S0-8a / openMP #10 — persist CVODE final stats next to the SHUD
+     * output dir for the B0 archive script to pick up. stdout printout
+     * inside PrintFinalStats is unchanged (back-compat). fopen failure
+     * is non-fatal: PrintFinalStats(mem, NULL) still prints to stdout. */
+    {
+        char stats_path[MAXLEN];
+        snprintf(stats_path, sizeof(stats_path), "%s/cvode_stats.txt",
+                 fout->outpath);
+        FILE *stats_fp = fopen(stats_path, "w");
+        PrintFinalStats(mem, stats_fp);
+        if (stats_fp != NULL) {
+            fclose(stats_fp);
+        } else {
+            fprintf(stderr,
+                    "[shud] WARN: cvode_stats.txt fopen failed at "
+                    "'%s'; stdout-only fallback used.\n",
+                    stats_path);
+        }
+    }
+
     /* Free integrator memory */
     CVodeFree(&mem);
+
+#ifdef SHUD_ENABLE_PROFILE
+    /* S0-8a / openMP #10 — dump profile bucket skeleton. #10 ships
+     * infrastructure only; bucket values are all 0.0 until S0-10
+     * adds the actual instrumentation hook points. */
+    {
+        char prof_path[MAXLEN];
+        snprintf(prof_path, sizeof(prof_path), "%s/profile_B0.yaml",
+                 fout->outpath);
+        shud_profile::dump(prof_path);
+    }
+#endif
 
     SUNContext_Free(&sunctx);
     delete MD;
@@ -269,12 +310,44 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     N_VDestroy_Serial(du3);
     N_VDestroy_Serial(du4);
     N_VDestroy_Serial(du5);
+
+    /* S0-8a / openMP #10 — persist CVODE final stats from the surface
+     * solver (mem1) as the representative. We pick mem1 because it is
+     * the driving solver in the uncouple loop and its counters cover
+     * the longest model-time span; mem2..mem5 stats remain on stdout
+     * only (a future schema rev can split per-mem if needed). */
+    {
+        char stats_path[MAXLEN];
+        snprintf(stats_path, sizeof(stats_path), "%s/cvode_stats.txt",
+                 fout->outpath);
+        FILE *stats_fp = fopen(stats_path, "w");
+        PrintFinalStats(mem1, stats_fp);
+        if (stats_fp != NULL) {
+            fclose(stats_fp);
+        } else {
+            fprintf(stderr,
+                    "[shud] WARN: cvode_stats.txt fopen failed at "
+                    "'%s'; stdout-only fallback used.\n",
+                    stats_path);
+        }
+    }
+
     /* Free integrator memory */
     CVodeFree(&mem1);
     CVodeFree(&mem2);
     CVodeFree(&mem3);
     CVodeFree(&mem4);
     CVodeFree(&mem5);
+
+#ifdef SHUD_ENABLE_PROFILE
+    /* S0-8a / openMP #10 — profile bucket dump (uncouple path). */
+    {
+        char prof_path[MAXLEN];
+        snprintf(prof_path, sizeof(prof_path), "%s/profile_B0.yaml",
+                 fout->outpath);
+        shud_profile::dump(prof_path);
+    }
+#endif
 
     SUNContext_Free(&sunctx1);
     SUNContext_Free(&sunctx2);

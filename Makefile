@@ -106,6 +106,46 @@ $(error SHUD_DUMP_RHS must be 0 or 1, got '$(SHUD_DUMP_RHS)')
 endif
 
 # -----------------------------------------------------------------
+# Optional profile timer instrumentation (openmp issue #10 / S0-8a)
+# -----------------------------------------------------------------
+# Off by default. Set `SHUD_ENABLE_PROFILE=1` on the make CLI to:
+#   - compile in the call sites in shud.cpp that dump
+#     `<outpath>/profile_B0.yaml` at end of run, and
+#   - pull in the outer-repo profile timer library
+#     (../tools/profile/timer.cpp + timer.h) on the compile line.
+#
+# When PROFILE=0 the shud.cpp call sites collapse to no-ops via the
+# `#ifdef SHUD_ENABLE_PROFILE` block + header inline stubs, and the
+# timer.cpp source is not added to the build. The PROFILE=0 binary is
+# preprocessor-equivalent to a build that omits these files entirely.
+# B0 bitwise invariant: keliya `*.dat` SHA256 MUST match between
+# PROFILE=0 and PROFILE=1 builds at the same flag set.
+#
+# #10 ships infrastructure only; actual timer instrumentation inside
+# SHUD source (timer Hooks inside MD_f.cpp / RHS core) is deferred
+# to S0-10. Until then the YAML output is a skeleton with all bucket
+# values = 0.0.
+SHUD_ENABLE_PROFILE ?= 0
+ifeq ($(SHUD_ENABLE_PROFILE),1)
+  SHUD_PROFILE_DEFINE := -DSHUD_ENABLE_PROFILE=1
+  # tools/profile lives in the outer repo, sibling to SHUD/. Pull in
+  # both the include path (for shud.cpp's `#include "timer.h"`) and
+  # the impl source so the build picks up the real timer body.
+  SHUD_PROFILE_INC    := -I$(CURDIR)/../tools/profile
+  SHUD_PROFILE_SRC    := $(CURDIR)/../tools/profile/timer.cpp
+else ifeq ($(SHUD_ENABLE_PROFILE),0)
+  SHUD_PROFILE_DEFINE :=
+  # PROFILE=0: still need the header path so `#include "timer.h"` in
+  # shud.cpp resolves to the no-op stubs. We do NOT add the impl
+  # source to the build (timer.cpp wraps its body in #ifdef so it
+  # would emit nothing anyway, but skipping it is cleaner).
+  SHUD_PROFILE_INC    := -I$(CURDIR)/../tools/profile
+  SHUD_PROFILE_SRC    :=
+else
+$(error SHUD_ENABLE_PROFILE must be 0 or 1, got '$(SHUD_ENABLE_PROFILE)')
+endif
+
+# -----------------------------------------------------------------
 # Platform-conditional OpenMP flags
 # -----------------------------------------------------------------
 UNAME_S := $(shell uname -s)
@@ -251,6 +291,8 @@ help:
 	@echo "       make shud_omp     - build OpenMP shud_omp executable"
 	@echo "       make shud SHUD_DUMP_RHS=1     - serial build with RHS snapshot hooks compiled in"
 	@echo "       make shud_omp SHUD_DUMP_RHS=1 - OpenMP build with RHS snapshot hooks compiled in"
+	@echo "       make shud SHUD_ENABLE_PROFILE=1     - serial build with wall-clock profile timer compiled in"
+	@echo "       make shud_omp SHUD_ENABLE_PROFILE=1 - OpenMP build with wall-clock profile timer compiled in"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
 	@echo "       make clean        - remove binary outputs (preserves InstallSundials)"
 	@echo
@@ -263,18 +305,18 @@ cvode CVODE:
 
 shud SHUD: check_sundials $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo '...Compiling shud (B0 serial) ...'
-	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
+	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_PROFILE_DEFINE) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(LK_FLAGS)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_PROFILE_DEFINE) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS)
 	@echo
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
 
 shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
 	@echo '...Compiling shud_OpenMP ...'
-	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_PROFILE_DEFINE) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(LK_OMP)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(INCLUDES) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(LK_FLAGS) $(LK_OMP)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_PROFILE_DEFINE) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(LK_OMP)
 	@echo
 	@echo " $(TARGET_OMP) is compiled successfully!"
 	@echo
