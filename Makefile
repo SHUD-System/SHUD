@@ -135,11 +135,11 @@ ifeq ($(SHUD_ENABLE_PROFILE),1)
   SHUD_PROFILE_SRC    := $(CURDIR)/../tools/profile/timer.cpp
 else ifeq ($(SHUD_ENABLE_PROFILE),0)
   SHUD_PROFILE_DEFINE :=
-  # PROFILE=0: still need the header path so `#include "timer.h"` in
-  # shud.cpp resolves to the no-op stubs. We do NOT add the impl
-  # source to the build (timer.cpp wraps its body in #ifdef so it
-  # would emit nothing anyway, but skipping it is cleaner).
-  SHUD_PROFILE_INC    := -I$(CURDIR)/../tools/profile
+  # PROFILE=0: shud.cpp's #include "timer.h" is itself #ifdef-guarded
+  # to SHUD_ENABLE_PROFILE, so the header path can stay empty. This
+  # keeps the openmp-baseline branch SHUD checkout self-contained when
+  # built standalone (without the outer Hydro-SHUD/openMP repo).
+  SHUD_PROFILE_INC    :=
   SHUD_PROFILE_SRC    :=
 else
 $(error SHUD_ENABLE_PROFILE must be 0 or 1, got '$(SHUD_ENABLE_PROFILE)')

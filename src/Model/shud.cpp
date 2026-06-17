@@ -16,12 +16,15 @@
 #include "CommandIn.hpp"
 
 /* S0-8a / openMP #10 — wall-clock profile timer infrastructure. Header
- * provides no-op stubs when SHUD_ENABLE_PROFILE is undefined, so the
- * include is unconditional and the call sites below compile to bitwise-
- * identical code in the PROFILE=0 build. Header lives in the outer
- * `tools/profile/` directory; SHUD Makefile injects `-Itools/profile`
- * + the impl source only when SHUD_ENABLE_PROFILE=1. */
+ * lives in the outer `tools/profile/` directory, sibling to SHUD/. We
+ * #ifdef-guard the include so the SHUD submodule on `openmp-baseline`
+ * stays self-contained at PROFILE=0 (the only consumer of the timer
+ * API — `shud_profile::dump` below — is itself #ifdef-guarded, so the
+ * no-op stubs in timer.h are dead weight at PROFILE=0). PROFILE=1
+ * builds get the include + -I + impl source via Makefile injection. */
+#ifdef SHUD_ENABLE_PROFILE
 #include "timer.h"
+#endif
 
 double *uYsf;
 double *uYus;
