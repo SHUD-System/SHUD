@@ -72,8 +72,10 @@ static_assert(sizeof(ShudSnapshotRecordHeader) == 12,
  *                           probe to coexist with existing f_update goldens
  *                           in same output dir without collision. Suffix
  *                           MUST NOT contain '/' or '\\' (path traversal
- *                           guard); rejected suffixes disable the dump and
- *                           emit a stderr diagnostic.
+ *                           guard, checked first), and max length is 64
+ *                           chars (F5 length cap, checked second); rejected
+ *                           suffixes disable the dump and emit a stderr
+ *                           diagnostic.
  */
 void shud_rhs_dump_point(const char *site, double t,
                          const double *DY, int n);

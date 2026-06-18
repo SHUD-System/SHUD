@@ -109,6 +109,20 @@ void init_config() {
             c.disabled = true;
             return;
         }
+        /* F5 fix: length cap. Buffer math in shud_rhs_dump_point()
+         * leaves ~95 chars headroom for the suffix; a 64-char limit
+         * gives us a clear safety margin and keeps filenames
+         * filesystem-friendly. Truncating silently would let a
+         * misconfigured caller produce surprise paths, so we reject
+         * + disable + diagnose. */
+        if (c.fname_suffix.size() > 64) {
+            std::fprintf(stderr,
+                "shud_rhs_dump: SHUD_DUMP_FNAME_SUFFIX exceeds 64-char "
+                "limit (got %zu); rejecting and disabling dump\n",
+                c.fname_suffix.size());
+            c.disabled = true;
+            return;
+        }
     }
 
     const char *tol = std::getenv("SHUD_DUMP_T_TOL");
@@ -229,8 +243,11 @@ void shud_rhs_dump_point(const char *site, double t,
 
     /* #43: when fname_suffix is set, append `_<suffix>` between
      * t-stem and `.bin`. Filename buffer sized to fit the longest
-     * suffix the path-traversal guard does not reject; %.0f stem max
-     * ~17 chars, leaves ~40 chars for suffix incl. underscore + ext. */
+     * suffix the path-traversal guard does not reject. Buffer math:
+     * 128 - 10 ("snapshot_t") - 17 ("%.0f" max) - 1 ("_") - 4 (".bin")
+     * - 1 (NUL) = 95 chars headroom for suffix. The F5 64-char
+     * SHUD_DUMP_FNAME_SUFFIX guard in init_config() keeps any accepted
+     * suffix well below this limit. */
     char fname[128];
     if (c.fname_suffix.empty()) {
         std::snprintf(fname, sizeof(fname), "snapshot_t%.0f.bin",
