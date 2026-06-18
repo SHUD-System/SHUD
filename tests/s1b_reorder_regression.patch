@@ -1,0 +1,45 @@
+--- a/src/Model/MD_rhs_core.cpp
++++ b/src/Model/MD_rhs_core.cpp
+@@ -155,9 +155,25 @@
+  * split inside rhs_flux"). */
+ void Model_Data:: rhs_flux(double t){
+     int i;
++    /* S1b NEGATIVE REGRESSION TEST: element pass 2 (surface/sub/lake-horizon)
++     * runs BEFORE element pass 1 (updateElement / Infiltration / Recharge /
++     * lake-vertical). Per spec rhs-core-flux-extraction Scenario "Pass 1 /
++     * Pass 2 cannot be merged" L52-55, the two element loops MUST stay in
++     * order so updateElement (pass 1) writes element state before
++     * fun_Ele_surface (pass 2) reads it via Ele[Ele[i].nabr[j]-1]. */
+     for (i = 0; i < NumEle; i++) {
+         if(lakeon && Ele[i].iLake > 0){
+             /* Lake elements */
++            fun_Ele_lakeHorizon(i, t);
++        }else{
++            /*========surf/gw flow Function==============*/
++            fun_Ele_surface(i, t);  // AFTER infiltration, do the lateral flux. ESP for overland flow.
++            fun_Ele_sub(i, t);
++        }
++    } //end of for loop.
++    for (i = 0; i < NumEle; i++) {
++        if(lakeon && Ele[i].iLake > 0){
++            /* Lake elements */
+             Ele[i].updateLakeElement();
+             fun_Ele_lakeVertical(i, t);
+             qLakeEvap[Ele[i].iLake - 1] += qEleEvapo[i] / lake[Ele[i].iLake - 1].NumEleLake;
+@@ -171,16 +187,6 @@
+             fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
+         }
+     }
+-    for (i = 0; i < NumEle; i++) {
+-        if(lakeon && Ele[i].iLake > 0){
+-            /* Lake elements */
+-            fun_Ele_lakeHorizon(i, t);
+-        }else{
+-            /*========surf/gw flow Function==============*/
+-            fun_Ele_surface(i, t);  // AFTER infiltration, do the lateral flux. ESP for overland flow.
+-            fun_Ele_sub(i, t);
+-        }
+-    } //end of for loop.
+     for (i = 0; i < NumSegmt; i++) {
+         fun_Seg_surface(RivSeg[i].iEle-1, RivSeg[i].iRiv-1, i);
+         fun_Seg_sub(RivSeg[i].iEle-1, RivSeg[i].iRiv-1, i);

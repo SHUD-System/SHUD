@@ -120,11 +120,109 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
 #endif
 }
 
+/* S1b (openMP #45) — `Model_Data::rhs_flux` is a PURE CARRY-OVER of
+ * `Model_Data::f_loop` defined in
+ * `SHUD/src/ModelData/MD_f.cpp:11-74` (PR #43 post-state; range
+ * includes both #ifdef SHUD_DUMP_RHS probe blocks + after-PassValue
+ * no-op hook). The only structural difference vs legacy is the
+ * function NAME (`rhs_flux` instead of `f_loop`) — same
+ * `Model_Data::` member, same `(double t)` signature, same
+ * `this`-relative member / global access (per spec
+ * rhs-core-flux-extraction Scenario "Diff legacy f_loop vs new
+ * rhs_flux" allowing only function-name + namespace qualifier
+ * differences).
+ *
+ * Process order is the strict 6-step sequence preserved byte-for-byte:
+ *   1. Element pass 1  (lake updateLakeElement / fun_Ele_lakeVertical
+ *                       + qLakeEvap/qLakePrcp accum; non-lake f_etFlux
+ *                       + updateElement + fun_Ele_Infiltraion +
+ *                       fun_Ele_Recharge)
+ *   2. Element pass 2  (lake fun_Ele_lakeHorizon; non-lake
+ *                       fun_Ele_surface + fun_Ele_sub)
+ *   3. Segment pass    (fun_Seg_surface + fun_Seg_sub)
+ *   4. River pass      (Flux_RiverDown)
+ *   5. Lake clamp pass (min/max on qLakeEvap)
+ *   6. PassValue()     (zero-reset + segment re-accumulate)
+ * Followed by the after-PassValue no-op SHUD_DUMP_RHS hook (legacy).
+ *
+ * Dump tag strings `"f_loop_before_passvalue"` (MD_f.cpp:67) and
+ * `"f_loop"` (MD_f.cpp:72) are preserved verbatim so PR #54's 12
+ * `_before_passvalue.bin` + 12 unsuffixed snapshot goldens (4 case
+ * × 3 t_values) stay addressable. Renaming = breaks goldens.
+ *
+ * No sub-function split (rhs_element_vertical / rhs_segment_compute
+ * etc. belong to S3, not S1b — per spec Scenario "No sub-function
+ * split inside rhs_flux"). */
+void Model_Data:: rhs_flux(double t){
+    int i;
+    for (i = 0; i < NumEle; i++) {
+        if(lakeon && Ele[i].iLake > 0){
+            /* Lake elements */
+            Ele[i].updateLakeElement();
+            fun_Ele_lakeVertical(i, t);
+            qLakeEvap[Ele[i].iLake - 1] += qEleEvapo[i] / lake[Ele[i].iLake - 1].NumEleLake;
+            qLakePrcp[Ele[i].iLake - 1] += qElePrep[i] / lake[Ele[i].iLake - 1].NumEleLake;
+        }else{
+            f_etFlux(i, t);
+            /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
+            /*========infiltration/Recharge Function==============*/
+            Ele[i].updateElement(uYsf[i] , uYus[i] , uYgw[i] ); // step 1 update the kinf, kh, etc. for elements.
+            fun_Ele_Infiltraion(i, t); // step 2 calculate the infiltration.
+            fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
+        }
+    }
+    for (i = 0; i < NumEle; i++) {
+        if(lakeon && Ele[i].iLake > 0){
+            /* Lake elements */
+            fun_Ele_lakeHorizon(i, t);
+        }else{
+            /*========surf/gw flow Function==============*/
+            fun_Ele_surface(i, t);  // AFTER infiltration, do the lateral flux. ESP for overland flow.
+            fun_Ele_sub(i, t);
+        }
+    } //end of for loop.
+    for (i = 0; i < NumSegmt; i++) {
+        fun_Seg_surface(RivSeg[i].iEle-1, RivSeg[i].iRiv-1, i);
+        fun_Seg_sub(RivSeg[i].iEle-1, RivSeg[i].iRiv-1, i);
+    }
+    for (i = 0; i < NumRiv; i++) {
+        Flux_RiverDown(t, i);
+    }
+    for (i = 0; i < NumLake; i++) {
+        qLakeEvap[i] = min(qLakeEvap[i], qLakePrcp[i] + yLakeStg[i]);
+        qLakeEvap[i] = max(0, qLakeEvap[i]);
+    }
+    /* #43 (S1-pre-B): before-PassValue probe. Dumps Qe2r_Surf
+     * (length NumEle), a PassValue() write-set member that carries
+     * the previous iteration's element-to-river surface flux state.
+     * PassValue (see body at L182-205) zero-resets Qe2r_Surf[0..NumEle-1]
+     * and then accumulates QsegSurf over NumSegmt segments; capturing
+     * Qe2r_Surf HERE gives a deterministic snapshot of the value that
+     * is about to be cleared + re-derived by PassValue. PR #54 round-1
+     * fix F4 replaced the prior QeleSurfTot probe payload (which
+     * f_update zero-resets so the snapshot was always all zeros and
+     * thus useless as a before-vs-after PassValue diff) with this
+     * write-set member. Site tag "f_loop_before_passvalue" is distinct
+     * from the no-op "f_loop" hook below + the "f_update" hook in
+     * MD_update.cpp:151; the writer SHUD_DUMP_FNAME_SUFFIX env
+     * disambiguates output files (`snapshot_t<v>_before_passvalue.bin`
+     * vs `snapshot_t<v>.bin`). SHUD_DUMP_RHS=0 builds emit zero code
+     * (compile-switch neutrality contract). */
+#ifdef SHUD_DUMP_RHS
+    shud_rhs_dump_point("f_loop_before_passvalue", t, Qe2r_Surf, NumEle);
+#endif
+    /* Shared for both OpenMP and Serial, to update */
+    PassValue();
+#ifdef SHUD_DUMP_RHS
+    shud_rhs_dump_point("f_loop", t, NULL, 0);
+#endif
+}
+
 void Model_Data::rhs_core(double *Y, double *DY, double t){
-    /* S1a mixed-mode: only `rhs_update` is migrated; flux and apply
-     * still call into legacy `f_loop` / `f_applyDY`. S1b / S1c
-     * replace these fallbacks with `rhs_flux` / `rhs_apply`. */
+    /* S1b mixed-mode: `rhs_update` (S1a) + `rhs_flux` (S1b) are
+     * migrated to the new path; `rhs_apply` is still the legacy
+     * `f_applyDY` fallback (S1c replaces that final fallback). */
     rhs_update(Y, DY, t);
-    f_loop(t);
+    rhs_flux(t);
     f_applyDY(DY, t);
 }

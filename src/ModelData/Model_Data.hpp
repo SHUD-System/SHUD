@@ -243,8 +243,12 @@ public:
     void f_update_omp(double * Y, double * DY, double t);
 
     /* S1a (openMP #44) — pure carry-over of f_update + S1a dispatch
-     * skeleton. See SHUD/src/Model/MD_rhs_core.{cpp,hpp}. */
+     * skeleton. S1b (openMP #45) — pure carry-over of f_loop into
+     * rhs_flux; rhs_core() dispatch now wires rhs_flux between
+     * rhs_update and legacy f_applyDY (mixed-mode per spec).
+     * See SHUD/src/Model/MD_rhs_core.{cpp,hpp}. */
     void rhs_update(double * Y, double * DY, double t);
+    void rhs_flux(double t);
     void rhs_core(double * Y, double * DY, double t);
     
 //    void updateWF(double dt);
