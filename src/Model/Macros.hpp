@@ -8,14 +8,40 @@
 #include <math.h>
 #include <vector>
 
-#ifdef _OPENMP_ON
-#include "omp.h"
-#include "nvector/nvector_openmp.h" /* serial N_Vector types, fcts., macros */
-#define SET_VALUE(v, i) NV_Ith_OMP(v,i)
-#else
-#include "nvector/nvector_serial.h" /* contains the definition of type N_Vector */
-#define SET_VALUE(v, i) NV_Ith_S(v,i)
+/* S1d.2 (openMP #48) — Macros.hpp ships the generic N_Vector access
+ * macro. nvector_serial.h is unconditionally included because it is
+ * the default backend (SHUD_USE_OPENMP_NVECTOR = 0); nvector_openmp.h
+ * is pulled in only when SHUD_USE_OPENMP_NVECTOR = 1 (gating both the
+ * header presence + libsundials_nvecopenmp link line in the Makefile).
+ *
+ * SET_VALUE(v, i) uses `N_VGetArrayPointer(v)[i]` rather than the
+ * type-specific NV_Ith_* macros (per design.md D5). The SUNDIALS-6
+ * per-backend NV_Ith macros directly cast `v->content` to the backend
+ * struct, so a backend mismatch (e.g. an OpenMP-allocated vector fed
+ * to a Serial-typed NV_Ith) produces UB rather than a clean abort.
+ * N_VGetArrayPointer dispatches via the ops table and works for any
+ * registered backend.
+ *
+ * `omp.h` is pulled in when EITHER:
+ *   - `_OPENMP` is set (compiler invoked with `-fopenmp`; legacy
+ *     `_omp` receivers in MD_f_omp.cpp need `#pragma omp parallel
+ *     for`; OpenMP runtime queries like `omp_get_wtime` in
+ *     Model_Data.cpp need symbol declarations).
+ *   - `SHUD_USE_OPENMP_NVECTOR` is set (shud.cpp calls
+ *     `omp_set_num_threads` before N_VNew_OpenMP).
+ * The `omp.h` include and the SHUD_USE_OPENMP_NVECTOR backend are
+ * otherwise independent: a build can have SHUD_LEGACY_OMP_RHS=1
+ * (needs omp.h) while keeping SHUD_USE_OPENMP_NVECTOR=0 (uses
+ * Serial N_Vector). */
+#include "nvector/nvector_serial.h"
+#ifdef SHUD_USE_OPENMP_NVECTOR
+#include "nvector/nvector_openmp.h"
 #endif
+#if defined(_OPENMP) || defined(SHUD_USE_OPENMP_NVECTOR)
+#include "omp.h"
+#endif
+
+#define SET_VALUE(v, i) (N_VGetArrayPointer(v))[i]
 
 /*========index===============*/
 #define iSF     i

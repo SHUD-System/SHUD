@@ -12,13 +12,17 @@ Model_Data::~Model_Data(){
     FreeData();
 }
 void Model_Data::TimeSpent(){
-#ifdef _OPENMP_ON
+    /* S1d.2 (openMP #48) — `omp_get_wtime` is the OpenMP wall-clock
+     * API; available iff `-fopenmp` was passed (which auto-defines
+     * `_OPENMP`). Migrated from the retired legacy macro.
+     * Independent of the SHUD-level feature switches. */
+#ifdef _OPENMP
     double toc = omp_get_wtime();
     double dt = toc - tic;
     screeninfo("\n\tNumber of calls of f function:\t %ld \n", nFCall);
     printf("\n\tTime used by model:\t %.3f seconds.\n", dt);
     screeninfo("\n\nThe successful end. \n\n");
-    
+
 #else
     clock_t toc = (double)clock();
     double dt = (toc - tic) / CLOCKS_PER_SEC;
@@ -27,7 +31,7 @@ void Model_Data::TimeSpent(){
     screeninfo("\n\tTime used by model:\t %.3f seconds.\n", dt);
     screeninfo("\n\nThe successful end. \n\n");
 #endif
-    
+
 }
 void Model_Data::modelSummary(int end){
     char str[MAXLEN];
@@ -45,7 +49,8 @@ void Model_Data::modelSummary(int end){
     screeninfo("\tModel total number of steps(minimum): %d \n", CS.NumSteps);
     sprintf(str,"\tSize of model: \tNcell = %d \tNriver = %d\t NSeg = %d", NumEle, NumRiv, NumSegmt);
     screeninfo(str);
-#ifdef _OPENMP_ON
+    /* S1d.2 (openMP #48) — same migration as TimeSpent() above. */
+#ifdef _OPENMP
     screeninfo("\n\n\tOpenMP enable. No of threads = %d\n", CS.num_threads);
     screeninfo("\n========================================================\n");
     if (end) {

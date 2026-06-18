@@ -153,11 +153,10 @@ void Model_Data::f_update(double  *Y, double *DY, double t){
 }
 void Model_Data::summary (N_Vector udata){
     double  *Y;
-#ifdef _OPENMP_ON
-    Y = NV_DATA_OMP(udata);
-#else
-    Y = NV_DATA_S(udata);
-#endif
+    /* S1d.2 (openMP #48) — generic N_Vector data accessor (see f.cpp
+     * + Macros.hpp comments). Replaces the prior backend-specific
+     * NV_DATA_OMP / NV_DATA_S branch. */
+    Y = N_VGetArrayPointer(udata);
     for (int i = 0; i < NumEle; i++){
         yEleSurf[i] = Y[iSF];
         yEleUnsat[i] = Y[iUS];
@@ -179,44 +178,35 @@ void Model_Data::summary (N_Vector udata){
     }
 }
 void Model_Data::summary (N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_Vector u5){
-    
-#ifdef _OPENMP_ON
+
+    /* S1d.2 (openMP #48) — generic N_VGetArrayPointer collapse of the
+     * prior backend-split blocks (NV_Ith_OMP / NV_Ith_S). Hoist the
+     * five pointer fetches out of the inner loops so the per-element
+     * indexing stays a single load-and-store; bitwise-equivalent to
+     * `NV_Ith_S(v, i)` because nvector_serial's NV_Ith_S expands to
+     * `((NV_DATA_S(v))[i])` (verified against sundials 6.0.0). */
+    double *Y1 = N_VGetArrayPointer(u1);
+    double *Y2 = N_VGetArrayPointer(u2);
+    double *Y3 = N_VGetArrayPointer(u3);
+    double *Y4 = N_VGetArrayPointer(u4);
+    double *Y5 = N_VGetArrayPointer(u5);
     for (int i = 0; i < NumEle; i++){
-        yEleSurf[i] = NV_Ith_OMP(u1, i);
-        yEleUnsat[i] = NV_Ith_OMP(u2, i);
-        yEleGW[i] = NV_Ith_OMP(u3, i);
+        yEleSurf[i] = Y1[i];
+        yEleUnsat[i] = Y2[i];
+        yEleGW[i] = Y3[i];
         if(Ele[i].iBC > 0){
             yEleGW[i] = Ele[i].yBC;
         }
     }
     for (int i = 0; i < NumRiv; i++){
-        yRivStg[i] = NV_Ith_OMP(u4, i);
+        yRivStg[i] = Y4[i];
         if(Riv[i].BC > 0){
             yRivStg[i] = Riv[i].yBC;
         }
     }
     for (int i = 0; i < NumLake; i++){
-        yLakeStg[i] = NV_Ith_OMP(u5, i);
+        yLakeStg[i] = Y5[i];
     }
-#else
-    for (int i = 0; i < NumEle; i++){
-        yEleSurf[i] = NV_Ith_S(u1, i);
-        yEleUnsat[i] = NV_Ith_S(u2, i);
-        yEleGW[i] = NV_Ith_S(u3, i);
-        if(Ele[i].iBC > 0){
-            yEleGW[i] = Ele[i].yBC;
-        }
-    }
-    for (int i = 0; i < NumRiv; i++){
-        yRivStg[i] = NV_Ith_S(u4, i);
-        if(Riv[i].BC > 0){
-            yRivStg[i] = Riv[i].yBC;
-        }
-    }
-    for (int i = 0; i < NumLake; i++){
-        yLakeStg[i] = NV_Ith_S(u5, i);
-    }
-#endif
     Sub2Global(yEleSurf, yEleUnsat, yEleGW, yRivStg, yLakeStg, NumEle, NumRiv, NumLake);
 //    printVector(stdout, yEleSurf, 0, NumEle, 0);
 //    printVector(stdout, yEleUnsat, 0, NumEle, 0);

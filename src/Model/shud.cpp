@@ -63,13 +63,20 @@ double SHUD(FileIn *fin, FileOut *fout){
     fout->updateFilePath();
     NY = MD->NumY;
     globalY = new double[NY];
-#ifdef _OPENMP_ON
+    /* S1d.2 (openMP #48) — N_Vector backend dispatch is now keyed on
+     * SHUD_USE_OPENMP_NVECTOR (renamed from the legacy
+     * three-concerns-conflated switch). Defaults to OFF → Serial
+     * backend, which is the validation surface for Config A
+     * (bitwise vs B0). When SHUD_USE_OPENMP_NVECTOR=1 the build
+     * additionally links libsundials_nvecopenmp + pulls in
+     * nvector_openmp.h via Macros.hpp. */
+#ifdef SHUD_USE_OPENMP_NVECTOR
     omp_set_num_threads(MD->CS.num_threads);
-    screeninfo("\nopenMP: ON. No of Threads = %d\n", MD->CS.num_threads);
+    screeninfo("\nopenMP NVector: ON. No of Threads = %d\n", MD->CS.num_threads);
     udata = N_VNew_OpenMP(NY, MD->CS.num_threads, sunctx);
     du = N_VNew_OpenMP(NY, MD->CS.num_threads, sunctx);
 #else
-    screeninfo("\nopenMP: OFF\n");
+    screeninfo("\nopenMP NVector: OFF (Serial backend)\n");
     udata = N_VNew_Serial(NY, sunctx);
     du = N_VNew_Serial(NY, sunctx);
 #endif
@@ -136,9 +143,16 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->ScreenPrint(t, MD->CS.NumSteps);
     MD->PrintInit(fout->Init_update, t);
     MD->modelSummary(1);
-    /* Free memory */
-    N_VDestroy_Serial(udata);
-    N_VDestroy_Serial(du);
+    /* Free memory.
+     * S1d.2 (openMP #48) — the prior type-specific Serial destroy was
+     * unsafe under SHUD_USE_OPENMP_NVECTOR=1 (it would receive an
+     * N_VNew_OpenMP-allocated vector with a different content layout
+     * and trigger UB; master plan §4.19). The generic `N_VDestroy`
+     * dispatches via the N_Vector ops table and correctly routes to
+     * whichever backend created `v`, so the same call works for both
+     * Serial and OpenMP backends. */
+    N_VDestroy(udata);
+    N_VDestroy(du);
 
     /* S0-8a / openMP #10 — persist CVODE final stats next to the SHUD
      * output dir for the B0 archive script to pick up. stdout printout
@@ -319,18 +333,23 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
 //    fclose(fp3);
 //    fclose(fp4);
     MD->modelSummary(1);
-    /* Free memory */
-    N_VDestroy_Serial(u1);
-    N_VDestroy_Serial(u2);
-    N_VDestroy_Serial(u3);
-    N_VDestroy_Serial(u4);
-    N_VDestroy_Serial(u5);
-    
-    N_VDestroy_Serial(du1);
-    N_VDestroy_Serial(du2);
-    N_VDestroy_Serial(du3);
-    N_VDestroy_Serial(du4);
-    N_VDestroy_Serial(du5);
+    /* Free memory — generic N_VDestroy dispatch (see Coupled-path
+     * comment above for the §4.19 backend-mismatch UB rationale).
+     * Uncouple path currently only ever allocates Serial vectors
+     * (N_VNew_Serial calls below) so the destroy was never strictly
+     * broken; we migrate for consistency + to make future OMP-backend
+     * uncouple support a zero-touch change. */
+    N_VDestroy(u1);
+    N_VDestroy(u2);
+    N_VDestroy(u3);
+    N_VDestroy(u4);
+    N_VDestroy(u5);
+
+    N_VDestroy(du1);
+    N_VDestroy(du2);
+    N_VDestroy(du3);
+    N_VDestroy(du4);
+    N_VDestroy(du5);
 
     /* S0-8a / openMP #10 — persist CVODE final stats from the surface
      * solver (mem1) as the representative. We pick mem1 because it is

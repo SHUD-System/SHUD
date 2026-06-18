@@ -25,20 +25,18 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     Model_Data      * MD;
     MD = (Model_Data *) DS;
     timeNow = t;
-#ifdef _OPENMP_ON
-    Y = NV_DATA_OMP(CV_Y);
-    DY = NV_DATA_OMP(CV_Ydot);
-    {
-#ifdef SHUD_ENABLE_PROFILE
-        shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
-#endif
-        MD->f_update_omp(Y, DY, t);
-        MD->f_loop_omp(Y, DY, t);
-        MD->f_applyDY_omp(DY, t);
-    }
-#else
-    Y = NV_DATA_S(CV_Y);
-    DY = NV_DATA_S(CV_Ydot);
+    /* S1d.2 (openMP #48) — generic N_Vector data accessor. SUNDIALS 6
+     * `N_VGetArrayPointer` dispatches on the N_Vector's ops table at
+     * runtime, so the same source compiles + works against
+     * nvector_serial OR nvector_openmp backends (selected by
+     * SHUD_USE_OPENMP_NVECTOR via the N_VNew_* dispatch in shud.cpp).
+     * The 6 prior backend-specific data-accessor blocks (f / f_surf /
+     * f_unsat / f_gw / f_river / f_lake) have all been collapsed to
+     * this generic form. See design.md D5 (N_VGetArrayPointer
+     * rationale — generic ops-table dispatch, not the type-specific
+     * NV_Ith). */
+    Y = N_VGetArrayPointer(CV_Y);
+    DY = N_VGetArrayPointer(CV_Ydot);
     /* Debug Code
     N_VectorContent_Serial x;
     x =(N_VectorContent_Serial)(CV_Y->content);
@@ -61,10 +59,18 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
          * preventing any intermediate state where the scaffold is
          * removed but LEGACY_RHS is not yet wired up.
          *
-         * The `#ifdef _OPENMP_ON` branch above is UNCHANGED on
-         * purpose: legacy `_omp` dispatch belongs to S2 / #48 and S1
-         * is forbidden from touching `f_*_omp` source per master plan
-         * §C1 (`_omp` path frozen through S1d). */
+         * S1d.2 (openMP #48): the prior legacy-OMP upper branch
+         * that routed to `f_update_omp/f_loop_omp/f_applyDY_omp` has
+         * been removed from f(). The `_omp` legacy
+         * receivers in MD_f_omp.cpp are now gated by
+         * SHUD_LEGACY_OMP_RHS at the file level (Makefile-controlled
+         * compile inclusion); RHS dispatch from f() proceeds through
+         * the LEGACY_RHS / rhs_core fork below. Activation of the
+         * OpenMP-parallel kernel inside rhs_core (StrictOMP /
+         * ProductionOMP) is a separate decision controlled by
+         * SHUD_ENABLE_OPENMP_RHS (#47), and currently aborts with
+         * std::abort stubs — bitwise validation remains Config A
+         * (all 3 macros OFF; default Serial). */
 #ifdef LEGACY_RHS
         MD->f_update(Y, DY, t);
         MD->f_loop(t);
@@ -73,7 +79,6 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
         MD->rhs_core(Y, DY, t, ExecPolicy::Serial);
 #endif
     }
-#endif
     MD->nFCall++;
 #ifdef DEBUG
     printDY(MD->file_debug, DY, MD->NumY, t);
@@ -86,13 +91,8 @@ int f_surf(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
-#ifdef _OPENMP_ON
-    Y = NV_DATA_OMP(CV_Y);
-    DY = NV_DATA_OMP(CV_Ydot);
-#else
-    Y = NV_DATA_S(CV_Y);
-    DY = NV_DATA_S(CV_Ydot);
-#endif
+    Y = N_VGetArrayPointer(CV_Y);
+    DY = N_VGetArrayPointer(CV_Ydot);
 //printf("f_surf t0=%f, t1=%f, t=%f\n", MD->t0, MD->t1, t);
     MD->f_updatei(Y, DY, t, 1);
     MD->f_loopET(t);
@@ -106,13 +106,8 @@ int f_unsat(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
-#ifdef _OPENMP_ON
-    Y = NV_DATA_OMP(CV_Y);
-    DY = NV_DATA_OMP(CV_Ydot);
-#else
-    Y = NV_DATA_S(CV_Y);
-    DY = NV_DATA_S(CV_Ydot);
-#endif
+    Y = N_VGetArrayPointer(CV_Y);
+    DY = N_VGetArrayPointer(CV_Ydot);
     MD->f_updatei(Y, DY, t, 2);
     MD->f_loop2(t);
     MD->f_applyDYi(DY, t, 2);
@@ -124,13 +119,8 @@ int f_gw(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
-#ifdef _OPENMP_ON
-    Y = NV_DATA_OMP(CV_Y);
-    DY = NV_DATA_OMP(CV_Ydot);
-#else
-    Y = NV_DATA_S(CV_Y);
-    DY = NV_DATA_S(CV_Ydot);
-#endif
+    Y = N_VGetArrayPointer(CV_Y);
+    DY = N_VGetArrayPointer(CV_Ydot);
     MD->f_updatei(Y, DY, t, 3);
     MD->f_loop3(t);
     MD->f_applyDY_gw(DY, t);
@@ -142,13 +132,8 @@ int f_river(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
-#ifdef _OPENMP_ON
-    Y = NV_DATA_OMP(CV_Y);
-    DY = NV_DATA_OMP(CV_Ydot);
-#else
-    Y = NV_DATA_S(CV_Y);
-    DY = NV_DATA_S(CV_Ydot);
-#endif
+    Y = N_VGetArrayPointer(CV_Y);
+    DY = N_VGetArrayPointer(CV_Ydot);
     MD->f_updatei(Y, DY, t, 4);
     MD->f_loop4(t);
     MD->f_applyDYi(DY, t, 4);
@@ -160,13 +145,8 @@ int f_lake(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
-#ifdef _OPENMP_ON
-    Y = NV_DATA_OMP(CV_Y);
-    DY = NV_DATA_OMP(CV_Ydot);
-#else
-    Y = NV_DATA_S(CV_Y);
-    DY = NV_DATA_S(CV_Ydot);
-#endif
+    Y = N_VGetArrayPointer(CV_Y);
+    DY = N_VGetArrayPointer(CV_Ydot);
     MD->f_updatei(Y, DY, t, 5);
     MD->f_loop5(t);
     MD->f_applyDYi(DY, t, 5);

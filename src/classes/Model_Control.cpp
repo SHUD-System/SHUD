@@ -106,8 +106,14 @@ void Control_Data::updateSimPeriod(double day0, double day1){
 void Control_Data::read(const char *fn){
     char    str[MAXLEN];
     char    optstr[MAXLEN];
-#ifdef _OPENMP_ON
-    num_threads = omp_get_max_threads();; /*Default number of threads for OpenMP*/
+    /* S1d.2 (openMP #48) — migrated from the retired legacy
+     * triple-concern macro to the standard `_OPENMP` compiler
+     * builtin (auto-defined by `-fopenmp`). The intent here is
+     * "if the build linked omp.h, query the default thread count";
+     * this is independent of SHUD_USE_OPENMP_NVECTOR (N_Vector
+     * backend) and SHUD_ENABLE_OPENMP_RHS (RHS execution policy). */
+#ifdef _OPENMP
+    num_threads = omp_get_max_threads(); /*Default number of threads for OpenMP*/
 #else
     num_threads = 0;
 #endif

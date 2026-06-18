@@ -20,7 +20,15 @@ void Model_Data::updateforcing(double t){
     shud_profile::Timer _t_forcing("t_forcing_io");
 #endif
     int i;
-#ifdef _OPENMP_ON
+    /* S1d.2 (openMP #48) — the `#pragma omp for` only makes sense when
+     * the compiler is invoked with `-fopenmp` (auto-defines `_OPENMP`).
+     * Migrated from the retired legacy triple-concern macro. The
+     * pragma itself is a no-op outside an enclosing `omp parallel`
+     * region — currently no `parallel` region wraps this updateforcing
+     * call, so the pragma is dormant in all current build configs.
+     * Kept gated rather than deleted because S2 plans to add a
+     * top-level `omp parallel` around the RHS dispatch. */
+#ifdef _OPENMP
 #pragma omp for
 #endif
     for (i = 0; i < NumForc; i++){
@@ -127,7 +135,9 @@ void Model_Data::ET(double t, double tnext){
     double  DT_min = tnext - t;
     double  ta_surf, ta_sub;
     int i;
-#ifdef _OPENMP_ON
+    /* S1d.2 (openMP #48) — see updateforcing() above for the
+     * `_OPENMP` migration rationale. */
+#ifdef _OPENMP
 #pragma omp for
 #endif
     for(i = 0; i < NumEle; i++) {
