@@ -47,6 +47,23 @@ void Model_Data:: f_loop(double t){
         qLakeEvap[i] = min(qLakeEvap[i], qLakePrcp[i] + yLakeStg[i]);
         qLakeEvap[i] = max(0, qLakeEvap[i]);
     }
+    /* #43 (S1-pre-B): before-PassValue probe. Dumps QeleSurfTot
+     * (length NumEle), an aggregated overland flux state computed by
+     * the per-element loop above. PassValue() does NOT overwrite
+     * QeleSurfTot directly (PassValue resets QrivSurf / QrivSub /
+     * QrivUp / Qe2r_Surf / Qe2r_Sub then reaggregates river-segment
+     * crossings), but capturing QeleSurfTot here gives a deterministic
+     * Model_Data snapshot of the per-element flux state right before
+     * the shared river-segment redistribution runs. Site tag
+     * "f_loop_before_passvalue" is distinct from the no-op "f_loop"
+     * hook below + the "f_update" hook in MD_update.cpp:151; the
+     * writer SHUD_DUMP_FNAME_SUFFIX env disambiguates output files
+     * (`snapshot_t<v>_before_passvalue.bin` vs `snapshot_t<v>.bin`).
+     * SHUD_DUMP_RHS=0 builds emit zero code (compile-switch
+     * neutrality contract). */
+#ifdef SHUD_DUMP_RHS
+    shud_rhs_dump_point("f_loop_before_passvalue", t, QeleSurfTot, NumEle);
+#endif
     /* Shared for both OpenMP and Serial, to update */
     PassValue();
 #ifdef SHUD_DUMP_RHS

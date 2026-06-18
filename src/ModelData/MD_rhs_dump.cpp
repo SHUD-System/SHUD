@@ -38,6 +38,8 @@ struct DumpConfig {
     std::string         output_dir;
     std::string         case_id;
     std::string         site;
+    std::string         fname_suffix;  /* #43: empty = legacy snapshot_t<v>.bin;
+                                        * non-empty = snapshot_t<v>_<suffix>.bin */
     double              tol = 0.5;
     std::vector<double> targets;
     std::vector<bool>   consumed;
@@ -85,6 +87,29 @@ void init_config() {
 
     const char *site = std::getenv("SHUD_DUMP_SITE");
     c.site = (site && site[0]) ? site : "f_update";
+
+    /* #43: filename disambiguation suffix for coexistence of multiple
+     * dump sites in same output dir (e.g. f_update vs
+     * f_loop_before_passvalue). Empty = legacy filename, full bitwise
+     * back-compat with PR #53 goldens. */
+    const char *sfx = std::getenv("SHUD_DUMP_FNAME_SUFFIX");
+    c.fname_suffix = (sfx && sfx[0]) ? sfx : "";
+    /* Path-traversal guard: reject suffix containing '/' or '\\'. The
+     * suffix lands in a snprintf("snapshot_t%.0f_%s.bin") format used
+     * to compose a path under SHUD_DUMP_OUTPUT_DIR; a slash would
+     * escape that dir. Failure mode: disable the dump and emit a
+     * diagnostic so the calling test harness sees the rejection. */
+    if (!c.fname_suffix.empty()) {
+        if (c.fname_suffix.find('/')  != std::string::npos ||
+            c.fname_suffix.find('\\') != std::string::npos) {
+            std::fprintf(stderr,
+                "shud_rhs_dump: SHUD_DUMP_FNAME_SUFFIX '%s' contains "
+                "path separator; rejecting and disabling dump\n",
+                c.fname_suffix.c_str());
+            c.disabled = true;
+            return;
+        }
+    }
 
     const char *tol = std::getenv("SHUD_DUMP_T_TOL");
     if (tol && tol[0]) {
@@ -202,8 +227,18 @@ void shud_rhs_dump_point(const char *site, double t,
     if (idx < 0) return;
     c.consumed[idx] = true;
 
-    char fname[64];
-    std::snprintf(fname, sizeof(fname), "snapshot_t%.0f.bin", c.targets[idx]);
+    /* #43: when fname_suffix is set, append `_<suffix>` between
+     * t-stem and `.bin`. Filename buffer sized to fit the longest
+     * suffix the path-traversal guard does not reject; %.0f stem max
+     * ~17 chars, leaves ~40 chars for suffix incl. underscore + ext. */
+    char fname[128];
+    if (c.fname_suffix.empty()) {
+        std::snprintf(fname, sizeof(fname), "snapshot_t%.0f.bin",
+                      c.targets[idx]);
+    } else {
+        std::snprintf(fname, sizeof(fname), "snapshot_t%.0f_%s.bin",
+                      c.targets[idx], c.fname_suffix.c_str());
+    }
     std::string path = c.output_dir;
     if (!path.empty() && path.back() != '/') path.push_back('/');
     path += fname;

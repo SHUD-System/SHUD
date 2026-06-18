@@ -54,17 +54,26 @@ static_assert(sizeof(ShudSnapshotRecordHeader) == 12,
  *
  * Arguments:
  *   site : short literal naming the call site ("f_update", "f_loop",
- *          "f_applyDY"); writer matches against SHUD_DUMP_SITE env.
+ *          "f_loop_before_passvalue", "f_applyDY"); writer matches
+ *          against SHUD_DUMP_SITE env.
  *   t    : model time (SHUD t-unit = minutes; absolute from epoch).
  *   DY   : derivative vector, may be NULL when call site does not own DY.
  *   n    : length of DY; 0 when DY is NULL.
  *
  * Runtime behaviour controlled by env vars (see MD_rhs_dump.cpp):
- *   SHUD_DUMP_OUTPUT_DIR  default "."
- *   SHUD_DUMP_CASE_ID     default "unknown"
- *   SHUD_DUMP_T_VALUES    comma-separated doubles; if unset/empty, no-op
- *   SHUD_DUMP_T_TOL       default "0.5" (half model time unit, i.e. min)
- *   SHUD_DUMP_SITE        default "f_update"
+ *   SHUD_DUMP_OUTPUT_DIR    default "."
+ *   SHUD_DUMP_CASE_ID       default "unknown"
+ *   SHUD_DUMP_T_VALUES      comma-separated doubles; if unset/empty, no-op
+ *   SHUD_DUMP_T_TOL         default "0.5" (half model time unit, i.e. min)
+ *   SHUD_DUMP_SITE          default "f_update"
+ *   SHUD_DUMP_FNAME_SUFFIX  default "" (empty); when non-empty filename
+ *                           becomes snapshot_t<v>_<suffix>.bin instead of
+ *                           snapshot_t<v>.bin. Used by #43 before-PassValue
+ *                           probe to coexist with existing f_update goldens
+ *                           in same output dir without collision. Suffix
+ *                           MUST NOT contain '/' or '\\' (path traversal
+ *                           guard); rejected suffixes disable the dump and
+ *                           emit a stderr diagnostic.
  */
 void shud_rhs_dump_point(const char *site, double t,
                          const double *DY, int n);
