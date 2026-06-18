@@ -2,6 +2,9 @@
 #ifdef SHUD_ENABLE_PROFILE
 #include "timer.h"
 #endif
+#ifdef USE_RHS_CORE
+#include "MD_rhs_core.hpp"
+#endif
 int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
     /* S0-10 / openMP #14 — t_RHS_total wraps the entire outer RHS
@@ -45,9 +48,17 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
         shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
 #endif
+#ifdef USE_RHS_CORE
+        /* S1a (openMP #44): mixed-mode dispatch. `rhs_core` calls
+         * `rhs_update` (new path) then legacy `f_loop` + `f_applyDY`.
+         * USE_RHS_CORE undefined (B0 default) preserves the original
+         * three-call sequence exactly. */
+        MD->rhs_core(Y, DY, t);
+#else
         MD->f_update(Y, DY, t);
         MD->f_loop(t);
         MD->f_applyDY(DY, t);
+#endif
     }
 #endif
     MD->nFCall++;
