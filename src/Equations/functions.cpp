@@ -102,7 +102,7 @@ void CheckNANij(double x, int i, const char *s)
     }
 }
 double getSecond_wall(void){
-#ifdef _OPENMP_ON
+#ifdef _OPENMP
     static double t0 = 0.;
     double t1;
     double sec;
@@ -124,7 +124,7 @@ double getSecond_wall(void){
     return sec;
 }
 double getSecond_cpu(void){
-#ifdef _OPENMP_ON
+#ifdef _OPENMP
     static double t0 = 0.;
     double t1;
     double sec;
