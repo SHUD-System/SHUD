@@ -36,3 +36,8 @@ shud_omp.dSYM/
 # Source file tests/s1d_strictomp_assert_smoke.cpp is checked in.
 tests/s1d_strictomp_smoke
 tests/s1d_strictomp_smoke.dSYM/
+
+# S1d.2 smoke test build artifacts (openMP #49) — Config D OpenMP NVector
+# runtime probe; source file tests/s1d_configd_nvec_smoke.cpp is checked in.
+tests/s1d_configd_nvec_smoke
+tests/s1d_configd_nvec_smoke.dSYM/

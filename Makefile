@@ -291,11 +291,14 @@ ifeq ($(UNAME_S),Darwin)
   # Guard libomp when building shud_omp (always needs OpenMP) OR when
   # building `shud` with SHUD_USE_OPENMP_NVECTOR=1 (S1d.2 #48 Config D
   # — needs omp_set_num_threads in shud.cpp + libsundials_nvecopenmp's
-  # OpenMP runtime). Serial `make shud` (Configs A/B/C) is fine
-  # without libomp installed.
-  ifneq (,$(filter shud_omp,$(MAKECMDGOALS))$(filter 1,$(SHUD_USE_OPENMP_NVECTOR)))
+  # OpenMP runtime) OR when invoking the smoke_configd target (S1d.2
+  # #49 — same OpenMP NVector runtime dependency, but bypasses
+  # SHUD_USE_OPENMP_NVECTOR on the make CLI by hardcoding the flag
+  # in the recipe). Serial `make shud` (Configs A/B/C) is fine without
+  # libomp installed.
+  ifneq (,$(filter shud_omp smoke_configd,$(MAKECMDGOALS))$(filter 1,$(SHUD_USE_OPENMP_NVECTOR)))
     ifeq ($(LIBOMP_PREFIX),)
-$(error libomp not found via 'brew --prefix libomp'; run 'brew install libomp' before make shud_omp or `make shud SHUD_USE_OPENMP_NVECTOR=1`)
+$(error libomp not found via 'brew --prefix libomp'; run 'brew install libomp' before make shud_omp, `make shud SHUD_USE_OPENMP_NVECTOR=1`, or make smoke_configd)
     endif
   endif
   INC_OMP           ?= $(LIBOMP_PREFIX)/include
@@ -468,6 +471,7 @@ help:
 	@echo "       make shud SHUD_USE_OPENMP_NVECTOR=1 - serial build with OpenMP N_Vector backend (Config D dim; openMP #48)"
 	@echo "       make shud SHUD_LEGACY_OMP_RHS=1     - serial build with legacy _omp RHS receivers compiled in (Config B; openMP #48)"
 	@echo "       make smoke_strictomp                - build + run StrictOMP SIGABRT regression smoke test (openMP #47)"
+	@echo "       make smoke_configd                  - build + run Config D OpenMP NVector runtime probe (openMP #49)"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
 	@echo "       make clean        - remove binary outputs (preserves InstallSundials)"
 	@echo
@@ -545,6 +549,42 @@ smoke_strictomp: check_sundials tests/s1d_strictomp_assert_smoke.cpp $(SRC) $(SR
 	@echo
 	@echo '...Running s1d_strictomp_assert_smoke (expect SIGABRT in child) ...'
 	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/s1d_strictomp_smoke && echo 'OK: child SIGABRT observed' || (echo 'FAIL: child did not SIGABRT'; exit 1)
+
+# -----------------------------------------------------------------
+# S1d.2 smoke test — Config D OpenMP N_Vector runtime probe (openMP #49)
+# -----------------------------------------------------------------
+# Builds + runs `tests/s1d_configd_nvec_smoke.cpp`, a standalone (no
+# SHUD framework link) probe that:
+#   1. constructs an OpenMP-backed N_Vector via N_VNew_OpenMP, and
+#   2. asserts N_VGetVectorID == SUNDIALS_NVEC_OPENMP, and
+#   3. exercises the generic N_VDestroy dispatch path (the §4.19
+#      fix landed in #48 -- pre-fix SHUD used N_VDestroy_Serial on
+#      an OpenMP vector, type-tag mismatch UB).
+#
+# Requires both:
+#   - SHUD_USE_OPENMP_NVECTOR=1  (compile-line + nvecopenmp link;
+#                                  also triggers the libomp guard
+#                                  via the existing MAKECMDGOALS
+#                                  filter below in this Makefile)
+#   - SHUD_ENABLE_OPENMP_RHS=1   (Config D contract; symbolic --
+#                                  this test does not touch rhs_core)
+#
+# We deliberately do NOT link $(SHUD_SRC_NOMAIN) and do NOT pull in
+# $(LK_FLAGS) (which carries libsundials_cvode + libsundials_nvecserial):
+# the test only exercises the OpenMP NVector + SUNContext API surface.
+# `-lsundials_nvecopenmp` is bracketed by `-lsundials_generic` for
+# SUNContext_Create / SUNContext_Free (nvecopenmp links generic at its
+# own link time, but our standalone executable needs the generic
+# symbols visible at link time too).
+.PHONY: smoke_configd
+smoke_configd: check_sundials_omp tests/s1d_configd_nvec_smoke.cpp
+	@echo '...Compiling s1d_configd_nvec_smoke (Config D: OpenMP NVector runtime probe) ...'
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_ENABLE_OPENMP_RHS=1 -DSHUD_USE_OPENMP_NVECTOR=1 $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/s1d_configd_nvec_smoke tests/s1d_configd_nvec_smoke.cpp -lsundials_nvecopenmp -lsundials_generic $(CXX_OPENMP_LFLAGS)
+	@echo
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_ENABLE_OPENMP_RHS=1 -DSHUD_USE_OPENMP_NVECTOR=1 $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/s1d_configd_nvec_smoke tests/s1d_configd_nvec_smoke.cpp -lsundials_nvecopenmp -lsundials_generic $(CXX_OPENMP_LFLAGS)
+	@echo
+	@echo '...Running s1d_configd_nvec_smoke (expect OK: N_VGetVectorID == SUNDIALS_NVEC_OPENMP) ...'
+	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/s1d_configd_nvec_smoke || (echo 'FAIL: Config D NVector smoke did not print OK'; exit 1)
 
 clean:
 	@echo "Cleaning ... "
