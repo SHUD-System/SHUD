@@ -123,6 +123,15 @@ void init_config() {
             c.disabled = true;
             return;
         }
+        /* F24 (PR #54 round-2): The two early-return paths above (path-
+         * separator reject + F5 length-cap reject) intentionally leave
+         * c.consumed unset.  This is safe by design: c.disabled = true
+         * makes downstream call paths (shud_rhs_dump_point body, see
+         * `if (c.disabled) return;` at the top of the dispatch) early-
+         * out before any read of c.consumed[i].  c.consumed is only
+         * assigned at line 172 below, after we've committed to a valid
+         * targets vector — so any future reorder that touches consumed
+         * before disabled-gate must re-audit these early returns. */
     }
 
     const char *tol = std::getenv("SHUD_DUMP_T_TOL");
