@@ -49,10 +49,11 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
         shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
 #endif
 #ifdef USE_RHS_CORE
-        /* S1a (openMP #44): mixed-mode dispatch. `rhs_core` calls
-         * `rhs_update` (new path) then legacy `f_loop` + `f_applyDY`.
+        /* S1c (openMP #46): full new-path. `rhs_core` calls
+         * `rhs_update` + `rhs_flux` + `rhs_apply` — zero legacy fallback.
          * USE_RHS_CORE undefined (B0 default) preserves the original
-         * three-call sequence exactly. */
+         * three-call sequence exactly. LEGACY_RHS macro + USE_RHS_CORE
+         * retirement deferred to S1d.1 / S1d.2 (#47 / #48). */
         MD->rhs_core(Y, DY, t);
 #else
         MD->f_update(Y, DY, t);

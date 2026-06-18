@@ -1,0 +1,21 @@
+diff --git a/src/Model/MD_rhs_core.cpp b/src/Model/MD_rhs_core.cpp
+--- a/src/Model/MD_rhs_core.cpp
++++ b/src/Model/MD_rhs_core.cpp
+@@ -315,11 +315,12 @@ void Model_Data::rhs_apply(double *DY, double t){
+ //            Newmann condition.
+             DY[iRIV] = 0.;
+         }else{
+-            DY[iRIV] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].Length; // dA on CS
+-            if(DY[iRIV] < -1. * Riv[i].u_CSarea){ /* The negative dA cannot larger then Availalbe Area. */
+-                DY[iRIV] = -1. * Riv[i].u_CSarea;
+-            }
+-            DY[iRIV] = fun_dAtodY(DY[iRIV], Riv[i].u_topWidth, Riv[i].bankslope);
++            /* S1c NEGATIVE REGRESSION: _omp simplified river DY formula
++             * (divides by u_TopArea, no clamp, no fun_dAtodY). Per spec
++             * Scenario "Negative -- simpler omp formula would break
++             * qinyijiang bitwise" -- qinyijiang dense river network MUST
++             * fail vs B0-tag SHA256 when this patch is applied. */
++            DY[iRIV] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + Riv[i].qBC) / Riv[i].u_TopArea;
+
+ //            if(i+1 == ID_RIV && fabs(DY[iRIV])> 0.001){
+ //                printf("%d, up:%f, down:%f, sub:%f, surf:%f, dy=%f\n", i+1,

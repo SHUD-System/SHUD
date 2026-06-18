@@ -244,11 +244,13 @@ public:
 
     /* S1a (openMP #44) — pure carry-over of f_update + S1a dispatch
      * skeleton. S1b (openMP #45) — pure carry-over of f_loop into
-     * rhs_flux; rhs_core() dispatch now wires rhs_flux between
-     * rhs_update and legacy f_applyDY (mixed-mode per spec).
+     * rhs_flux. S1c (openMP #46) — pure carry-over of f_applyDY into
+     * rhs_apply; rhs_core() dispatch is now full new-path
+     * (rhs_update + rhs_flux + rhs_apply, zero legacy fallback).
      * See SHUD/src/Model/MD_rhs_core.{cpp,hpp}. */
     void rhs_update(double * Y, double * DY, double t);
     void rhs_flux(double t);
+    void rhs_apply(double * DY, double t);
     void rhs_core(double * Y, double * DY, double t);
     
 //    void updateWF(double dt);
