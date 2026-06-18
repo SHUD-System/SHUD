@@ -2,9 +2,11 @@
 #ifdef SHUD_ENABLE_PROFILE
 #include "timer.h"
 #endif
-#ifdef USE_RHS_CORE
+/* S1d.1 (openMP #47): MD_rhs_core.hpp is now unconditionally pulled in
+ * for the default (LEGACY_RHS=0) serial dispatch path. LEGACY_RHS=1
+ * builds also include it harmlessly — the header is `Model_Data`-only
+ * and the ExecPolicy enum is data-only; no runtime cost. */
 #include "MD_rhs_core.hpp"
-#endif
 int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
     /* S0-10 / openMP #14 — t_RHS_total wraps the entire outer RHS
@@ -48,17 +50,27 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
         shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
 #endif
-#ifdef USE_RHS_CORE
-        /* S1c (openMP #46): full new-path. `rhs_core` calls
-         * `rhs_update` + `rhs_flux` + `rhs_apply` — zero legacy fallback.
-         * USE_RHS_CORE undefined (B0 default) preserves the original
-         * three-call sequence exactly. LEGACY_RHS macro + USE_RHS_CORE
-         * retirement deferred to S1d.1 / S1d.2 (#47 / #48). */
-        MD->rhs_core(Y, DY, t);
-#else
+        /* S1d.1 (openMP #47): LEGACY_RHS = 0 (default) routes to the
+         * extracted B1a path via `rhs_core(ExecPolicy::Serial)`;
+         * LEGACY_RHS = 1 routes to the original `f_update/f_loop/
+         * f_applyDY` chain (B0 binary path). The prior S1a scaffold
+         * macro has been retired in the SAME atomic commit that
+         * introduces LEGACY_RHS, per spec exec-policy-enum Scenario
+         * "S1d.1 Step 4.4 + 4.5 atomic landing enforced at review
+         * time" — keeping legacy reachable via a recompile and
+         * preventing any intermediate state where the scaffold is
+         * removed but LEGACY_RHS is not yet wired up.
+         *
+         * The `#ifdef _OPENMP_ON` branch above is UNCHANGED on
+         * purpose: legacy `_omp` dispatch belongs to S2 / #48 and S1
+         * is forbidden from touching `f_*_omp` source per master plan
+         * §C1 (`_omp` path frozen through S1d). */
+#ifdef LEGACY_RHS
         MD->f_update(Y, DY, t);
         MD->f_loop(t);
         MD->f_applyDY(DY, t);
+#else
+        MD->rhs_core(Y, DY, t, ExecPolicy::Serial);
 #endif
     }
 #endif

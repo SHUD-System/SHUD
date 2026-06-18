@@ -1,25 +1,48 @@
-/* MD_rhs_core.hpp — S1a RHS core scaffolding (openMP issue #44).
+/* MD_rhs_core.hpp — RHS core scaffolding + ExecPolicy dispatch.
  *
- * Stage: S1a (Group 1, tasks 1.1–1.10) — extract `Model_Data::f_update`
- * → `Model_Data::rhs_update` and introduce `Model_Data::rhs_core`
- * dispatch scaffold. Per design.md D7 + spec rhs-core-scaffolding
- * ADDED Requirement "S1a 阶段签名约定", `rhs_core()` is the
- * THREE-PARAM data-flow form `(Y, DY, t)` — no `ExecPolicy` parameter.
- * The four-arg `ExecPolicy` overload is introduced in S1d.1 by
- * capability exec-policy-enum.
+ * Stage history:
+ *   - S1a (openMP #44): introduced `Model_Data::rhs_update` (pure
+ *     carry-over of `f_update`) and the three-arg `rhs_core(Y, DY, t)`
+ *     dispatch scaffold, gated by an S1a scaffold Makefile flag.
+ *   - S1b (openMP #45): added `Model_Data::rhs_flux` (carry-over of
+ *     `f_loop`); rhs_core became `rhs_update + rhs_flux + legacy f_applyDY`.
+ *   - S1c (openMP #46): added `Model_Data::rhs_apply` (carry-over of
+ *     `f_applyDY`); rhs_core became zero-fallback `rhs_update + rhs_flux
+ *     + rhs_apply`. The scaffold flag still gated f.cpp dispatch.
+ *   - S1d.1 (openMP #47): replaced the three-arg signature with the
+ *     four-arg ExecPolicy form `rhs_core(Y, DY, t, ExecPolicy)`. The
+ *     S1a scaffold Makefile / source flag is RETIRED in the same
+ *     atomic commit; the new LEGACY_RHS macro now gates f.cpp's
+ *     serial-branch routing between B0 (`f_update/f_loop/f_applyDY`)
+ *     and B1a (`rhs_core(..., ExecPolicy::Serial)`).
  *
- * `rhs_update` and `rhs_core` are `Model_Data::` members rather than
- * free functions because:
- *   - the legacy `Model_Data::f_update` body uses the index macros
- *     `iSF` / `iUS` / `iGW` / `iRIV` / `iLAKE` (Macros.hpp:21-25)
- *     which expand to expressions containing `NumEle` / `NumRiv` —
- *     those are `Model_Data` members and only resolve correctly with
- *     `this` in scope;
- *   - spec Scenario "Source carry-over diff is structural-only"
- *     explicitly allows `Model_Data::` qualifier in the diff.
+ * ExecPolicy design (per openspec/changes/s1-rhs-core-extraction/
+ * design.md D7 + spec exec-policy-enum):
+ *   - Plain `enum class` + `switch` inside `rhs_core` — NO template
+ *     specialization, NO virtual dispatch. Compile-time-known policy
+ *     keeps the branch predictable; the switch is optimized away on
+ *     fixed callers and matches SHUD's existing C-style enum style
+ *     (Model_Control etc.).
+ *   - StrictOMP / ProductionOMP cases are S1-phase stubs: each calls
+ *     `std::abort()` immediately. `assert(false)` is forbidden because
+ *     `-DNDEBUG` (release builds, `EXTRA_CXXFLAGS=-DNDEBUG` smoke
+ *     compile) strips assert to a no-op and would let execution
+ *     silently fall through to the next statement — destroying the
+ *     contract that OMP paths cannot impersonate Serial.
+ *   - SHUD_ENABLE_OPENMP_RHS=0 (default) `#ifdef`s the OMP cases out
+ *     of the translation unit entirely; the binary contains no OMP
+ *     path symbols. SHUD_ENABLE_OPENMP_RHS=1 includes the cases for
+ *     smoke compile + runtime SIGABRT verification.
  *
- * Definitions live in MD_rhs_core.cpp. Declarations also appear on
- * `Model_Data` (Model_Data.hpp) per C++ member-function rules.
+ * `rhs_update` / `rhs_flux` / `rhs_apply` / `rhs_core` are
+ * `Model_Data::` members rather than free functions because the legacy
+ * function bodies use the index macros `iSF` / `iUS` / `iGW` / `iRIV`
+ * / `iLAKE` (Macros.hpp:21-25) which expand to expressions containing
+ * `NumEle` / `NumRiv` — those resolve only with `this` in scope.
+ *
+ * Definitions live in MD_rhs_core.cpp. Member declarations also
+ * appear on `Model_Data` (Model_Data.hpp) per C++ member-function
+ * rules.
  *
  * Header is included ONLY by `SHUD/src/Model/f.cpp` and
  * `SHUD/src/Model/MD_rhs_core.cpp` per spec Scenario
@@ -29,6 +52,11 @@
 #ifndef MD_RHS_CORE_HPP
 #define MD_RHS_CORE_HPP
 
+/* `enum class ExecPolicy` is defined in Model_Data.hpp (see comment
+ * there) to break the circular-dependency that would arise if it
+ * lived here — Model_Data::rhs_core takes it by value, and
+ * MD_rhs_core.hpp #include's Model_Data.hpp. Including Model_Data.hpp
+ * here re-exposes the enum for f.cpp / MD_rhs_core.cpp consumers. */
 #include "Model_Data.hpp"
 
 #endif /* MD_RHS_CORE_HPP */

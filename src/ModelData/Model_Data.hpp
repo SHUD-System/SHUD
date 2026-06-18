@@ -21,6 +21,26 @@
 #include "Macros.hpp"
 #include "AccTemperature.hpp"
 using namespace std;
+
+/* ExecPolicy — S1d.1 (openMP #47).
+ *
+ * Selects the execution backend for `Model_Data::rhs_core(Y, DY, t,
+ * policy)`. Defined here (rather than in MD_rhs_core.hpp) because
+ * `Model_Data::rhs_core`'s declaration takes it by value and
+ * MD_rhs_core.hpp `#include`s this file (circular dependency if it
+ * lived only there). MD_rhs_core.hpp re-exposes it via its own
+ * `#include "Model_Data.hpp"`.
+ *
+ * Design (per openspec/changes/s1-rhs-core-extraction/design.md D7):
+ *   - plain `enum class` + `switch(policy)` inside `rhs_core`
+ *   - NO template specialization, NO virtual dispatch (compile-time-
+ *     known policy keeps binary size flat + dispatch predictable)
+ *   - S1: Serial = real call chain; StrictOMP / ProductionOMP =
+ *     `std::abort()` stubs (NOT `assert(false)` — `-DNDEBUG` strips
+ *     assert to a no-op and would let execution fall through silently)
+ */
+enum class ExecPolicy { Serial, StrictOMP, ProductionOMP };
+
 class Model_Data {        /* Model_data definition */
 public:
     FileIn  *pf_in;
@@ -247,11 +267,14 @@ public:
      * rhs_flux. S1c (openMP #46) — pure carry-over of f_applyDY into
      * rhs_apply; rhs_core() dispatch is now full new-path
      * (rhs_update + rhs_flux + rhs_apply, zero legacy fallback).
+     * S1d.1 (openMP #47) — rhs_core gains the `ExecPolicy policy`
+     * fourth parameter and switch-dispatches Serial vs OMP stubs;
+     * the prior three-arg `rhs_core(Y, DY, t)` overload is removed.
      * See SHUD/src/Model/MD_rhs_core.{cpp,hpp}. */
     void rhs_update(double * Y, double * DY, double t);
     void rhs_flux(double t);
     void rhs_apply(double * DY, double t);
-    void rhs_core(double * Y, double * DY, double t);
+    void rhs_core(double * Y, double * DY, double t, ExecPolicy policy);
     
 //    void updateWF(double dt);
     void CheckInputData();

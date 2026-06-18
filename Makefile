@@ -106,28 +106,63 @@ $(error SHUD_DUMP_RHS must be 0 or 1, got '$(SHUD_DUMP_RHS)')
 endif
 
 # -----------------------------------------------------------------
-# Optional RHS core scaffold (openmp issue #44 / S1a)
+# LEGACY_RHS / SHUD_ENABLE_OPENMP_RHS — S1d.1 (openMP issue #47)
 # -----------------------------------------------------------------
-# Off by default. Set `USE_RHS_CORE=1` on the make CLI to compile in
-# the `Model_Data::rhs_core` dispatch in f.cpp::f() (serial path
-# only; OpenMP path untouched per S1a spec). The new path runs
-# `rhs_update` (pure carry-over of `f_update`) then legacy `f_loop`
-# + `f_applyDY` — mixed mode. USE_RHS_CORE=0 (default) preserves the
-# B0 three-call sequence exactly; the new MD_rhs_core.cpp TU still
-# compiles + links but its member functions are unreferenced.
+# These two flags REPLACE the S1a `USE_RHS_CORE` scaffold (now
+# retired). Both are introduced in the SAME atomic commit as the
+# USE_RHS_CORE removal, per spec exec-policy-enum Scenario "S1d.1
+# Step 4.4 + 4.5 atomic landing enforced at review time" — keeping
+# the legacy `f_update/f_loop/f_applyDY` path reachable via a
+# recompile and avoiding the intermediate "USE_RHS_CORE removed but
+# LEGACY_RHS not yet wired" state in commit history.
 #
-# `USE_RHS_CORE` is the S1a scaffold macro; S1d.2 retires it in
-# favor of `LEGACY_RHS` (per design.md D8). Do not commit any case
-# with USE_RHS_CORE=1 as the default — bitwise validation must hold
-# against B0-tag with USE_RHS_CORE undefined.
-USE_RHS_CORE ?= 0
-ifeq ($(USE_RHS_CORE),1)
-  SHUD_RHS_CORE_DEFINE := -DUSE_RHS_CORE=1
-else ifeq ($(USE_RHS_CORE),0)
-  SHUD_RHS_CORE_DEFINE :=
+# LEGACY_RHS (default 0):
+#   0 = f.cpp serial branch routes through `rhs_core(ExecPolicy::Serial)`
+#       (B1a binary path; extracted `rhs_update/rhs_flux/rhs_apply`).
+#   1 = f.cpp serial branch routes through original
+#       `f_update/f_loop/f_applyDY` (B0 binary path). Used for A/B
+#       bitwise verification; tasks 4.6a (LEGACY=0) + 4.6b (LEGACY=1)
+#       must both PASS vs B0-tag SHA256.
+#
+# SHUD_ENABLE_OPENMP_RHS (default 0):
+#   0 = `#ifdef SHUD_ENABLE_OPENMP_RHS` cases in `MD_rhs_core.cpp`
+#       (StrictOMP / ProductionOMP) are excluded from the translation
+#       unit; resulting binary has no OMP-path symbols.
+#   1 = OMP cases compile in. They contain `std::abort()` stubs that
+#       SIGABRT on any runtime call (verified by
+#       `tests/s1d_strictomp_assert_smoke.cpp` under -DNDEBUG). Used
+#       only for smoke compile / abort regression; NOT bitwise-validated.
+#
+# `assert(false)` is forbidden inside the OMP stubs because
+# `-DNDEBUG` strips assert to a no-op and would let the switch case
+# fall through silently to the next statement. `std::abort()` is
+# unconditional; safe under `EXTRA_CXXFLAGS=-DNDEBUG` smoke compile.
+LEGACY_RHS ?= 0
+ifeq ($(LEGACY_RHS),0)
+  LEGACY_RHS_DEFINE :=
+else ifeq ($(LEGACY_RHS),1)
+  LEGACY_RHS_DEFINE := -DLEGACY_RHS=1
 else
-$(error USE_RHS_CORE must be 0 or 1, got '$(USE_RHS_CORE)')
+$(error LEGACY_RHS must be 0 or 1, got '$(LEGACY_RHS)')
 endif
+
+SHUD_ENABLE_OPENMP_RHS ?= 0
+ifeq ($(SHUD_ENABLE_OPENMP_RHS),0)
+  SHUD_OMP_RHS_DEFINE :=
+else ifeq ($(SHUD_ENABLE_OPENMP_RHS),1)
+  SHUD_OMP_RHS_DEFINE := -DSHUD_ENABLE_OPENMP_RHS=1
+else
+$(error SHUD_ENABLE_OPENMP_RHS must be 0 or 1, got '$(SHUD_ENABLE_OPENMP_RHS)')
+endif
+
+# EXTRA_CXXFLAGS: free-form append slot for caller-supplied defines
+# the build doesn't otherwise know about. The S1d.1 smoke test uses
+# `EXTRA_CXXFLAGS=-DNDEBUG` to verify that `std::abort()` stubs
+# remain effective in release-build configuration (assert(false)
+# would not). Layer-1/2 disallowed-flag guards above still apply:
+# `-Ofast`/`-ffast-math`/`-funsafe-math-optimizations` in
+# EXTRA_CXXFLAGS would be caught by the MAKEOVERRIDES scan.
+EXTRA_CXXFLAGS ?=
 
 # -----------------------------------------------------------------
 # Optional profile timer instrumentation (openmp issue #10 / S0-8a)
@@ -317,7 +352,10 @@ help:
 	@echo "       make shud_omp SHUD_DUMP_RHS=1 - OpenMP build with RHS snapshot hooks compiled in"
 	@echo "       make shud SHUD_ENABLE_PROFILE=1     - serial build with wall-clock profile timer compiled in"
 	@echo "       make shud_omp SHUD_ENABLE_PROFILE=1 - OpenMP build with wall-clock profile timer compiled in"
-	@echo "       make shud USE_RHS_CORE=1            - serial build with S1a rhs_core dispatch (default OFF; openMP #44)"
+	@echo "       make shud LEGACY_RHS=0              - serial build via rhs_core(Serial) (B1a path; default; openMP #47)"
+	@echo "       make shud LEGACY_RHS=1              - serial build via legacy f_update/f_loop/f_applyDY (B0 path; A/B verify; openMP #47)"
+	@echo "       make shud SHUD_ENABLE_OPENMP_RHS=1  - compile in StrictOMP/ProductionOMP std::abort stubs (smoke only; openMP #47)"
+	@echo "       make smoke_strictomp                - build + run StrictOMP SIGABRT regression smoke test (openMP #47)"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
 	@echo "       make clean        - remove binary outputs (preserves InstallSundials)"
 	@echo
@@ -330,21 +368,49 @@ cvode CVODE:
 
 shud SHUD: check_sundials $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo '...Compiling shud (B0 serial) ...'
-	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_RHS_CORE_DEFINE) $(SHUD_PROFILE_DEFINE) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS)
+	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(LEGACY_RHS_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_RHS_CORE_DEFINE) $(SHUD_PROFILE_DEFINE) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(LEGACY_RHS_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS)
 	@echo
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
 
 shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
 	@echo '...Compiling shud_OpenMP ...'
-	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_RHS_CORE_DEFINE) $(SHUD_PROFILE_DEFINE) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(LK_OMP)
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(LEGACY_RHS_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(LK_OMP)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_RHS_CORE_DEFINE) $(SHUD_PROFILE_DEFINE) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(LK_OMP)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(CXX_OPENMP_DEFINE) $(SHUD_DUMP_DEFINE) $(LEGACY_RHS_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(LK_OMP)
 	@echo
 	@echo " $(TARGET_OMP) is compiled successfully!"
 	@echo
+
+# -----------------------------------------------------------------
+# S1d.1 smoke test — StrictOMP std::abort regression guard
+# -----------------------------------------------------------------
+# Builds + runs `tests/s1d_strictomp_assert_smoke.cpp`, which forks a
+# child that invokes `Model_Data::rhs_core(..., ExecPolicy::StrictOMP)`
+# under `-DNDEBUG` and asserts via `waitpid` that the child died by
+# SIGABRT. This guards the decision to use `std::abort()` rather than
+# `assert(false)` for the OMP-policy stubs (assert would be stripped
+# under -DNDEBUG and the case would silently fall through to the
+# next statement). Requires SHUD_ENABLE_OPENMP_RHS=1 to make the
+# OMP cases compile-visible.
+#
+# The smoke binary supplies its own main(), so we must drop SHUD's
+# main.cpp from the link line. Wildcard expansion happens at recipe
+# time (SRC uses src/.../*.cpp globs), so the substring filter works
+# only on the expanded list — wrap in $(filter-out ...) accordingly.
+SHUD_SRC_NOMAIN := $(filter-out $(SRC_DIR)/main.cpp,$(wildcard $(SRC)))
+
+.PHONY: smoke_strictomp
+smoke_strictomp: check_sundials tests/s1d_strictomp_assert_smoke.cpp $(SRC) $(SRC_H)
+	@echo '...Compiling s1d_strictomp_assert_smoke ...'
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) -DNDEBUG -DSHUD_ENABLE_OPENMP_RHS=1 $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/s1d_strictomp_smoke tests/s1d_strictomp_assert_smoke.cpp $(SHUD_SRC_NOMAIN) $(LK_FLAGS)
+	@echo
+	$(CXX) $(SHUD_BUILD_CFLAGS) -DNDEBUG -DSHUD_ENABLE_OPENMP_RHS=1 $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/s1d_strictomp_smoke tests/s1d_strictomp_assert_smoke.cpp $(SHUD_SRC_NOMAIN) $(LK_FLAGS)
+	@echo
+	@echo '...Running s1d_strictomp_assert_smoke (expect SIGABRT in child) ...'
+	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/s1d_strictomp_smoke && echo 'OK: child SIGABRT observed' || (echo 'FAIL: child did not SIGABRT'; exit 1)
 
 clean:
 	@echo "Cleaning ... "

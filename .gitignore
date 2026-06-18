@@ -31,3 +31,8 @@ cvode.tar.gz
 cvode-6.0.0/
 shud_omp
 shud_omp.dSYM/
+
+# S1d.1 smoke test build artifacts (openMP #47) — binary + debug bundle.
+# Source file tests/s1d_strictomp_assert_smoke.cpp is checked in.
+tests/s1d_strictomp_smoke
+tests/s1d_strictomp_smoke.dSYM/

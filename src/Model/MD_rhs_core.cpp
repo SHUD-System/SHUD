@@ -24,6 +24,7 @@
  * "`timeNow` not double-written").
  */
 #include "MD_rhs_core.hpp"
+#include <cstdlib>   /* std::abort -- S1d.1 OMP stub regression guard */
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
 #endif
@@ -350,13 +351,49 @@ void Model_Data::rhs_apply(double *DY, double t){
 #endif
 }
 
-void Model_Data::rhs_core(double *Y, double *DY, double t){
-    /* S1c full new-path: extract complete. All three RHS phases
-     * (rhs_update / rhs_flux / rhs_apply) go through the new path.
-     * Zero legacy fallback. `f_update` / `f_loop` / `f_applyDY`
-     * still exist as symbols but are NOT called from rhs_core.
-     * `ExecPolicy` 3->4 param refactor is S1d.1 (#47). */
-    rhs_update(Y, DY, t);
-    rhs_flux(t);
-    rhs_apply(DY, t);
+/* S1d.1 (openMP #47) — `rhs_core` four-arg ExecPolicy dispatch.
+ *
+ * Per spec exec-policy-enum + design.md D7 / D8:
+ *   - `ExecPolicy::Serial` runs the full new-path chain
+ *     (`rhs_update` -> `rhs_flux` -> `rhs_apply`) extracted in
+ *     S1a/b/c — bitwise-identical to legacy `f_update/f_loop/f_applyDY`
+ *     (verified vs B0-tag in tasks 4.6a/b).
+ *   - `ExecPolicy::StrictOMP` and `ExecPolicy::ProductionOMP` are
+ *     S1-phase compile-time stubs: each calls `std::abort()` so any
+ *     runtime call SIGABRTs immediately. `assert(false)` is forbidden
+ *     because `-DNDEBUG` (release / EXTRA_CXXFLAGS=-DNDEBUG smoke
+ *     compile) strips assert to a no-op and would let execution fall
+ *     through silently to the next statement — destroying the
+ *     contract that an OMP-policy call cannot impersonate Serial.
+ *   - SHUD_ENABLE_OPENMP_RHS=0 (default) `#ifdef`s the OMP cases
+ *     out of the translation unit; the resulting binary contains no
+ *     OMP-path symbols (verified in tasks 4.9 / 5.10c via `nm`).
+ *   - `default:` branch also aborts to catch ABI drift / future
+ *     enumerator additions that haven't been wired up here.
+ *
+ * No template specialization, no virtual dispatch — plain switch.
+ * The switch is compile-time-known at every caller in this stage
+ * (f.cpp always passes `ExecPolicy::Serial` under LEGACY_RHS=0;
+ * LEGACY_RHS=1 bypasses rhs_core entirely), so the compiler
+ * eliminates the branch in optimized builds.
+ */
+void Model_Data::rhs_core(double *Y, double *DY, double t, ExecPolicy policy){
+    switch (policy) {
+        case ExecPolicy::Serial:
+            rhs_update(Y, DY, t);
+            rhs_flux(t);
+            rhs_apply(DY, t);
+            break;
+#ifdef SHUD_ENABLE_OPENMP_RHS
+        case ExecPolicy::StrictOMP:
+            /* S2+ scope. S1 stub: abort to prevent silent fall-through.
+             * NOT assert(false) — -DNDEBUG strips it. */
+            std::abort();
+        case ExecPolicy::ProductionOMP:
+            std::abort();
+#endif
+        default:
+            /* Catches enumerator additions not yet wired + ABI drift. */
+            std::abort();
+    }
 }
