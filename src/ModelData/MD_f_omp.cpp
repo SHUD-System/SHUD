@@ -7,14 +7,17 @@
 #include "Model_Data.hpp"
 
 void Model_Data::f_applyDY_omp(double *DY, double t){
-    double area;
-    int isf, ius, igw, i;
+    // S2.9: dormant path race fix — area / isf / ius / igw moved into
+    // for body so each thread iteration owns its own copies (implicitly
+    // private per OpenMP per-iteration semantics). Matches PR-1 #144
+    // declare-at-use pattern in MD_ET.cpp.
+    int i;
 #pragma omp parallel  default(shared) private(i) num_threads(CS.num_threads)
     {
 #pragma omp for
         for (i = 0; i < NumEle; i++) {
-            isf = iSF; ius = iUS; igw = iGW;
-            area = Ele[i].area;
+            int isf = iSF, ius = iUS, igw = iGW;
+            double area = Ele[i].area;
             QeleSurfTot[i] = Qe2r_Surf[i];
             QeleSubTot[i] = Qe2r_Sub[i];
             for (int j = 0; j < 3; j++) {
@@ -113,8 +116,9 @@ void Model_Data::f_update_omp(double  *Y, double *DY, double t){
         
 #pragma omp for
         for (i = 0; i < NumEle; i++) {
-            uYsf[i] = (Y[iSF] >= 0.) ? Y[iSF] : 0.;
-            uYus[i] = (Y[iUS] >= 0.) ? Y[iUS] : 0.;
+            // S2.6: dormant path aligned with serial f_update() (MD_update.cpp:73-74) — no clamp.
+            uYsf[i] = Y[iSF];
+            uYus[i] = Y[iUS];
             
             if(Ele[i].iBC == 0){ // NO BC
                 uYgw[i] = max(0.0, Y[iGW]);
@@ -150,7 +154,8 @@ void Model_Data::f_update_omp(double  *Y, double *DY, double t){
         
 #pragma omp for
         for (i = 0; i < NumRiv; i++ ){
-            uYriv[i] = (Y[iRIV] >= 0.) ? Y[iRIV] : 0.;
+            // S2.6: dormant path aligned with serial f_update() no-clamp semantics.
+            uYriv[i] = Y[iRIV];
             /* qrivsurf and qrivsub are calculated in Element fluxes.
              qrivDown and qrivUp are calculated in River fluxes. */
 //            QrivDown[i] = 0.;
