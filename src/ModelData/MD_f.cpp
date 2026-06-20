@@ -220,6 +220,23 @@ void Model_Data::PassValue(){
                 QLakeRivIn[Riv[i].toLake] += QrivDown[i]; // toLake is 0-indexed
             }
         }
+        /* S3b.2 (PR-9): transitional lake gather element-edge surf -> per-lake.
+         * Replaces `QLakeSurf[ilake] += Q` write in fun_Ele_surface lake branch.
+         * Reads QeleSurf_lake[i*3+j] (written only inside that lake branch)
+         * and aggregates per (i,j) pair to per-lake QLakeSurf. The traversal
+         * condition mirrors fun_Ele_surface (lakenabr[j]-1 >= 0). Will be
+         * replaced by rhs_deterministic_gather() in S3c (PR-11). */
+        for (i = 0; i < NumLake; i++) {
+            QLakeSurf[i] = 0.;
+        }
+        for (i = 0; i < NumEle; i++) {
+            for (int j = 0; j < 3; j++) {
+                int ilake = Ele[i].lakenabr[j] - 1;
+                if(ilake >= 0){
+                    QLakeSurf[ilake] += QeleSurf_lake[i*3 + j];
+                }
+            }
+        }
     }
     //    for (i = 0; i < NumEle; i++) { /*Check flux A->B  = Flux B->A*/
     //        for (j = 0; j < 3; j++) {

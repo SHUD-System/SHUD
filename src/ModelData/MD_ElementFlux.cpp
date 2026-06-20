@@ -50,7 +50,11 @@ void Model_Data::fun_Ele_surface(int i, double t){
             Q = WeirFlow_jtoi(lake[ilake].zmin, nsf,
                               Ele[i].z_surf, isf,
                               Ele[i].z_surf, 0.6, B, 0.01); /* func WeirFlow_jtoi is */
-            QLakeSurf[ilake] += Q;  /* Positive of QLakeSurf = Element to Lake */
+            /* S3b.2 (PR-9): shared write `QLakeSurf[ilake] += Q` replaced
+             * with deterministic per-edge slot. PassValue() will gather
+             * QeleSurf_lake -> QLakeSurf. Will be replaced by
+             * rhs_deterministic_gather() in S3c (PR-11). */
+            QeleSurf_lake[i*3 + j] = Q;
 //            CheckNANi( QLakeSurf[ilake] , i, "QLakeSurf[ilake] in Model_Data::fun_Ele_surface");
         }else if (inabr >= 0) {
             /***************************************************************************/

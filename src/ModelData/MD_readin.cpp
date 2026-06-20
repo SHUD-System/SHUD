@@ -542,6 +542,8 @@ void Model_Data::FreeData(){
     
     delete[]    Qe2r_Surf; // 5.1
     delete[]    Qe2r_Sub; // 5.2
+    delete[]    QeleSurf_lake; // S3b (PR-9) per-edge slot
+    delete[]    QeleSub_lake;  // S3b (PR-9) per-edge slot
     
     delete[]    qElePrep;
     delete[]    qEleTF;

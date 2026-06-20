@@ -90,7 +90,13 @@ void Model_Data::malloc_EleRiv(){
     
     Qe2r_Surf = new double[NumEle]; //5.1
     Qe2r_Sub  = new double[NumEle]; // 5.2
-    
+    /* S3b (PR-9): per-edge slots used only when lakeon. Always allocate
+     * (NumEle-sized; cheap) so non-lake builds need no conditional
+     * cleanup. Touched only inside the lake branches of fun_Ele_surface
+     * / fun_Ele_sub and gathered in PassValue. */
+    QeleSurf_lake = new double[NumEle * 3];
+    QeleSub_lake  = new double[NumEle * 3];
+
     qEleE_IC      = new double[NumEle];
     qEleEvapo      = new double[NumEle];
     qEleTrans      = new double[NumEle];

@@ -201,6 +201,14 @@ public:
     double *QLakeRivOut;
     double *qLakeEvap;
     double *qLakePrcp;
+    /* S3b (PR-9): per-edge / per-element scratch slots for shared-write
+     * splitting. Element->Lake surface/sub fluxes write to these slots
+     * (size NumEle*3, indexed i*3+j) instead of the racy `QLakeSurf[ilake] += Q`
+     * pattern; PassValue() then gathers into QLakeSurf/QLakeSub.
+     * Transitional — PR-11 (S3c) will replace the gather with
+     * rhs_deterministic_gather(). */
+    double *QeleSurf_lake;
+    double *QeleSub_lake;
     
     
     int NumSegmt;
