@@ -15,8 +15,12 @@ void Model_Data:: f_loop(double t){
             /* Lake elements */
             Ele[i].updateLakeElement();
             fun_Ele_lakeVertical(i, t);
-            qLakeEvap[Ele[i].iLake - 1] += qEleEvapo[i] / lake[Ele[i].iLake - 1].NumEleLake;
-            qLakePrcp[Ele[i].iLake - 1] += qElePrep[i] / lake[Ele[i].iLake - 1].NumEleLake;
+            /* S3b.4 (PR-9): shared writes extracted to per-element slots.
+             * See MD_rhs_core.cpp::rhs_flux for full rationale (mirror
+             * change here so the dead-code f_loop stays semantically
+             * identical to the active rhs_flux). */
+            qEleEvapo_lake[i] = qEleEvapo[i] / lake[Ele[i].iLake - 1].NumEleLake;
+            qElePrep_lake[i]  = qElePrep[i]  / lake[Ele[i].iLake - 1].NumEleLake;
         }else{
             f_etFlux(i, t);
             /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
@@ -42,6 +46,21 @@ void Model_Data:: f_loop(double t){
     }
     for (i = 0; i < NumRiv; i++) {
         Flux_RiverDown(t, i);
+    }
+    /* S3b.4 (PR-9): transitional gather; mirrors rhs_flux. Must run
+     * BEFORE the lake clamp. */
+    if(lakeon){
+        for (i = 0; i < NumLake; i++) {
+            qLakeEvap[i] = 0.;
+            qLakePrcp[i] = 0.;
+        }
+        for (i = 0; i < NumEle; i++) {
+            if(Ele[i].iLake > 0){
+                int ilake = Ele[i].iLake - 1;
+                qLakeEvap[ilake] += qEleEvapo_lake[i];
+                qLakePrcp[ilake] += qElePrep_lake[i];
+            }
+        }
     }
     for (i = 0; i < NumLake; i++) {
         qLakeEvap[i] = min(qLakeEvap[i], qLakePrcp[i] + yLakeStg[i]);

@@ -209,6 +209,14 @@ public:
      * rhs_deterministic_gather(). */
     double *QeleSurf_lake;
     double *QeleSub_lake;
+    /* S3b.4 (PR-9): per-element scratch for lake-cell evap/prcp split
+     * (NumEle sized). Lake-cell elements write the pre-divided per-element
+     * contribution; gather (in rhs_flux / f_loop BEFORE the lake clamp)
+     * sums to per-lake qLakeEvap / qLakePrcp. Cannot live in PassValue
+     * because the lake clamp reads qLakeEvap/qLakePrcp BEFORE PassValue
+     * is called. */
+    double *qEleEvapo_lake;
+    double *qElePrep_lake;
     
     
     int NumSegmt;

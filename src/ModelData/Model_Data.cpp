@@ -96,6 +96,8 @@ void Model_Data::malloc_EleRiv(){
      * / fun_Ele_sub and gathered in PassValue. */
     QeleSurf_lake = new double[NumEle * 3];
     QeleSub_lake  = new double[NumEle * 3];
+    qEleEvapo_lake = new double[NumEle]; // S3b.4 (PR-9)
+    qElePrep_lake  = new double[NumEle]; // S3b.4 (PR-9)
 
     qEleE_IC      = new double[NumEle];
     qEleEvapo      = new double[NumEle];
