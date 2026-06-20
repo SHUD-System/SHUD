@@ -315,6 +315,17 @@ MPICC ?= mpic++
 # been deleted from the tree. The prior compile-inclusion switch
 # (sibling of SHUD_USE_OPENMP_NVECTOR) is retired together with the
 # source file.
+#
+# S4 PR-10 (#154) — `$(SRC_DIR)/ModelData/*.cpp` glob already covers
+# `SRC_DIR/ModelData/MD_adjacency.cpp` (new file in this PR). Spec
+# `s4-adjacency-topology` Scenario L28 ("Makefile SHALL 把
+# MD_adjacency.cpp 加入 SOURCE 列表（与 MD_f.cpp 等同级出现）") is
+# satisfied by the wildcard — MD_adjacency.cpp lives in the same
+# directory as MD_f.cpp and is compiled in the same translation pass
+# (see `make shud` recipe below — SRC expands via wildcard at recipe
+# time so the new .cpp ships in the link line automatically). Verified
+# at build time: `make -n shud | grep MD_adjacency.cpp` shows the file
+# on the compile command line.
 SRC = $(SRC_DIR)/classes/*.cpp \
       $(SRC_DIR)/ModelData/*.cpp \
       $(SRC_DIR)/Model/*.cpp \
@@ -528,6 +539,29 @@ smoke_configd: check_sundials_omp tests/s1d_configd_nvec_smoke.cpp
 	@echo
 	@echo '...Running s1d_configd_nvec_smoke (expect OK: N_VGetVectorID == SUNDIALS_NVEC_OPENMP) ...'
 	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/s1d_configd_nvec_smoke || (echo 'FAIL: Config D NVector smoke did not print OK'; exit 1)
+
+# -----------------------------------------------------------------
+# S4 PR-10 (#154) — adjacency fallback unit test
+# -----------------------------------------------------------------
+# Builds tests/test_adjacency_fallback.cpp, which constructs a synthetic
+# Model_Data mock whose entity `.index` fields violate the
+# `index == array_index + 1` invariant. Verifies build_adjacency_lists()
+# sets `adjacency_fallback_triggered = true` AND constructs lists in
+# array-index order (NOT id-sort) — per spec s4-adjacency-topology
+# Scenario "三条 assert 在所有 6 case 都 pass + fallback 单测 PASS".
+#
+# Test binary supplies its own main(); reuse the same `SHUD_SRC_NOMAIN`
+# var from smoke_strictomp (Makefile L484) so we link in the rest of the
+# SHUD framework objects.
+.PHONY: test_adjacency_fallback
+test_adjacency_fallback: check_sundials tests/test_adjacency_fallback.cpp $(SRC) $(SRC_H)
+	@echo '...Compiling test_adjacency_fallback (S4 PR-10 fallback unit test) ...'
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/test_adjacency_fallback tests/test_adjacency_fallback.cpp $(SHUD_SRC_NOMAIN) $(LK_FLAGS)
+	@echo
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/test_adjacency_fallback tests/test_adjacency_fallback.cpp $(SHUD_SRC_NOMAIN) $(LK_FLAGS)
+	@echo
+	@echo '...Running test_adjacency_fallback (expect PASS) ...'
+	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/test_adjacency_fallback && echo 'OK: adjacency fallback unit test PASS' || (echo 'FAIL: adjacency fallback unit test'; exit 1)
 
 clean:
 	@echo "Cleaning ... "

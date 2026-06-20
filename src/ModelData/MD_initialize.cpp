@@ -5,6 +5,13 @@
 #include "IO.hpp"
 #include "functions.hpp"
 #include "Model_Data.hpp"
+#include "MD_adjacency.hpp"  /* S4 PR-10 (#154): build_adjacency_lists()
+                              * called from Model_Data::initialize() AFTER
+                              * malloc_EleRiv + entity-table population so
+                              * RivSeg / Riv / Ele arrays + counts are
+                              * present. Init-time only — no runtime
+                              * behavior change (PR-11 / S3c will consume
+                              * the lists in rhs_deterministic_gather). */
 
 void Model_Data::LoadIC(){
     for (int i = 0; i < NumEle; i++) {
@@ -238,6 +245,14 @@ void Model_Data::initialize(){
     initializeLake();
     malloc_Y();
     read_cfgout(pf_in->file_cfgout);
+    /* S4 PR-10 (#154) — build 7 deterministic-gather adjacency lists.
+     * AFTER initializeLake() so NumLake is finalized; AFTER malloc_Y()
+     * is harmless (lists don't depend on Y state). Lists are read-only
+     * post-build; PR-10 BUILDS them but does NOT YET USE them at runtime
+     * (PR-11 / S3c consumes them in rhs_deterministic_gather). The
+     * fallback path + assert booleans are exposed via MD_adjacency.hpp
+     * and exercised by tests/test_adjacency_fallback.cpp. */
+    build_adjacency_lists(this);
 }
 void Model_Data:: initialize_output (){
     int ip = 0;

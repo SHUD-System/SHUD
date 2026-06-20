@@ -24,6 +24,16 @@
  * "`timeNow` not double-written").
  */
 #include "MD_rhs_core.hpp"
+#include "MD_adjacency.hpp"  /* S4 PR-10 (#154): 7 adjacency lists +
+                              * `build_adjacency_lists()` declarations.
+                              * Lists are built once from
+                              * `Model_Data::initialize()` (MD_initialize.cpp);
+                              * PR-10 BUILDS but does NOT YET USE them in
+                              * rhs_core (PR-11 / S3c will replace PassValue's
+                              * in-loop gather). The include here satisfies
+                              * spec s4-adjacency-topology Scenario
+                              * "MD_rhs_core.cpp 文件顶部 SHALL 包含
+                              * #include MD_adjacency.hpp". */
 #include <cstdlib>   /* std::abort -- S1d.1 OMP stub regression guard */
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
