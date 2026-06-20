@@ -124,7 +124,11 @@ void Model_Data::fun_Ele_sub(int i, double t){
                 Q = Kmean * grad * Ymean * Ele[i].edge[j];
 //                CheckNANi(Q, i, "Q in Model_Data::fun_Ele_sub");
             }
-            QLakeSub[ilake] += Q; /* Positive of QLakeSub = Element to Lake */
+            /* S3b.3 (PR-9): shared write `QLakeSub[ilake] += Q` replaced
+             * with deterministic per-edge slot. PassValue() will gather
+             * QeleSub_lake -> QLakeSub. Will be replaced by
+             * rhs_deterministic_gather() in S3c (PR-11). */
+            QeleSub_lake[i*3 + j] = Q;
         }else if (inabr >= 0) {
             /***************************************************************************/
             /* Subsurface Lateral Flux Calculation between Triangular elements Follows */

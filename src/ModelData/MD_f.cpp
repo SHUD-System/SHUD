@@ -237,6 +237,19 @@ void Model_Data::PassValue(){
                 }
             }
         }
+        /* S3b.3 (PR-9): same pattern for subsurface flux.
+         * Replaces `QLakeSub[ilake] += Q` write in fun_Ele_sub lake branch. */
+        for (i = 0; i < NumLake; i++) {
+            QLakeSub[i] = 0.;
+        }
+        for (i = 0; i < NumEle; i++) {
+            for (int j = 0; j < 3; j++) {
+                int ilake = Ele[i].lakenabr[j] - 1;
+                if(ilake >= 0){
+                    QLakeSub[ilake] += QeleSub_lake[i*3 + j];
+                }
+            }
+        }
     }
     //    for (i = 0; i < NumEle; i++) { /*Check flux A->B  = Flux B->A*/
     //        for (j = 0; j < 3; j++) {
