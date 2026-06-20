@@ -205,6 +205,22 @@ void Model_Data::PassValue(){
             QrivUp[iDownStrm] += - QrivDown[i];
         }
     }
+    /* S3b.1 (PR-9): transitional lake gather river -> per-lake.
+     * Replaces the shared `QLakeRivIn[Riv[i].toLake] += QrivDown[i]`
+     * write that was previously in Flux_RiverDown (MD_RiverFlux.cpp).
+     * Reads per-river QrivDown (just computed in Flux_RiverDown loop)
+     * and aggregates to per-lake QLakeRivIn. Will be replaced by
+     * rhs_deterministic_gather() in S3c (PR-11). */
+    if(lakeon){
+        for (i = 0; i < NumLake; i++) {
+            QLakeRivIn[i] = 0.;
+        }
+        for (i = 0; i < NumRiv; i++) {
+            if(Riv[i].toLake >= 0){
+                QLakeRivIn[Riv[i].toLake] += QrivDown[i]; // toLake is 0-indexed
+            }
+        }
+    }
     //    for (i = 0; i < NumEle; i++) { /*Check flux A->B  = Flux B->A*/
     //        for (j = 0; j < 3; j++) {
     //            inabr = Ele[i].nabr[j] - 1;

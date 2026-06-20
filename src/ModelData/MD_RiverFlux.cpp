@@ -21,7 +21,11 @@ void Model_Data::Flux_RiverDown(double t, int i){
             CSarea = Riv[i].u_CSarea;
             R = (Perem <= 0.) ? 0. : (CSarea / Perem);
             QrivDown[i] = ManningEquation(CSarea, n, R, s);
-            QLakeRivIn[Riv[i].toLake] += QrivDown[i];  /* Positive = river to Lake */
+            /* S3b.1 (PR-9): shared write `QLakeRivIn[Riv[i].toLake] += QrivDown[i]`
+             * extracted out of Flux_RiverDown. The per-river QrivDown[i] above is
+             * the per-river slot; PassValue() now performs a transitional gather
+             * from QrivDown -> QLakeRivIn (per-lake aggregate). Will be replaced
+             * by rhs_deterministic_gather() in S3c (PR-11). */
     }else if (iDown >= 0) {
         sMean = (Riv[i].BedSlope + Riv[iDown].BedSlope) * 0.5 ;
         Distance =  Riv[i].Dist2DownStream;
