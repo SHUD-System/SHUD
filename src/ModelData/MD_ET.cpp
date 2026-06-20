@@ -20,17 +20,11 @@ void Model_Data::updateforcing(double t){
     shud_profile::Timer _t_forcing("t_forcing_io");
 #endif
     int i;
-    /* S1d.2 (openMP #48) — the `#pragma omp for` only makes sense when
-     * the compiler is invoked with `-fopenmp` (auto-defines `_OPENMP`).
-     * Migrated from the retired legacy triple-concern macro. The
-     * pragma itself is a no-op outside an enclosing `omp parallel`
-     * region — currently no `parallel` region wraps this updateforcing
-     * call, so the pragma is dormant in all current build configs.
-     * Kept gated rather than deleted because S2 plans to add a
-     * top-level `omp parallel` around the RHS dispatch. */
-#ifdef _OPENMP
-#pragma omp for
-#endif
+    /* S2.10 (PR-1 #144) — isolated `#ifdef _OPENMP / #pragma omp for`
+     * removed: the pragma was dormant (no enclosing `omp parallel`
+     * region) and the surrounding driver is single-threaded by the
+     * B1a contract. `tsd_weather[i].movePointer(t)` retains its
+     * serial-call semantics across NumForc. */
     for (i = 0; i < NumForc; i++){
         tsd_weather[i].movePointer(t);
     }
@@ -129,50 +123,49 @@ void Model_Data::ET(double t, double tnext){
      * accumulates the wall time. */
     shud_profile::Timer _t_et("t_ET");
 #endif
-    double  T=NA_VALUE,  LAI=NA_VALUE, MF =NA_VALUE, prcp = NA_VALUE;
-    double  snFrac, snAcc, snMelt, snStg;
-    double  icAcc, icEvap, icStg, icMax, vgFrac;
     double  DT_min = tnext - t;
-    double  ta_surf, ta_sub;
-    int i;
-    /* S1d.2 (openMP #48) — see updateforcing() above for the
-     * `_OPENMP` migration rationale. */
-#ifdef _OPENMP
-#pragma omp for
-#endif
-    for(i = 0; i < NumEle; i++) {
-        T = t_temp[i];
-        prcp = t_prcp[i];
+    /* S2.14 (PR-1 #144) — isolated `#ifdef _OPENMP / #pragma omp for`
+     * removed (dormant outside an enclosing `omp parallel`; B1a stays
+     * single-threaded). The 16 element-local scalars previously
+     * declared above the loop (T, LAI, MF, prcp, snFrac, snAcc,
+     * snMelt, snStg, icAcc, icEvap, icStg, icMax, vgFrac, ta_surf,
+     * ta_sub, plus loop index i) are now declared at use inside the
+     * for body. DT_min stays shared as a loop-invariant (tnext - t
+     * is computed once per ET call). */
+    for(int i = 0; i < NumEle; i++) {
+        double T = t_temp[i];
+        double prcp = t_prcp[i];
         /* Snow Accumulation */
-        MF = t_mf[i];
-        snStg = yEleSnow[i];
+        double MF = t_mf[i];
+        double snStg = yEleSnow[i];
         /* Snow Accumulation/Melt Calculation*/
-        snFrac  = FrozenFraction(T, Train, Tsnow);
-        
+        double snFrac = FrozenFraction(T, Train, Tsnow);
+
         if(CS.cryosphere){
             AccT_surf[i].push(T, t);
             AccT_sub[i].push(T, t);
-            ta_surf = AccT_surf[i].getACC();
-            ta_sub  = AccT_sub[i].getACC();
+            double ta_surf = AccT_surf[i].getACC();
+            double ta_sub  = AccT_sub[i].getACC();
             fu_Sub[i] = 1. - FrozenFraction(ta_sub, AccT_sub_max, AccT_sub_min);
             fu_Surf[i] = 1. - FrozenFraction(ta_surf, AccT_surf_max, AccT_surf_min);
         }else{
             fu_Sub[i] = 1.;
             fu_Surf[i] = 1.;
         }
-        
-        snAcc = snFrac * prcp;
-        snMelt = (T > To ? (T - To) * MF : 0.);    /* eq. 7.3.14 in Maidment */
+
+        double snAcc = snFrac * prcp;
+        double snMelt = (T > To ? (T - To) * MF : 0.);    /* eq. 7.3.14 in Maidment */
         snMelt = min(max(0., snStg / DT_min), max(0., snMelt));
 //        CheckNonNegative(snMelt, i, "Snow Melting");
         snStg += (snAcc - snMelt) * DT_min;
-        
+
         /* Interception */
-        LAI = t_lai[i];
-        icStg = yEleIS[i];
-        vgFrac = Ele[i].VegFrac;
+        double LAI = t_lai[i];
+        double icStg = yEleIS[i];
+        double vgFrac = Ele[i].VegFrac;
+        double icAcc, icEvap;
         if(LAI > ZERO){
-            icMax = gc.cISmax * IC_MAX * LAI;
+            double icMax = gc.cISmax * IC_MAX * LAI;
             icAcc = min(prcp - snAcc, max(0., (icMax - icStg) / DT_min) );
             icEvap = min(max(0., icStg / DT_min), qPotEvap[i]);
         }else{
@@ -180,7 +173,7 @@ void Model_Data::ET(double t, double tnext){
             icEvap = 0.;
         }
         icStg += (icAcc - icEvap) * DT_min;
-        
+
         /* Update the storage value and net precipitaion */
         yEleIS[i] = icStg * vgFrac;
         yEleSnow[i] = snStg;
