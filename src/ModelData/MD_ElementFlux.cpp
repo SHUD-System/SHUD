@@ -1,4 +1,5 @@
 #include "Model_Data.hpp"
+#include <cassert>
 void Model_Data::fun_Ele_lakeVertical(int i, double t){
     /*  elements in LAKEs */
     qEleInfil[i] = 0.;
@@ -105,6 +106,7 @@ void Model_Data::fun_Ele_sub(int i, double t){
         inabr = Ele[i].nabr[j] - 1;
         ilake = Ele[i].lakenabr[j] - 1;
         if(ilake >= 0){ /* For Lake element */
+            assert(inabr >= 0);
             dh = (uYgw[i] + Ele[i].z_bottom) - (yLakeStg[ilake] + lake[ilake].bathymetry.yi[0]);
             if(dh > 0. && uYgw[i] <= 0.02){ /* Depression condition */
                 Q = 0.;
