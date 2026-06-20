@@ -120,10 +120,11 @@ void Model_Data::fun_Seg_sub( int iEle, int iRiv, int i){
                              Ele[iEle].u_effKH, Riv[iRiv].KsatH,  
                              RivSeg[i].length,Riv[iRiv].BedThick);
     QsegSub[i] *= fu_Sub[iEle];
-    /* S3a.3 (PR-9): redundant `QrivSub[iRiv] += QsegSub[i]` deleted.
-     * PassValue() (MD_f.cpp) zeros QrivSub then re-accumulates the same
-     * sum from QsegSub — this write was double-accumulation. */
-    Qe2r_Sub[iEle] += -QsegSub[i];
+    /* S3a.3/S3a.4 (PR-9): redundant `QrivSub[iRiv] += QsegSub[i]` and
+     * `Qe2r_Sub[iEle] += -QsegSub[i]` deleted. PassValue() zeros these
+     * then re-accumulates from QsegSub — these writes were
+     * double-accumulation. fun_Seg_sub is now a PURE FUNCTION that only
+     * computes QsegSub[i] (no accumulator side-effects). */
 #ifdef DEBUG
     CheckNANi(QsegSub[i], i, "River Flux Sub(Functopm:fun_Seg_sub)");
 #endif
