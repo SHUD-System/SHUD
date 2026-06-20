@@ -83,8 +83,7 @@ void CommandIn::parse(int argc, char **argv){
      * OpenMP runtime is available (i.e. omp_get_max_threads is callable),
      * which is exactly what `_OPENMP` (auto-defined by `-fopenmp`)
      * signals. Independent of the SHUD-level feature switches
-     * (SHUD_USE_OPENMP_NVECTOR / SHUD_ENABLE_OPENMP_RHS /
-     * SHUD_LEGACY_OMP_RHS). */
+     * (SHUD_USE_OPENMP_NVECTOR / SHUD_ENABLE_OPENMP_RHS). */
 #ifdef _OPENMP
     printf("\t\t * openMP enabled. Maximum Threads = %d\n", omp_get_max_threads());
 #else

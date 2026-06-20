@@ -257,10 +257,6 @@ public:
     void f_applyDYi(double * DY, double t, int flag);
     void f_update(double * Y, double * DY, double t);
     void f_updatei(double * Y, double * DY, double t, int flag);
-    
-    void f_loop_omp(double * Y, double * DY, double t);
-    void f_applyDY_omp(double * DY, double t);
-    void f_update_omp(double * Y, double * DY, double t);
 
     /* S1a (openMP #44) — pure carry-over of f_update + S1a dispatch
      * skeleton. S1b (openMP #45) — pure carry-over of f_loop into

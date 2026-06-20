@@ -373,8 +373,7 @@ void Model_Data::rhs_apply(double *DY, double t){
  *
  * No template specialization, no virtual dispatch — plain switch.
  * The switch is compile-time-known at every caller in this stage
- * (f.cpp always passes `ExecPolicy::Serial` under LEGACY_RHS=0;
- * LEGACY_RHS=1 bypasses rhs_core entirely), so the compiler
+ * (f.cpp always passes `ExecPolicy::Serial`), so the compiler
  * eliminates the branch in optimized builds.
  */
 void Model_Data::rhs_core(double *Y, double *DY, double t, ExecPolicy policy){

@@ -23,16 +23,13 @@
  * registered backend.
  *
  * `omp.h` is pulled in when EITHER:
- *   - `_OPENMP` is set (compiler invoked with `-fopenmp`; legacy
- *     `_omp` receivers in MD_f_omp.cpp need `#pragma omp parallel
- *     for`; OpenMP runtime queries like `omp_get_wtime` in
- *     Model_Data.cpp need symbol declarations).
+ *   - `_OPENMP` is set (compiler invoked with `-fopenmp`; OpenMP
+ *     runtime queries like `omp_get_wtime` in Model_Data.cpp need
+ *     symbol declarations).
  *   - `SHUD_USE_OPENMP_NVECTOR` is set (shud.cpp calls
  *     `omp_set_num_threads` before N_VNew_OpenMP).
  * The `omp.h` include and the SHUD_USE_OPENMP_NVECTOR backend are
- * otherwise independent: a build can have SHUD_LEGACY_OMP_RHS=1
- * (needs omp.h) while keeping SHUD_USE_OPENMP_NVECTOR=0 (uses
- * Serial N_Vector). */
+ * otherwise independent. */
 #include "nvector/nvector_serial.h"
 #ifdef SHUD_USE_OPENMP_NVECTOR
 #include "nvector/nvector_openmp.h"

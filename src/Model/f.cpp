@@ -2,10 +2,8 @@
 #ifdef SHUD_ENABLE_PROFILE
 #include "timer.h"
 #endif
-/* S1d.1 (openMP #47): MD_rhs_core.hpp is now unconditionally pulled in
- * for the default (LEGACY_RHS=0) serial dispatch path. LEGACY_RHS=1
- * builds also include it harmlessly — the header is `Model_Data`-only
- * and the ExecPolicy enum is data-only; no runtime cost. */
+/* S2 capstone (PR-8): MD_rhs_core.hpp is the only serial dispatch path;
+ * the prior legacy-vs-rhs_core fork has been retired. */
 #include "MD_rhs_core.hpp"
 int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
@@ -48,36 +46,12 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
         shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
 #endif
-        /* S1d.1 (openMP #47): LEGACY_RHS = 0 (default) routes to the
-         * extracted B1a path via `rhs_core(ExecPolicy::Serial)`;
-         * LEGACY_RHS = 1 routes to the original `f_update/f_loop/
-         * f_applyDY` chain (B0 binary path). The prior S1a scaffold
-         * macro has been retired in the SAME atomic commit that
-         * introduces LEGACY_RHS, per spec exec-policy-enum Scenario
-         * "S1d.1 Step 4.4 + 4.5 atomic landing enforced at review
-         * time" — keeping legacy reachable via a recompile and
-         * preventing any intermediate state where the scaffold is
-         * removed but LEGACY_RHS is not yet wired up.
-         *
-         * S1d.2 (openMP #48): the prior legacy-OMP upper branch
-         * that routed to `f_update_omp/f_loop_omp/f_applyDY_omp` has
-         * been removed from f(). The `_omp` legacy
-         * receivers in MD_f_omp.cpp are now gated by
-         * SHUD_LEGACY_OMP_RHS at the file level (Makefile-controlled
-         * compile inclusion); RHS dispatch from f() proceeds through
-         * the LEGACY_RHS / rhs_core fork below. Activation of the
-         * OpenMP-parallel kernel inside rhs_core (StrictOMP /
-         * ProductionOMP) is a separate decision controlled by
-         * SHUD_ENABLE_OPENMP_RHS (#47), and currently aborts with
-         * std::abort stubs — bitwise validation remains Config A
-         * (all 3 macros OFF; default Serial). */
-#ifdef LEGACY_RHS
-        MD->f_update(Y, DY, t);
-        MD->f_loop(t);
-        MD->f_applyDY(DY, t);
-#else
+        /* S2 capstone (PR-8): f() always routes to rhs_core (Serial); the
+         * legacy `_omp` RHS receivers (MD_f_omp.cpp) and the legacy/rhs_core
+         * fork have been retired. PURE CARRY-OVER `rhs_update/rhs_flux/
+         * rhs_apply` are byte-for-byte copies of `f_update/f_loop/
+         * f_applyDY`. */
         MD->rhs_core(Y, DY, t, ExecPolicy::Serial);
-#endif
     }
     MD->nFCall++;
 #ifdef DEBUG

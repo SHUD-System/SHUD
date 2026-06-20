@@ -12,9 +12,12 @@
  *   - S1d.1 (openMP #47): replaced the three-arg signature with the
  *     four-arg ExecPolicy form `rhs_core(Y, DY, t, ExecPolicy)`. The
  *     S1a scaffold Makefile / source flag is RETIRED in the same
- *     atomic commit; the new LEGACY_RHS macro now gates f.cpp's
- *     serial-branch routing between B0 (`f_update/f_loop/f_applyDY`)
- *     and B1a (`rhs_core(..., ExecPolicy::Serial)`).
+ *     atomic commit.
+ *   - S2 capstone (PR-8): the legacy-vs-rhs_core gating macro that
+ *     selected between the original B0 path (`f_update/f_loop/
+ *     f_applyDY`) and the B1a path (`rhs_core(..., ExecPolicy::Serial)`)
+ *     has been retired; f.cpp now unconditionally calls
+ *     `rhs_core(..., ExecPolicy::Serial)`.
  *
  * ExecPolicy design (per openspec/changes/s1-rhs-core-extraction/
  * design.md D7 + spec exec-policy-enum):

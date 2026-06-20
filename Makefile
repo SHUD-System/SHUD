@@ -25,12 +25,14 @@ override CXX_BASE_FLAGS    := -O2 -g -ffp-contract=off -fno-fast-math -std=c++14
 override SHUD_BUILD_CFLAGS := $(CXX_BASE_FLAGS)
 # S1d.2 (openMP #48) — the legacy `CXX_OPENMP_DEFINE` variable +
 # its single-concern `-D` define have been retired. The legacy
-# triple-concern switch is replaced by three orthogonal macros
+# triple-concern switch is replaced by two orthogonal macros
 # (defined below), each gating exactly one concern:
 #   SHUD_USE_OPENMP_NVECTOR — N_Vector backend (Serial vs OpenMP)
-#   SHUD_LEGACY_OMP_RHS     — compile-in the legacy `_omp` RHS receivers
 #   SHUD_ENABLE_OPENMP_RHS  — RHS execution policy stubs (StrictOMP /
 #                             ProductionOMP); from #47
+# S2 capstone (PR-8) — the third macro (legacy `_omp` RHS receiver
+# compile inclusion) was retired together with the source file it
+# gated; the receivers no longer exist in the codebase.
 # The historical legacy define no longer exists in any source.
 
 # CFLAGS is left as a non-override alias for backward-compat tooling that
@@ -114,23 +116,13 @@ $(error SHUD_DUMP_RHS must be 0 or 1, got '$(SHUD_DUMP_RHS)')
 endif
 
 # -----------------------------------------------------------------
-# LEGACY_RHS / SHUD_ENABLE_OPENMP_RHS — S1d.1 (openMP issue #47)
+# SHUD_ENABLE_OPENMP_RHS — S1d.1 (openMP issue #47); legacy fork retired in S2 capstone (PR-8 #152)
 # -----------------------------------------------------------------
-# These two flags REPLACE the S1a `USE_RHS_CORE` scaffold (now
-# retired). Both are introduced in the SAME atomic commit as the
-# USE_RHS_CORE removal, per spec exec-policy-enum Scenario "S1d.1
-# Step 4.4 + 4.5 atomic landing enforced at review time" — keeping
-# the legacy `f_update/f_loop/f_applyDY` path reachable via a
-# recompile and avoiding the intermediate "USE_RHS_CORE removed but
-# LEGACY_RHS not yet wired" state in commit history.
-#
-# LEGACY_RHS (default 0):
-#   0 = f.cpp serial branch routes through `rhs_core(ExecPolicy::Serial)`
-#       (B1a binary path; extracted `rhs_update/rhs_flux/rhs_apply`).
-#   1 = f.cpp serial branch routes through original
-#       `f_update/f_loop/f_applyDY` (B0 binary path). Used for A/B
-#       bitwise verification; tasks 4.6a (LEGACY=0) + 4.6b (LEGACY=1)
-#       must both PASS vs B0-tag SHA256.
+# The S2 capstone (PR-8) retired the legacy-vs-rhs_core fork in f.cpp:
+# f() now unconditionally routes through `rhs_core(ExecPolicy::Serial)`,
+# so the original `f_update/f_loop/f_applyDY` chain is dead source kept
+# only as the PURE CARRY-OVER source of `rhs_update/rhs_flux/rhs_apply`.
+# The legacy-routing macro that previously gated f.cpp has been removed.
 #
 # SHUD_ENABLE_OPENMP_RHS (default 0):
 #   0 = `#ifdef SHUD_ENABLE_OPENMP_RHS` cases in `MD_rhs_core.cpp`
@@ -145,15 +137,6 @@ endif
 # `-DNDEBUG` strips assert to a no-op and would let the switch case
 # fall through silently to the next statement. `std::abort()` is
 # unconditional; safe under `EXTRA_CXXFLAGS=-DNDEBUG` smoke compile.
-LEGACY_RHS ?= 0
-ifeq ($(LEGACY_RHS),0)
-  LEGACY_RHS_DEFINE :=
-else ifeq ($(LEGACY_RHS),1)
-  LEGACY_RHS_DEFINE := -DLEGACY_RHS=1
-else
-$(error LEGACY_RHS must be 0 or 1, got '$(LEGACY_RHS)')
-endif
-
 SHUD_ENABLE_OPENMP_RHS ?= 0
 ifeq ($(SHUD_ENABLE_OPENMP_RHS),0)
   SHUD_OMP_RHS_DEFINE :=
@@ -164,12 +147,13 @@ $(error SHUD_ENABLE_OPENMP_RHS must be 0 or 1, got '$(SHUD_ENABLE_OPENMP_RHS)')
 endif
 
 # -----------------------------------------------------------------
-# S1d.2 (openMP #48) — SHUD_USE_OPENMP_NVECTOR + SHUD_LEGACY_OMP_RHS
+# S1d.2 (openMP #48) — SHUD_USE_OPENMP_NVECTOR
 # -----------------------------------------------------------------
-# These two flags REPLACE the legacy triple-concern
-# macro, splitting it into orthogonal switches alongside #47's
-# SHUD_ENABLE_OPENMP_RHS. All default OFF so the default build is
-# Config A (bitwise vs B0; all 3 macros = 0).
+# This flag controls the N_Vector backend selection. S2 capstone
+# (PR-8) retired the sibling `_omp` RHS receiver compile-inclusion
+# switch together with the source file it gated; `SHUD_USE_OPENMP_NVECTOR`
+# is now the only N_Vector concern remaining. Defaults OFF so the
+# default build is Config A (bitwise vs B0).
 #
 # SHUD_USE_OPENMP_NVECTOR (default 0):
 #   0 = nvector_serial backend. udata / du are allocated via
@@ -185,19 +169,6 @@ endif
 #       libsundials_nvecopenmp. Independent of
 #       SHUD_ENABLE_OPENMP_RHS (which gates the in-RHS
 #       parallel-kernel stubs).
-#
-# SHUD_LEGACY_OMP_RHS (default 0):
-#   0 = legacy `_omp` RHS receivers in MD_f_omp.cpp are excluded
-#       from the link line (translation unit removed from the
-#       compile list). `nm shud | grep _omp` returns empty.
-#   1 = MD_f_omp.cpp compiles in; `nm shud | grep f_update_omp |
-#       f_loop_omp | f_applyDY_omp` returns 3 symbols. The
-#       function bodies are S1-frozen (per master plan §C1 —
-#       `_omp` path frozen through S1d); this flag only controls
-#       compile inclusion. They are NOT reachable at runtime from
-#       f() (the prior legacy-OMP dispatch in f() was
-#       removed in S1d.2; LEGACY_RHS / rhs_core is the runtime
-#       fork). Kept compile-able for S2 re-activation.
 SHUD_USE_OPENMP_NVECTOR ?= 0
 ifeq ($(SHUD_USE_OPENMP_NVECTOR),0)
   SHUD_NVEC_OMP_DEFINE :=
@@ -222,15 +193,6 @@ else ifeq ($(SHUD_USE_OPENMP_NVECTOR),1)
   SHUD_NVEC_OMP_LK      = $(CXX_OPENMP_LFLAGS) -lsundials_nvecopenmp
 else
 $(error SHUD_USE_OPENMP_NVECTOR must be 0 or 1, got '$(SHUD_USE_OPENMP_NVECTOR)')
-endif
-
-SHUD_LEGACY_OMP_RHS ?= 0
-ifeq ($(SHUD_LEGACY_OMP_RHS),0)
-  SHUD_LEGACY_OMP_DEFINE :=
-else ifeq ($(SHUD_LEGACY_OMP_RHS),1)
-  SHUD_LEGACY_OMP_DEFINE := -DSHUD_LEGACY_OMP_RHS=1
-else
-$(error SHUD_LEGACY_OMP_RHS must be 0 or 1, got '$(SHUD_LEGACY_OMP_RHS)')
 endif
 
 # EXTRA_CXXFLAGS: free-form append slot for caller-supplied defines
@@ -349,28 +311,12 @@ ifeq ($(origin CXX),default)
 endif
 MPICC ?= mpic++
 
-# S1d.2 (openMP #48) — MD_f_omp.cpp is the legacy `_omp` RHS receiver
-# translation unit. Compile inclusion is controlled by
-# SHUD_LEGACY_OMP_RHS:
-#   0 (default) — TU excluded; `nm shud | grep f_update_omp` returns
-#                 empty (Config A / C / D).
-#   1           — TU included; the 3 `_omp` symbols are linkable
-#                 (Config B). Function bodies are S1-frozen (master
-#                 plan §C1: `_omp` path frozen through S1d); this
-#                 flag only controls compile inclusion, not source.
-#
-# Wildcard expansion needs to happen before $(filter-out) — use
-# `$(wildcard ...)` so the literal `*.cpp` glob is resolved BEFORE
-# filter-out runs (otherwise filter-out works on the literal pattern
-# and matches nothing).
-ifeq ($(SHUD_LEGACY_OMP_RHS),1)
-  MODELDATA_SRC := $(wildcard $(SRC_DIR)/ModelData/*.cpp)
-else
-  MODELDATA_SRC := $(filter-out $(SRC_DIR)/ModelData/MD_f_omp.cpp,$(wildcard $(SRC_DIR)/ModelData/*.cpp))
-endif
-
+# S2 capstone (PR-8) — MD_f_omp.cpp (legacy `_omp` RHS receivers) has
+# been deleted from the tree. The prior compile-inclusion switch
+# (sibling of SHUD_USE_OPENMP_NVECTOR) is retired together with the
+# source file.
 SRC = $(SRC_DIR)/classes/*.cpp \
-      $(MODELDATA_SRC) \
+      $(SRC_DIR)/ModelData/*.cpp \
       $(SRC_DIR)/Model/*.cpp \
       $(SRC_DIR)/Equations/*.cpp
 
@@ -465,11 +411,8 @@ help:
 	@echo "       make shud_omp SHUD_DUMP_RHS=1 - OpenMP build with RHS snapshot hooks compiled in"
 	@echo "       make shud SHUD_ENABLE_PROFILE=1     - serial build with wall-clock profile timer compiled in"
 	@echo "       make shud_omp SHUD_ENABLE_PROFILE=1 - OpenMP build with wall-clock profile timer compiled in"
-	@echo "       make shud LEGACY_RHS=0              - serial build via rhs_core(Serial) (B1a path; default; openMP #47)"
-	@echo "       make shud LEGACY_RHS=1              - serial build via legacy f_update/f_loop/f_applyDY (B0 path; A/B verify; openMP #47)"
 	@echo "       make shud SHUD_ENABLE_OPENMP_RHS=1  - compile in StrictOMP/ProductionOMP std::abort stubs (smoke only; openMP #47)"
 	@echo "       make shud SHUD_USE_OPENMP_NVECTOR=1 - serial build with OpenMP N_Vector backend (Config D dim; openMP #48)"
-	@echo "       make shud SHUD_LEGACY_OMP_RHS=1     - serial build with legacy _omp RHS receivers compiled in (Config B; openMP #48)"
 	@echo "       make smoke_strictomp                - build + run StrictOMP SIGABRT regression smoke test (openMP #47)"
 	@echo "       make smoke_configd                  - build + run Config D OpenMP NVector runtime probe (openMP #49)"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
@@ -482,12 +425,12 @@ cvode CVODE:
 	./configure
 	@echo
 
-# S1d.2 (openMP #48) — `shud` recipe now also carries the three new
-# feature defines (SHUD_NVEC_OMP_DEFINE / SHUD_LEGACY_OMP_DEFINE /
-# SHUD_NVEC_OMP_LK), so Config B/C/D can build through the same
-# target via `make shud SHUD_USE_OPENMP_NVECTOR=1` /
-# `make shud SHUD_LEGACY_OMP_RHS=1` / `make shud SHUD_ENABLE_OPENMP_RHS=1`
-# (or combinations). Config A = `make shud` (all 3 flags default 0).
+# S1d.2 (openMP #48) — `shud` recipe carries the remaining feature
+# defines (SHUD_NVEC_OMP_DEFINE / SHUD_NVEC_OMP_LK), so Config C/D can
+# build through the same target via `make shud SHUD_USE_OPENMP_NVECTOR=1`
+# / `make shud SHUD_ENABLE_OPENMP_RHS=1` (or combinations). Config A =
+# `make shud` (all flags default 0). The S2 capstone (PR-8) retired
+# Config B (legacy `_omp` RHS receivers) together with its source file.
 # S1d.2 (openMP #48) — pick check_sundials_omp when the user enables
 # the OpenMP NVector backend (Config D needs libsundials_nvecopenmp);
 # otherwise the basic check is enough (Configs A/B/C don't link nvecopenmp).
@@ -498,9 +441,9 @@ else
 endif
 shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo '...Compiling shud (B0 serial / Config A by default) ...'
-	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(LEGACY_RHS_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_LEGACY_OMP_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK)
+	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(LEGACY_RHS_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_LEGACY_OMP_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK)
 	@echo
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
@@ -515,9 +458,9 @@ shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
 # but keeps the historical target name working for downstream tooling.
 shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
 	@echo '...Compiling shud_OpenMP ...'
-	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_USE_OPENMP_NVECTOR=1 $(SHUD_DUMP_DEFINE) $(LEGACY_RHS_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_LEGACY_OMP_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) -lsundials_nvecopenmp $(LK_OMP)
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_USE_OPENMP_NVECTOR=1 $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) -lsundials_nvecopenmp $(LK_OMP)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_USE_OPENMP_NVECTOR=1 $(SHUD_DUMP_DEFINE) $(LEGACY_RHS_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_LEGACY_OMP_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) -lsundials_nvecopenmp $(LK_OMP)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_USE_OPENMP_NVECTOR=1 $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) -lsundials_nvecopenmp $(LK_OMP)
 	@echo
 	@echo " $(TARGET_OMP) is compiled successfully!"
 	@echo
