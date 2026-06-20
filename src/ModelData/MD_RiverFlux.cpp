@@ -104,7 +104,9 @@ void Model_Data::fun_Seg_surface(int iEle, int iRiv, int i){
     QsegSurf[i] = WeirFlow_jtoi(Ele[iEle].z_surf, isf,
                            Ele[iEle].z_surf - Riv[iRiv].depth, uYriv[iRiv],
                            Ele[iEle].z_surf + Riv[iRiv].zbank, RivSeg[i].Cwr, RivSeg[i].length, Ele[iEle].depression);
-    QrivSurf[iRiv]    +=  QsegSurf[i]; // Positive from River to Element
+    /* S3a.1 (PR-9): redundant `QrivSurf[iRiv] += QsegSurf[i]` deleted.
+     * PassValue() (MD_f.cpp) zeros QrivSurf then re-accumulates the same
+     * sum from QsegSurf — this write was double-accumulation. */
     Qe2r_Surf[iEle]   += -QsegSurf[i]; // Positive from Element to River
     
 #ifdef DEBUG
