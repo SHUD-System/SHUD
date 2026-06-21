@@ -1132,11 +1132,11 @@ Scenarios satisfied:
 - "7 case manifest 全有 omp_env 字段" — verified by CI gate
   `tools/check_manifest/check_omp_env.py` (PASS: 7 manifests carry
   `omp_env.{OMP_PROC_BIND=close, OMP_PLACES=cores}`).
-- "numa_check.sh 输出包含硬件拓扑" — Linux dual-socket evidence
-  pending server Slurm verification (planned for the issue #183
-  汇总验收 pass; the script logic is unit-tested locally via the
-  Mac path below and visually verified against the spec L113
-  `available: N nodes` extraction pattern).
+- "numa_check.sh 输出包含硬件拓扑" — verified on dual-socket Linux
+  Xeon `cn07` (∈ cn05-06,09,14-19,23-24 pool) via Slurm 8615;
+  `numa_topo.log` contains `available: 2 nodes (0-1)` and
+  `numa_summary.txt` contains `socket_count: 2` (see "numa_check.sh
+  execution on dual-socket Linux server" section below).
 - "本地 Mac 单 socket UMA 跳过 NUMA 验收" — verified locally on
   Apple M4 Pro (see "numa_check.sh execution on Apple Silicon"
   section below).
@@ -1282,12 +1282,64 @@ WARNING-presence verification (Mac):
 
 Mac subtotal: 8/8 PASS — WARNING fires iff `OMP_PROC_BIND` is unset.
 
-Server (heihe + heihe_x4) bitwise + WARNING verification via Slurm 三铁律
-is **deferred to a follow-up phase** (the SHUD source patch is a single
-stderr fprintf inside the existing `emit_numa_token()` skip branch and
-does NOT touch the floating-point RHS path; the local 4-case bitwise
-proves the floating-point invariance and the server runs are a
-NUMA-topology cross-check rather than a bitwise re-litigation).
+Server (heihe + heihe_x4) via Slurm 三铁律 single-job 4-phase template
+`.s5d-4-runs/run_s5d4_server.sbatch` (sbatch FROM /scratch with
+`--output=/scratch/...` `--error=/scratch/...`; cn07 ∈
+cn05-06,09,14-19,23-24 dual-socket Xeon pool):
+
+| Case     | Mode  | dat                   | SHA256                                                              | vs B1a-tag |
+|----------|-------|-----------------------|---------------------------------------------------------------------|------------|
+| heihe    | set   | heihe.rivqdown.dat    | `55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f`  | PASS       |
+| heihe    | unset | heihe.rivqdown.dat    | `55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f`  | PASS       |
+| heihe_x4 | set   | heihe_x4.eleygw.dat   | `192b0da4deacdf9218690cc501835033b181988e5399ef2d085fc083e17beece`  | PASS       |
+| heihe_x4 | set   | heihe_x4.rivqdown.dat | `f90601ef5738b972d688016ba1ee74f92ecb54faddaf46e4e2232f9d46567524`  | PASS       |
+| heihe_x4 | unset | heihe_x4.eleygw.dat   | `192b0da4deacdf9218690cc501835033b181988e5399ef2d085fc083e17beece`  | PASS       |
+| heihe_x4 | unset | heihe_x4.rivqdown.dat | `f90601ef5738b972d688016ba1ee74f92ecb54faddaf46e4e2232f9d46567524`  | PASS       |
+
+Server subtotal: 6 (dat × mode) / 6 PASS across 2 cases × 2 modes.
+
+WARNING-presence verification (server):
+
+| Case     | Mode  | `[OMP] WARNING` count | Expect | Verdict |
+|----------|-------|-----------------------|--------|---------|
+| heihe    | unset | 1                     | 1      | PASS    |
+| heihe    | set   | 0                     | 0      | PASS    |
+| heihe_x4 | unset | 1                     | 1      | PASS    |
+| heihe_x4 | set   | 0                     | 0      | PASS    |
+
+Server subtotal: 4/4 PASS — WARNING fires iff `OMP_PROC_BIND` is unset.
+
+stderr first-line excerpts proving wrapper-vs-WARNING channels:
+- `heihe[set]` (wrapper invoked):
+  `[OMP] PROC_BIND=close, PLACES=cores, NUM_THREADS=1`
+- `heihe[unset]` (bare binary, no `OMP_PROC_BIND`):
+  `[OMP] WARNING: OMP_PROC_BIND not set, NUMA first-touch may be ineffective. Use tools/run_omp.sh to set defaults.`
+- `heihe_x4[set]` (wrapper invoked):
+  `[OMP] PROC_BIND=close, PLACES=cores, NUM_THREADS=1`
+- `heihe_x4[unset]` (bare binary, no `OMP_PROC_BIND`):
+  `[OMP] WARNING: OMP_PROC_BIND not set, NUMA first-touch may be ineffective. Use tools/run_omp.sh to set defaults.`
+
+LOG-TOKEN gate (`[NUMA]` stdout, inherited from PR #181 ordering rule):
+
+| Case     | Mode  | bind_line | touch_line | Verdict             |
+|----------|-------|-----------|------------|---------------------|
+| heihe    | set   | 27        | 1757       | PASS (27 < 1757)    |
+| heihe    | unset | 27        | (none)     | PASS (skip path)    |
+| heihe_x4 | set   | 27        | 1741       | PASS (27 < 1741)    |
+| heihe_x4 | unset | 27        | (none)     | PASS (skip path)    |
+
+Slurm job IDs (Slurm 三铁律: sbatch FROM /scratch, all I/O paths under
+`/scratch`):
+- bitwise + WARNING 4-phase serial: 8614 on `cn07`, COMPLETED 00:54:22,
+  ExitCode 0:0. Per-phase wall-clock:
+  - heihe[set]      `05:25:38 -> 05:33:36` (~7m58s)
+  - heihe[unset]    `05:33:36 -> 05:41:21` (~7m45s)
+  - heihe_x4[set]   `05:41:21 -> 06:00:39` (~19m18s)
+  - heihe_x4[unset] `06:00:39 -> 06:19:59` (~19m20s)
+  Logs:
+  - `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-4-runs/s5d4_bitwise_8614.out`
+  - `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-4-runs/<case>_<mode>/run.{stdout,stderr}.log`
+  - `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-4-runs/<case>_<mode>/dat_sha256.txt`
 
 ### `numa_check.sh` execution on Apple Silicon (M4 Pro, single-socket UMA)
 
@@ -1309,20 +1361,40 @@ numa_first_touch: N/A (single-socket UMA)
 Hardware: Apple M4 Pro, `hw.physicalcpu=14`, `hw.logicalcpu=14`,
 `hw.packages=1` (single SoC, unified memory architecture).
 
-### `numa_check.sh` execution on dual-socket Linux server
+### `numa_check.sh` execution on dual-socket Linux server (cn07, Slurm 8615)
 
-**Pending follow-up Slurm submission** to the cn05-06,09,14-19,23-24
-dual-socket Xeon partition. The script is structurally validated:
-the awk extractor `awk '/^available:/ {print $2; exit}'` matches the
-standard `numactl --hardware` first-line format
-(`available: N nodes (0-N-1)`); on multi-socket hosts the OMP_PROC_BIND
-cross-check yields either
-`numa_first_touch: OK (OMP_PROC_BIND=close)` (wrapper invoked) or
-`numa_first_touch: WARNING (OMP_PROC_BIND unset on N-socket host)`
-(unset path), per spec L109.
+Verbatim from `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-4-runs/numa_check_server/numa_topo.log`:
 
-Tracking ticket: issue #183 S5d 汇总验收 will assert the dual-socket
-evidence in its final acceptance round.
+```
+available: 2 nodes (0-1)
+node 0 cpus: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+node 0 size: 95295 MB
+node 0 free: 92882 MB
+node 1 cpus: 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39
+node 1 size: 96757 MB
+node 1 free: 94897 MB
+node distances:
+node   0   1
+  0:  10  21
+  1:  21  10
+```
+
+Verbatim from `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-4-runs/numa_check_server/numa_summary.txt`:
+
+```
+socket_count: 2
+numa_first_touch: WARNING (OMP_PROC_BIND unset on 2-socket host)
+```
+
+Hardware: `cn07` ∈ cn05-06,09,14-19,23-24 dual-socket Xeon partition; 2 NUMA nodes × 20 cores = 40 logical CPUs. Inter-socket distance 21 vs intra-socket 10 — material NUMA effect.
+
+Slurm job ID (Slurm 三铁律: sbatch FROM /scratch, all I/O paths under `/scratch`):
+- numa_check: 8615 on `cn07`, COMPLETED 00:00:00 (sub-second), ExitCode 0:0.
+  Logs:
+  - `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-4-runs/s5d4_numa_8615.out`
+  - `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-4-runs/numa_check_server/{numa_topo.log, numa_summary.txt}`
+
+The `numa_first_touch: WARNING` line in `numa_summary.txt` fires because the numa_check sbatch deliberately unsets `OMP_PROC_BIND` before invoking the probe — this exercises the WARNING branch on a multi-socket host (spec scenario "多 socket 机器若未启用 `OMP_PROC_BIND` 或未做 first-touch, summary SHALL 标 `numa_first_touch: WARNING`"). When operators run via `tools/run_omp.sh` the equivalent line becomes `numa_first_touch: OK (OMP_PROC_BIND=close)` (per `tools/numa_check.sh` L93-97).
 
 ### Sanitized in-program WARNING vs run_omp.sh state echo
 
@@ -1351,8 +1423,9 @@ skip-path in `Model_Data::malloc_EleRiv()` and `MD_initialize::LoadIC()`.
 | Running shud WITHOUT `OMP_PROC_BIND` emits the new stderr WARNING line       | PASS           |
 | 7 case manifests carry `omp_env.OMP_PROC_BIND` + `omp_env.OMP_PLACES`        | PASS           |
 | `numa_check.sh` Apple Silicon → `socket_count: 1` + N/A NUMA                 | PASS           |
-| `numa_check.sh` dual-socket Linux → `socket_count: 2` evidence               | DEFERRED (#183)|
-| 6 case 90-day NUM_OPENMP=1 bitwise vs B1a-tag                                | PASS (4/4 Mac) |
+| `numa_check.sh` dual-socket Linux → `available: 2 nodes` + `socket_count: 2` | PASS (cn07 / Slurm 8615) |
+| 6 case 90-day NUM_OPENMP=1 bitwise vs B1a-tag                                | PASS (4/4 Mac + 2/2 server) |
+| Server `[OMP] WARNING` presence: unset emits, set silent (4 stderr excerpts) | PASS (cn07 / Slurm 8614) |
 | CI schema gate `serial-baseline.yml`: `omp_env` keys present + non-empty     | PASS           |
 
 ### Scope NOT touched
@@ -1362,12 +1435,10 @@ skip-path in `Model_Data::malloc_EleRiv()` and `MD_initialize::LoadIC()`.
 - Setting `OMP_PROC_BIND` from inside SHUD (only WARNING is emitted).
 - RHS hot path / SoA / first-touch implementation — already shipped by
   #178 / #179 / #181; no floating-point change in this PR.
-- Server-side bitwise re-litigation — PR #181 already passed 6/6
-  server cases at SHUD `0c3d371`; the new stderr fprintf does not
-  touch any RHS arithmetic, so the server bitwise contract is
-  inherited unchanged. Server `numa_check.sh` topology evidence is
-  deferred to issue #183 S5d 汇总验收 (where the dual-socket
-  perf-stat / NUMA acceptance ride together).
+- Multi-thread server perf-stat / cross-socket throughput — deferred
+  to issue #183 S5d 汇总验收 (this PR provides the NUM_OPENMP=1
+  bitwise + dual-socket numa_check evidence; throughput-under-binding
+  measurement rides with #183).
 - Multi-thread (`NUM_OPENMP > 1`) bitwise — deferred to A3a + later
   milestones (this PR attests `NUM_OPENMP=1` bitwise only).
 
