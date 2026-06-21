@@ -174,6 +174,26 @@ double SHUD(FileIn *fin, FileOut *fout){
         }
     }
 
+    /* S5c-C (#175): nFCall lives in its own file, NOT in cvode_stats.txt.
+     * Per spec scenario "nFCall 独立 channel 上报" + "15-key snapshot 不包含
+     * nFCall". This decouples the free-running SHUD counter from the 15-key
+     * invariance gate. The file is small (1-2 lines) and read by the CI
+     * workflow's nFCall column step + tools/cvode_stats_diff post-checks. */
+    {
+        char nfcall_path[MAXLEN];
+        snprintf(nfcall_path, sizeof(nfcall_path), "%s/nfcall.txt",
+                 fout->outpath);
+        FILE *nfcall_fp = fopen(nfcall_path, "w");
+        if (nfcall_fp != NULL) {
+            fprintf(nfcall_fp, "nFCall=%lu\n", MD->nFCall);
+            fclose(nfcall_fp);
+        } else {
+            fprintf(stderr,
+                    "[shud] WARN: nfcall.txt fopen failed at '%s'; "
+                    "stdout-only fallback used.\n", nfcall_path);
+        }
+    }
+
     /* Free integrator memory */
     CVodeFree(&mem);
 
@@ -369,6 +389,27 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
                     "[shud] WARN: cvode_stats.txt fopen failed at "
                     "'%s'; stdout-only fallback used.\n",
                     stats_path);
+        }
+    }
+
+    /* S5c-C (#175): nFCall channel emission in the uncouple path. Same
+     * rationale as the main SHUD() path above — single nfcall.txt next
+     * to cvode_stats.txt, NOT a 15-key column. MD->nFCall is the single
+     * global free-running counter (incremented inside f() at Model/f.cpp:62);
+     * f_surf/f_unsat/f_gw/f_river/f_lake increment the alt counters
+     * nFCall1..5 which are NOT shipped per spec (out of scope). */
+    {
+        char nfcall_path[MAXLEN];
+        snprintf(nfcall_path, sizeof(nfcall_path), "%s/nfcall.txt",
+                 fout->outpath);
+        FILE *nfcall_fp = fopen(nfcall_path, "w");
+        if (nfcall_fp != NULL) {
+            fprintf(nfcall_fp, "nFCall=%lu\n", MD->nFCall);
+            fclose(nfcall_fp);
+        } else {
+            fprintf(stderr,
+                    "[shud] WARN: nfcall.txt fopen failed at '%s'; "
+                    "stdout-only fallback used.\n", nfcall_path);
         }
     }
 

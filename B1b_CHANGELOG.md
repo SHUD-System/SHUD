@@ -168,3 +168,35 @@ ON build (`make clean && make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS`):
   - Option B: re-baseline spec range against actual 90d-truncated heihe_x4 numbers (current measurement gives a stable lower bound).
   - Option C: probe whether NFS read-ahead masks I/O cost — repeat with `vmtouch -e` first to flush cache.
 - No `.dat` floating-point regression risk — `t_forcing_io_s` is a diagnostic-only counter and never feeds back into RHS state.
+
+## S5c-C (#175) — nFCall vs nfe channel separation
+
+**SHUD commits**: __SHUD_COMMIT_HASHES__
+- Comment added at f.cpp:56 documenting nFCall = RHS kernel entry counter (Model_Data.hpp L58).
+- shud.cpp emits nFCall to `<output>/nfcall.txt` (independent of cvode_stats.txt 15-key snapshot).
+
+### Per-case nFCall vs nfe documentation (Task 1.6)
+
+Per spec scenario "nFCall != nfe 时 changelog 强制解释" (无数值阈值; 缺行 = fail).
+
+| case | nFCall | nfe | diff | reason |
+|---|---|---|---|---|
+| keliya | 208977 | 102485 | 106492 | SHUD每次RHS kernel入口都+1; CVODE finite-difference Jacobian路径可能多次回调f()(F19 round-2 design D10 expected behavior); no upper threshold |
+| xinanjiang_upstream | 25242 | 7263 | 17979 | same as above |
+| qinyijiang | 391059 | 129427 | 261632 | same as above |
+| qhh | 38317 | 13273 | 25044 | same as above |
+| heihe | __HEIHE_NFCALL__ | __HEIHE_NFE__ | __HEIHE_DIFF__ | same as above; server validation |
+| heihe_x4 | __HEIHE_X4_NFCALL__ | __HEIHE_X4_NFE__ | __HEIHE_X4_DIFF__ | same as above; server validation |
+
+### Server validation (Slurm 三铁律)
+- Slurm job ID __SLURM_JOB_ID__ + node __SLURM_NODE__ + wall __SLURM_WALL__ + ExitCode __SLURM_EXITCODE__ + 3 dat SHA256 PASS lines (see § Validation gates (3)).
+
+### t_forcing_io spec band — RESOLVED IN-PROGRESS deferred to M7 forcing-trim ADR
+- Per #174 IN-PROGRESS note; this PR does not address M7 alignment.
+
+### Validation gates
+- (1) Mac 4-case 90d NUM_OPENMP=1 OFF build: 8/8 .dat SHA256 PASS vs B1a-tag.
+- (2) Mac 4-case 90d NUM_OPENMP=1 ON build (`EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS`): 8/8 .dat SHA256 PASS vs B1a-tag.
+- (3) Server Slurm cn0X CPU NUM_OPENMP=1 90d OFF build: heihe + heihe_x4 .dat SHA256 PASS vs B1a-tag (3/3 in cn0X logs).
+- (4) `tools/cvode_stats_diff/test_15key_excludes_nfcall.py` PASS.
+- (5) cvode_stats.txt grep `nFCall` returns 0 hits (15-key snapshot stays clean).

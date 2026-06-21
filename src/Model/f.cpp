@@ -53,6 +53,11 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
          * f_applyDY`. */
         MD->rhs_core(Y, DY, t, ExecPolicy::Serial);
     }
+    /* S5c-C (#175): nFCall is SHUD's RHS kernel entry counter (Model_Data.hpp L58,
+     * NOT L60-63 alt counters). Free-running; emitted to nfcall.txt separately from
+     * CVODE 15-key snapshot per design.md D10. nFCall != nfe is allowed (no upper
+     * threshold), but B1b_CHANGELOG.md S5c section SHALL carry one line per case
+     * documenting the diff. */
     MD->nFCall++;
 #ifdef DEBUG
     printDY(MD->file_debug, DY, MD->NumY, t);
