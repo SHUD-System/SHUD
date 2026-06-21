@@ -273,10 +273,13 @@ PASS: RHS 3 files have 0 Ele[..].<hot-field> hits
   - Total: 8/8 PASS.
 - DEBUG build (`-DDEBUG`) keliya 90d NUM_OPENMP=1: run-to-completion, no
   assertion abort.
-- Server Slurm 6-case 90d NUM_OPENMP=1 RELEASE: PENDING (handed off to
-  orchestrator for `.s5d-1-runs/` Slurm submission per Slurm 三铁律;
-  acceptance recorded post-merge per the S5d spec's "S5d.1 独立 bitwise
-  通过" scenario).
+- Server Slurm 8569 on cn08 (partition CPU), Elapsed 00:27:25, ExitCode
+  0:0; sbatch + log paths in `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-1-runs/`.
+  heihe walltime 468s; heihe_x4 walltime 1176s. 3/3 B1a-tag bitwise `.dat`
+  SHA256 PASS:
+  - `heihe/heihe.rivqdown.dat = 55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f`
+  - `heihe_x4/heihe_x4.rivqdown.dat = f90601ef5738b972d688016ba1ee74f92ecb54faddaf46e4e2232f9d46567524`
+  - `heihe_x4/heihe_x4.eleygw.dat = 192b0da4deacdf9218690cc501835033b181988e5399ef2d085fc083e17beece`
 
 ### Scope NOT touched
 - `nFCall` / `cvode_stats` / `SHUD_ENABLE_PROFILE` /
