@@ -171,7 +171,7 @@ ON build (`make clean && make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS`):
 
 ## S5c-C (#175) — nFCall vs nfe channel separation
 
-**SHUD commits**: __SHUD_COMMIT_HASHES__
+**SHUD commits**: c2395c3 (initial S5c-C changes), plus a second commit appending server validation numbers (see git log on `openmp-baseline`).
 - Comment added at f.cpp:56 documenting nFCall = RHS kernel entry counter (Model_Data.hpp L58).
 - shud.cpp emits nFCall to `<output>/nfcall.txt` (independent of cvode_stats.txt 15-key snapshot).
 
@@ -185,11 +185,16 @@ Per spec scenario "nFCall != nfe 时 changelog 强制解释" (无数值阈值; �
 | xinanjiang_upstream | 25242 | 7263 | 17979 | same as above |
 | qinyijiang | 391059 | 129427 | 261632 | same as above |
 | qhh | 38317 | 13273 | 25044 | same as above |
-| heihe | __HEIHE_NFCALL__ | __HEIHE_NFE__ | __HEIHE_DIFF__ | same as above; server validation |
-| heihe_x4 | __HEIHE_X4_NFCALL__ | __HEIHE_X4_NFE__ | __HEIHE_X4_DIFF__ | same as above; server validation |
+| heihe | 18989 | 6775 | 12214 | same as above; server validation |
+| heihe_x4 | 37247 | 6724 | 30523 | same as above; server validation |
 
 ### Server validation (Slurm 三铁律)
-- Slurm job ID __SLURM_JOB_ID__ + node __SLURM_NODE__ + wall __SLURM_WALL__ + ExitCode __SLURM_EXITCODE__ + 3 dat SHA256 PASS lines (see § Validation gates (3)).
+- Slurm job 8568 on cn08 (partition CPU), elapsed 28:08, ExitCode 0:0; sbatch + log paths in `/scratch/frd_muziyao/SHUD-OpenMP/.s5c-c-runs/`.
+- heihe walltime 467s; heihe_x4 walltime 1219s.
+- B1a-tag bitwise `.dat` SHA256 PASS (3/3):
+  - heihe/heihe.rivqdown.dat = `55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f`
+  - heihe_x4/heihe_x4.rivqdown.dat = `f90601ef5738b972d688016ba1ee74f92ecb54faddaf46e4e2232f9d46567524`
+  - heihe_x4/heihe_x4.eleygw.dat = `192b0da4deacdf9218690cc501835033b181988e5399ef2d085fc083e17beece`
 
 ### t_forcing_io spec band — RESOLVED IN-PROGRESS deferred to M7 forcing-trim ADR
 - Per #174 IN-PROGRESS note; this PR does not address M7 alignment.
@@ -197,6 +202,6 @@ Per spec scenario "nFCall != nfe 时 changelog 强制解释" (无数值阈值; �
 ### Validation gates
 - (1) Mac 4-case 90d NUM_OPENMP=1 OFF build: 8/8 .dat SHA256 PASS vs B1a-tag.
 - (2) Mac 4-case 90d NUM_OPENMP=1 ON build (`EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS`): 8/8 .dat SHA256 PASS vs B1a-tag.
-- (3) Server Slurm cn0X CPU NUM_OPENMP=1 90d OFF build: heihe + heihe_x4 .dat SHA256 PASS vs B1a-tag (3/3 in cn0X logs).
+- (3) Server Slurm cn08 CPU NUM_OPENMP=1 90d OFF build: heihe + heihe_x4 .dat SHA256 PASS vs B1a-tag (3/3 in job 8568 / cn08 logs).
 - (4) `tools/cvode_stats_diff/test_15key_excludes_nfcall.py` PASS.
 - (5) cvode_stats.txt grep `nFCall` returns 0 hits (15-key snapshot stays clean).
