@@ -895,7 +895,10 @@ PASS: 4 hot-path files have 0 bare QeleSurf_flat[...] / QeleSub_flat[...] indexi
 
 ### Verified against SHUD HEAD
 
-SHUD HEAD = `14fe037` on `openmp-baseline` (= post-PR-9 / S5d.3 HEAD).
+SHUD HEAD = `20b5a56` on `openmp-baseline` (= post-PR-9 / S5d.3 CHANGELOG HEAD;
+source-change commit `14fe037` adds the 4 first-touch sites + extern
+flag + emit_numa_token; the follow-on `20b5a56` adds THIS changelog
+section).
 
 ### Scope NOT touched
 
