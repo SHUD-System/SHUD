@@ -16,9 +16,14 @@
 
 /* S5d.3 (#181) — see Model_Data.cpp for the gate semantics. LoadIC()
  * appends a fourth first-touch site after IC values are populated so
- * the page residency of yEle* / yRivStg / yLakeStg moves from the
- * master thread to the prospective worker threads (design D4 + master
- * plan §S5d.3 L1413 "LoadIC 串行加载后额外做一次 parallel touch"). */
+ * the page residency of the 8 Element-indexed yEle* IC arrays moves
+ * from the master thread to the prospective worker threads (design D4
+ * + master plan §S5d.3 L1413 "LoadIC 串行加载后额外做一次 parallel
+ * touch"). NumRiv-indexed `yRivStg` and NumLake-indexed `yLakeStg` are
+ * deferred to #183 / A3a per PR-9 Phase 7 Gap Sweep N1 — single-thread
+ * bitwise gate doesn't require them, and the per-river / per-lake
+ * counts are small enough that single-page residency is the dominant
+ * cost. */
 extern int g_numa_first_touch_enabled;
 
 void Model_Data::LoadIC(){

@@ -1069,6 +1069,19 @@ cross-validation evidence only).
 - RHS hot-path floating-point operations — ZERO modifications.
 - Multi-thread (`NUM_OPENMP > 1`) bitwise — deferred to A3a + later
   milestones (this PR attests `NUM_OPENMP=1` bitwise only).
+- LoadIC first-touch coverage of `yRivStg[NumRiv]` / `yLakeStg[NumLake]`
+  — deferred to #183 / A3a per Phase 7 Gap Sweep N1. The LoadIC pragma
+  at `MD_initialize.cpp:138-148` covers only the 8 NumEle-indexed
+  `yEle*` IC arrays; Riv/Lake IC arrays remain master-thread-owned.
+  Acceptable at NUM_OPENMP=1 (single-thread bitwise unchanged); revisit
+  when multi-thread RHS reads cross NUMA nodes.
+- AoS `_Element` first-touch trailing-page coverage — deferred to #183
+  / A3a per Phase 7 Gap Sweep N2. Site #3 at `Model_Data.cpp:331-336`
+  touches `Ele[i].index` only, which is the leading int of each
+  `_Element` record. `sizeof(_Element)` likely spans multiple 4 KiB
+  pages (multi-base inheritance + ~50 own scalars + 4 `[3]` arrays);
+  trailing pages remain master-thread-owned. NUMA-locality optimization
+  partial; bitwise contract intact.
 - Sanitizer extension beyond the existing 5-case keliya/qhh gate — no
   new sanitizer run was performed; PR #197/#180 attestations stand for
   the underlying SoA / flatten layout, and #181 adds only read-then-
