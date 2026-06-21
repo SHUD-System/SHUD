@@ -38,16 +38,15 @@ public:
     void    PrintData (double dt, double t);
     void    setHeader(const char *s);
     void    Init(long st, int n, const char *s, int dt, double *x, int iFlux);
-    void    InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux);
     void    Init(long st, int n, const char *s, int dt, double *x, int iFlux, int *flag);
-    void    InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux, int *flag);
-    /* S5d.2-5a (#179) — flat-array overloads for the jagged
+    /* S5d.2-5a (#179) — flat-array InitIJ overloads for the
      * QeleSurf/QeleSub flattening. `x_flat` is a contiguous
      * `double[n*3]` block in row-major order at(i,j) ↔
      * x_flat[3*i + j]; `j` (0..2) picks the column the PrintCtrl
      * slot reads. Used by MD_initialize.cpp for ele_Q_sub{0,1,2}
-     * and ele_Q_surf{0,1,2} files. The original `double**`
-     * overloads above are retained for any non-flat 2-D consumer. */
+     * and ele_Q_surf{0,1,2} files. The legacy `double**` InitIJ
+     * overloads were removed in PR #197 (review A-S1): grep showed
+     * zero remaining callers after the jagged→flat refactor. */
     void    InitIJ(long st, int n, const char *s, int dt, double *x_flat, int j, int iFlux);
     void    InitIJ(long st, int n, const char *s, int dt, double *x_flat, int j, int iFlux, int *flag);
 private:

@@ -318,30 +318,6 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
         tau = 1.;
     }
 }
-void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux){
-    StartTime = st;
-    NumVar  = n;
-    PrintVar = new double*[NumVar];
-    buffer  = new double[NumVar];
-    icol    = new double[NumVar];
-    strcpy(filename, s);
-    if(dt == 0 ){
-        myexit(ERRCONSIS);
-    }
-    Interval = dt;
-    for(int i=0; i<NumVar; i++){
-        icol[i] = (double) (i + 1);
-        PrintVar[i] = &(x[i][j]);
-//        *(PrintVar[i]) = 0.0;
-        buffer[i] = 0.0;
-    }
-    if(iFlux){
-        tau = 1440.;
-    }else{
-        tau = 1;
-    }
-}
-
 void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlux, int *flag_IO){
     StartTime = st;
     strcpy(filename, s);
@@ -381,54 +357,21 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
     }
 }
 
-void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux, int *flag_IO){
-    StartTime = st;
-    strcpy(filename, s);
-    if(dt == 0 ){
-        myexit(ERRCONSIS);
-    }
-    Interval = dt;
-    NumVar = 0;
-    for(int i = 0; i < n; i++){
-        if(flag_IO[i]){ /* IO is TRUE*/
-            NumVar++;
-        }
-    }
-    if(NumVar <= 0){
-        fprintf(stderr, "WARNING: Empty columns in %s.\n;", filename);
-    }
-    buffer = new double[NumVar];
-    PrintVar = new double*[NumVar];
-    icol    = new double[NumVar];
-    int k = 0;
-    for(int i = 0; i < n; i++){
-        if(flag_IO[i]){ /* IO is TRUE*/
-            PrintVar[k] = &(x[i][j]);
-            icol[k] = (double) (i + 1);
-            buffer[k] = 0.0;
-            k++;
-        }
-    }
-    
-    if(iFlux){
-        tau = 1440.;
-    }else{
-        tau = 1;
-    }
-}
-
 /* S5d.2-5a (#179) — flat-array InitIJ overloads.
  *
- * Bitwise-equivalence rationale: the original `double**`-based
- * `InitIJ(...double **x, int j, ...)` stored `&(x[i][j])` into the
- * PrintCtrl slot for every i in [0, NumVar). After flattening, the
- * memory address of element (i, j) in row-major layout is
- * `&(x_flat[3*i + j])`. The two store the SAME numeric value into
- * PrintCtrl (the underlying address of the j-th double of the i-th
- * element); subsequent PrintData() reads `*PrintVar[k]` and writes
- * the floating-point byte pattern verbatim. The dat output is
- * therefore byte-identical to the jagged-array build at every
- * print step — bitwise contract preserved. */
+ * Bitwise-equivalence rationale: PrintCtrl points to the same logical
+ * (i, j) slot in both jagged and flat forms; writes go through
+ * QeleSurfAt(i, j) ≡ _flat[3*i + j] and reads through *PrintVar[k]
+ * alias correctly — dat output is bitwise-identical to the
+ * pre-flatten build at every print step.
+ *
+ * The legacy `double**` overloads of these two InitIJ entry points
+ * were removed in PR #197 (review A-S1): after the jagged→flat
+ * refactor, `grep -rn '\.InitIJ\|::InitIJ\|->InitIJ' SHUD/src/`
+ * reports only the flat-array call sites in MD_initialize.cpp
+ * (`...InitIJ(..., QeleSub_flat, j, ...)` etc.). Carrying the dead
+ * overloads would mask future jagged-array regressions in code
+ * review. */
 void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt,
                         double *x_flat, int j, int iFlux){
     StartTime = st;
