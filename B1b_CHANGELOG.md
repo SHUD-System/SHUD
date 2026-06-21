@@ -708,3 +708,211 @@ PR makes ZERO SHUD-side changes).
 - `tools/run_omp.sh` / NUMA manifest fields — deferred to S5d.4.
 - nFCall / cvode_stats channels untouched.
 - `_Element` AoS struct unmodified.
+
+## S5d.3 — parallel first-touch + deterministic [NUMA] log token (#181)
+
+### Spec contract (verbatim, openspec/changes/b1b-baseline-completion/specs/s5d-data-layout-soa-numa/spec.md L65-85)
+
+> Requirement: parallel first-touch 初始化必须发生在线程绑定之后
+>
+> 系统 SHALL 在 `malloc_EleRiv()` 中对每个 SoA 数组完成分配后立刻执行
+> `#pragma omp parallel for schedule(static) for (i=0; i<NumEle; ++i) for (j=0; j<3; ++j) arr[3*i+j] = 0.0;`
+> 形式的并行初始化。`_Element*` 大对象 placement-new 后 SHALL 同样
+> parallel touch 一次。`LoadIC()` 完成后 SHALL 追加一次额外 parallel touch
+> 把 IC 内存归属转移到将来处理的线程。所有 parallel touch SHALL 在
+> `OMP_PROC_BIND` 已设置后执行，否则 NUMA 归属错乱。
+>
+> `shud.cpp` 启动期 SHALL emit 确定性 log token：(a) `[NUMA] OMP_PROC_BIND=<val>`
+> 在 `getenv` 检查后立即输出（含缺失场景 `[NUMA] OMP_PROC_BIND=unset`）；
+> (b) `[NUMA] first-touch begin tag=<arr_name>` 在每个 first-touch 调用点之前。
+> 两类 token 用于 grep 顺序断言。
+>
+> #### Scenario: 三处 first-touch 全部命中
+> - WHEN grep `malloc_EleRiv` / `LoadIC` 区段中 `#pragma omp parallel for` 出现
+> - THEN 至少 3 处：SoA 数组分配后 + `_Element` placement-new 后 + LoadIC 收尾后
+>
+> #### Scenario: log token 顺序断言 OMP_PROC_BIND 在 first-touch 之前
+> - WHEN 跑 keliya 90 天截断（任意配置）输出 stderr/log 到 `<run_dir>/run.log`
+> - THEN `grep -n '[NUMA] OMP_PROC_BIND=' <run_dir>/run.log` 返回的最小行号
+>       < `grep -n '[NUMA] first-touch begin' <run_dir>/run.log` 返回的最小行号
+>
+> #### Scenario: OMP_PROC_BIND 缺失时不做 first-touch 优化
+> - WHEN 不设 `OMP_PROC_BIND` 跑 keliya
+> - THEN log 含 `[NUMA] OMP_PROC_BIND=unset` + warning + 跳过 first-touch 阶段（按 design R3 mitigation #2）
+>
+> #### Scenario: 单线程 first-touch 与 B1a bitwise 一致
+> - WHEN S5d.3 完成 commit 上跑 6 case 90 天截断 NUM_OPENMP=1（kashigeer N/A）
+> - THEN SHA256 全 PASS vs B1a-tag（parallel touch 写入的是 init 值，没改运算）
+
+### Scope
+
+This PR introduces the FIRST `#pragma omp parallel for` directives ever
+committed to `SHUD/src/`. The repo-wide grep baseline pre-#181 returned
+ZERO active OpenMP directives (see PR #176 S5a forcing audit + every
+prior B1a/B1b PR for the same attestation). After #181:
+
+```
+$ grep -rn '#pragma omp parallel for' SHUD/src/
+SHUD/src/ModelData/MD_initialize.cpp:138:#pragma omp parallel for schedule(static)
+SHUD/src/ModelData/Model_Data.cpp:258:#pragma omp parallel for schedule(static)
+SHUD/src/ModelData/Model_Data.cpp:302:#pragma omp parallel for schedule(static)
+SHUD/src/ModelData/Model_Data.cpp:332:#pragma omp parallel for schedule(static)
+# count = 4 (gate: >= 3 PASS)
+```
+
+The 4 sites map 1-to-1 onto master plan §S5d.3 L1411-L1413 + design D4:
+
+| # | Site | TU | Touch target | Notes |
+|---|---|---|---|---|
+| 1 | `malloc_EleRiv()` post-#178 SoA alloc | `Model_Data.cpp:258` | All `hot.*` arrays (NumEle scalars + 6 flat3 arrays) | Zero-init; tags `hot.soa` |
+| 2 | `malloc_EleRiv()` post-#179 flat alloc | `Model_Data.cpp:302` | `QeleSurf_flat` / `QeleSub_flat` / `QeleSurf_lake` / `QeleSub_lake` (4 flat3) + 7 NumEle flux scratch arrays | Zero-init; tags `QeleSurf_flat` |
+| 3 | `malloc_EleRiv()` _Element AoS | `Model_Data.cpp:332` | `Ele[i].index` read-then-write self-touch | No-op for heap state; tags `Ele_AoS` |
+| 4 | `LoadIC()` IC arrays re-touch | `MD_initialize.cpp:138` | `yEleIS` / `yEleSnow` / `yEleSurf` / `yEleUnsat` / `yEleGW` / `yEleSnowGrnd` / `yEleSnowCanopy` / `yEleWetFront` | Read-then-write self-assignment; tags `LoadIC` |
+
+All 4 are gated by the runtime int `g_numa_first_touch_enabled` (defined
+in `shud.cpp`, externally referenced by `Model_Data.cpp` and
+`MD_initialize.cpp`). The flag is set ONCE at the top of `SHUD()` and
+`SHUD_uncouple()` from `getenv("OMP_PROC_BIND")` — non-NULL,
+non-empty -> 1; otherwise -> 0. When the flag is 0 every parallel-for
+loop is skipped via `if (g_numa_first_touch_enabled) { ... }` and a
+single-line `[NUMA] first-touch skipped: OMP_PROC_BIND unset ...`
+audit token is emitted instead, so `grep '[NUMA] first-touch begin'`
+returns zero hits in unset mode (spec L79-81 Scenario).
+
+### Log token sample
+
+Run 1 — `OMP_PROC_BIND=close` (keliya, NUM_OPENMP=1):
+
+```
+[NUMA] OMP_PROC_BIND=close
+[NUMA] first-touch begin tag=hot.soa
+[NUMA] first-touch begin tag=QeleSurf_flat
+[NUMA] first-touch begin tag=Ele_AoS
+[NUMA] first-touch begin tag=LoadIC
+```
+
+Run 2 — `OMP_PROC_BIND` unset (keliya, NUM_OPENMP=1):
+
+```
+[NUMA] OMP_PROC_BIND=unset
+[NUMA] WARNING: OMP_PROC_BIND unset - skipping first-touch optimization for determinism guarantee.
+[NUMA] first-touch skipped: OMP_PROC_BIND unset (3 sites: hot.soa, QeleSurf_flat, Ele_AoS)
+[NUMA] first-touch skipped: OMP_PROC_BIND unset (1 site: LoadIC)
+```
+
+Ordering assertion (spec L75-77): for the `set` run keliya emits
+`[NUMA] OMP_PROC_BIND=close` at log line 27 and the first
+`[NUMA] first-touch begin` at line 81 — `27 < 81` PASS. For all 4 Mac
+cases the `set`-mode `bind_line < touch_line` holds (gate baked into
+`run_bitwise.sh`).
+
+### Verification (5-case 90-day NUM_OPENMP=1 vs B1a-tag worktree golden; kashigeer N/A)
+
+Mac local (4 cases) `make shud` at SHUD HEAD `14fe037`:
+
+| Case | dat | SHA256 | vs B1a-tag (set) | vs B1a-tag (unset) |
+|---|---|---|---|---|
+| keliya | keliya.rivqdown.dat | `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` | PASS | PASS |
+| xinanjiang_upstream | xinanjiang.rivqdown.dat | `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020` | PASS | PASS |
+| xinanjiang_upstream | xinanjiang.eleygw.dat | `f6e86f013f4f92d1c99429eafb27ec38cc7fc417e6d7d9aeef1725f8fa0a46a1` | PASS | PASS |
+| qinyijiang | nanlin.rivqdown.dat | `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57` | PASS | PASS |
+| qhh | qhh.rivqdown.dat | `d9a42798eb649dcea75ad2d64125af35bfda1da601ebd07795d51536fa7b62ce` | PASS | PASS |
+| qhh | qhh.lakqrivin.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS | PASS |
+| qhh | qhh.lakqrivout.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS | PASS |
+| qhh | qhh.lakystage.dat | `4fcebe3ad8b3d7a51633a766dd9b139b9ad86853aafeb87cb572d2752e0ca250` | PASS | PASS |
+
+Mac subtotal: 8 dat × 2 modes = 16/16 PASS. Run script:
+`.s5d-3-runs/run_bitwise.sh` (added). Per-case run logs:
+`.s5d-3-runs/<case>_{set,unset}.log`. Aggregate log:
+`.s5d-3-runs/run_bitwise.log`. SHAs match PR-8 (#180) row-for-row
+(the floating-point path didn't move).
+
+Server (heihe + heihe_x4) via Slurm 三铁律 single-job 4-phase template
+`.s5d-3-runs/run_heihe_s5d3.sbatch` (sbatch FROM /scratch with
+`--output=/scratch/...` `--error=/scratch/...`):
+
+| Case | Mode | dat | SHA256 | vs B1a-tag |
+|---|---|---|---|---|
+| heihe    | set   | heihe.rivqdown.dat    | `55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f` | PASS |
+| heihe    | unset | heihe.rivqdown.dat    | `55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f` | PASS |
+| heihe_x4 | set   | heihe_x4.eleygw.dat   | `192b0da4deacdf9218690cc501835033b181988e5399ef2d085fc083e17beece` | PASS |
+| heihe_x4 | set   | heihe_x4.rivqdown.dat | `f90601ef5738b972d688016ba1ee74f92ecb54faddaf46e4e2232f9d46567524` | PASS |
+| heihe_x4 | unset | heihe_x4.eleygw.dat   | `192b0da4deacdf9218690cc501835033b181988e5399ef2d085fc083e17beece` | PASS |
+| heihe_x4 | unset | heihe_x4.rivqdown.dat | `f90601ef5738b972d688016ba1ee74f92ecb54faddaf46e4e2232f9d46567524` | PASS |
+
+Server subtotal: 6 (dat × mode) / 6 PASS across 2 cases × 2 modes.
+
+LOG-TOKEN gate (asserted inside sbatch):
+
+| Case | Mode | bind_line | touch_line | Verdict |
+|---|---|---|---|---|
+| heihe    | set   | 27 | 1757 | PASS (27 < 1757) |
+| heihe    | unset | 27 | (no first-touch begin lines) | PASS (skip path) |
+| heihe_x4 | set   | 27 | 1741 | PASS (27 < 1741) |
+| heihe_x4 | unset | 27 | (no first-touch begin lines) | PASS (skip path) |
+
+Slurm job IDs:
+- heihe + heihe_x4 4-phase serial: 8613 on `cn03`, COMPLETED 00:56:15, ExitCode 0:0.
+  Per-phase wall-clock:
+  - heihe[set]      `03:07:16 -> 03:15:12` (~7m56s)
+  - heihe[unset]    `03:15:12 -> 03:23:11` (~7m59s)
+  - heihe_x4[set]   `03:23:11 -> 03:43:20` (~20m09s)
+  - heihe_x4[unset] `03:43:20 -> 04:03:30` (~20m10s)
+  Logs:
+  - `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-3-runs/heihe_s5d3_8613.out`
+  - `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-3-runs/<case>_<mode>/run.stdout.log` (per phase)
+
+sbatch script: `.s5d-3-runs/run_heihe_s5d3.sbatch` (single-job 4-phase
+serial pattern per CLAUDE.md "NEVER spawn concurrent shud processes
+against the same case output dir"; inherits PR #197 / PR #198 pattern).
+
+### Grep gate outputs (local pre-push)
+
+```
+$ grep -rn '#pragma omp parallel for' SHUD/src/
+SHUD/src/ModelData/MD_initialize.cpp:138:#pragma omp parallel for schedule(static)
+SHUD/src/ModelData/Model_Data.cpp:258:#pragma omp parallel for schedule(static)
+SHUD/src/ModelData/Model_Data.cpp:302:#pragma omp parallel for schedule(static)
+SHUD/src/ModelData/Model_Data.cpp:332:#pragma omp parallel for schedule(static)
+# 4 hits >= 3 spec gate PASS
+
+$ grep -c '^\[NUMA\] OMP_PROC_BIND=' .s5d-3-runs/keliya_set.log
+1
+$ grep -c '^\[NUMA\] first-touch begin' .s5d-3-runs/keliya_set.log
+4
+$ grep -c '^\[NUMA\] first-touch begin' .s5d-3-runs/keliya_unset.log
+0
+$ grep -c '^\[NUMA\] first-touch skipped' .s5d-3-runs/keliya_unset.log
+2
+
+# Pre-existing PR #178 + #179 gates still PASS at SHUD HEAD 14fe037:
+$ python3 tools/check_manifest/check_hot_fields.py
+PASS: 32 hot fields declared in MD_layout.hpp
+PASS: RHS 3 files have 0 Ele[..].<hot-field> hits
+$ python3 tools/check_manifest/check_no_bare_flat_index.py
+PASS: 4 hot-path files have 0 bare QeleSurf_flat[...] / QeleSub_flat[...] indexing
+```
+
+### Verified against SHUD HEAD
+
+SHUD HEAD = `14fe037` on `openmp-baseline` (= post-PR-9 / S5d.3 HEAD).
+
+### Scope NOT touched
+
+- `tools/run_omp.sh` / `OMP_PROC_BIND` env setting — deferred to #182
+  S5d.4 (Scope: this PR documents the program-side gate; #182 wires
+  the env-setting wrapper + manifest field).
+- benchmark `manifest.yaml` `omp_env` field — deferred to #182.
+- `tools/numa_check.sh` — deferred to #182.
+- RHS hot-path floating-point operations — ZERO modifications.
+- Multi-thread (`NUM_OPENMP > 1`) bitwise — deferred to A3a + later
+  milestones (this PR attests `NUM_OPENMP=1` bitwise only).
+- Sanitizer extension beyond the existing 5-case keliya/qhh gate — no
+  new sanitizer run was performed; PR #197/#180 attestations stand for
+  the underlying SoA / flatten layout, and #181 adds only read-then-
+  write self-assignments + zero-init writes on already-allocated heap
+  that ASan/UBSan have already exercised under PR #197 ("first-touch
+  parallel for" was the gap; the byte-range it writes was already
+  ASan-clean at allocation).
+- `_Element` AoS struct unmodified.
+- `nFCall` / `cvode_stats` channels untouched.
