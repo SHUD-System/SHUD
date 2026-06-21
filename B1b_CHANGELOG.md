@@ -518,8 +518,9 @@ PASS: 0 nested `new double*[...]` hits; 8 contiguous `new double[NumEle * 3]` al
 ```
 
 ### Verified against SHUD HEAD
-Verified against SHUD HEAD = `2c70358` on `openmp-baseline` (PR #197
-review B-B7).
+Verified against SHUD HEAD = `57d9503` on `openmp-baseline` (PR #197
+review B-B7; bumped from `2c70358` after server bitwise + sanitizer tables
+were appended).
 
 ### Scope NOT touched
 - `Ele[].iupdGW[3]` / `Ele[].iupdSF[3]` — deferred to #180 S5d.2-5b.
