@@ -5,6 +5,8 @@
 //
 
 #include "Model_Data.hpp"
+#include "MD_adjacency.hpp"  /* S3c (PR-11 #155): S4 adjacency lists used
+                              * by PassValue's segment/river/element gather. */
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
 #endif
@@ -201,7 +203,7 @@ void Model_Data::f_applyDY(double *DY, double t){
 }
 
 void Model_Data::PassValue(){
-    int i, ie, ir;
+    int i;
     for (i = 0; i < NumRiv; i++) {
         QrivSurf[i] = 0.;
         QrivSub[i] = 0.;
@@ -211,13 +213,27 @@ void Model_Data::PassValue(){
         Qe2r_Surf[i] = 0.;
         Qe2r_Sub[i] = 0.;
     }
-    for (i = 0; i < NumSegmt; i++) {
-        ie = RivSeg[i].iEle-1;
-        ir = RivSeg[i].iRiv-1;
-        QrivSurf[ir] += QsegSurf[i]; // Positive from River to Element
-        QrivSub[ir] += QsegSub[i];
-        Qe2r_Surf[ie] += -QsegSurf[i]; // Positive from Element to River
-        Qe2r_Sub[ie] += -QsegSub[i];
+    /* S3c.1 (PR-11): segment -> river gather using S4.1 seg_by_riv.
+     * Replaces the legacy NumSegmt loop (`for i in [0,NumSegmt):
+     * QrivSurf[RivSeg[i].iRiv-1] += QsegSurf[i]; ...`). The S4.1 list
+     * is populated in B0 ascending iseg order (MD_adjacency.cpp L84-89),
+     * so the per-accumulator `+=` sequence is identical to the legacy
+     * segment-major loop and bitwise neutrality is preserved. */
+    for (int ir = 0; ir < NumRiv; ir++) {
+        for (int iseg : seg_by_riv[ir]) {
+            QrivSurf[ir] += QsegSurf[iseg]; // Positive from River to Element
+            QrivSub[ir]  += QsegSub[iseg];
+        }
+    }
+    /* S3c.1 (PR-11): segment -> element gather using S4.2 seg_by_ele.
+     * Replaces the legacy NumSegmt loop's element-side accumulate
+     * (`Qe2r_Surf[RivSeg[i].iEle-1] += -QsegSurf[i]; ...`). seg_by_ele
+     * is also B0 ascending iseg order (MD_adjacency.cpp L93-98). */
+    for (int ie = 0; ie < NumEle; ie++) {
+        for (int iseg : seg_by_ele[ie]) {
+            Qe2r_Surf[ie] += -QsegSurf[iseg]; // Positive from Element to River
+            Qe2r_Sub[ie]  += -QsegSub[iseg];
+        }
     }
     for (i = 0; i < NumRiv; i++) {
         if(iDownStrm >= 0 && Riv[i].toLake <= 0){
