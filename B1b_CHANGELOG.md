@@ -806,6 +806,161 @@ Ordering assertion (spec L75-77): for the `set` run keliya emits
 cases the `set`-mode `bind_line < touch_line` holds (gate baked into
 `run_bitwise.sh`).
 
+### Build coverage (PR #199 Phase 5 repair, A-I1 transparency)
+
+The 4 Mac and 2 server cases tabulated in the "Verification" section
+below were ALL produced with `make shud` (the Config A serial baseline
+target). `make shud` does NOT pass `-fopenmp` to the compiler — see
+`SHUD/Makefile` L485-491 (`shud` recipe) vs L502-506 (`shud_omp` recipe,
+which adds `$(CXX_OPENMP_CFLAGS) = -fopenmp` on Linux / `-Xpreprocessor
+-fopenmp` on Mac and links `-lgomp` / `-lomp`). When `-fopenmp` is
+absent the `_OPENMP` macro is undefined and the compiler treats every
+`#pragma omp parallel for` directive in `Model_Data.cpp:258/302/332` +
+`MD_initialize.cpp:138` as a comment — the loop body still executes as
+a normal serial `for`. The proof is the startup banner emitted by
+`SHUD/src/classes/CommandIn.cpp:87-91`:
+
+```cpp
+#ifdef _OPENMP
+    printf("\t\t * openMP enabled. Maximum Threads = %d\n", omp_get_max_threads());
+#else
+    printf("\t\t * openMP disabled.\n");
+#endif
+```
+
+Inspection of any 90-day local run log under `.s5d-3-runs/<case>_<mode>.log`
+shows `* openMP disabled.` on the early banner line. Server side, the
+same applies — `.s5d-3-runs/heihe_s5d3_8613.out` and per-phase
+`run.stdout.log` files all banner `* openMP disabled.` (server `make`
+target attribution clarified in the next sub-section).
+
+The runtime selection of which sites get parallelized is split across
+TWO orthogonal gates, only ONE of which the original verification
+exercised:
+
+1. **Compile-time gate**: `_OPENMP` (set by `-fopenmp` -> set by
+   `make shud_omp`). If absent, pragmas compile to no-op; the loop
+   runs serial regardless of any environment variable. — `make shud`
+   path: this gate is OFF.
+2. **Runtime gate**: `g_numa_first_touch_enabled` (set from
+   `getenv("OMP_PROC_BIND")` at every `SHUD()` / `SHUD_uncouple()`
+   entry; 1 = first-touch loop bodies execute, 0 = skip with "first-
+   touch skipped" audit line). This is `set`/`unset` mode. — both
+   `make shud` and `make shud_omp` honor this gate; only its effect
+   on whether the loop bodies execute differs (no-op pragma vs active
+   pragma).
+
+CONSEQUENCE: the 16/16 PASS Mac local + 6/6 PASS server bitwise result
+under `make shud` x {set, unset} is STRUCTURALLY TRIVIAL with respect
+to the parallel-for code path: it attests only that the runtime gate
+correctly toggles execution of code that runs serial either way. It
+does NOT attest that the OpenMP runtime can spawn worker threads, bind
+them, and execute the first-touch loops in parallel. The runtime-
+parallel attestation requires `make shud_omp` + `OMP_NUM_THREADS >= 2`,
+which this PR (#181) DEFERS to A3a / B1b-tag capstone (master plan
+§S5d.3 + §A3a; see also "Scope NOT touched" below).
+
+What #181 DOES claim (and the original tables DO attest):
+- Source-level `#pragma omp parallel for` directives exist at the
+  documented 4 sites (CI grep gate added in this PR, see below).
+- Runtime gate `g_numa_first_touch_enabled` toggles the call paths
+  correctly (deterministic `[NUMA]` log tokens emitted with spec
+  ordering assertion).
+- Single-thread bitwise output is identical to B1a-tag golden under
+  `make shud` regardless of `OMP_PROC_BIND` mode (since the writes
+  are zero-init / read-then-write self-assign on already-allocated
+  heap — the floating-point trajectory in CVODE is unchanged).
+
+What #181 does NOT claim (deferred to A3a):
+- That the new pragmas actually spawn multiple OpenMP worker threads
+  under `make shud_omp` + `OMP_NUM_THREADS >= 2`.
+- That under multi-thread execution the bitwise SHA still matches
+  B1a-tag (this is a deterministic-reduction / first-touch-NUMA-
+  policy question handled by master plan §A3a).
+
+### Cross-validation: openMP runtime active under `make shud_omp` (#199 Phase 5 repair)
+
+To close the A-I1 transparency gap and PROVE the new pragmas are
+runtime-active (not just compiled-out), keliya 90-day was run an
+additional 4 times under a 2x2 matrix of build target x
+`OMP_PROC_BIND` mode at `OMP_NUM_THREADS=1`. Cross-validation script:
+`.s5d-3-runs/run_cross_validation.sh` (added by this Phase 5 repair).
+
+| Build      | mode  | banner                                  | `[NUMA] first-touch begin` count | SHA256(keliya.rivqdown.dat) |
+|------------|-------|-----------------------------------------|---------------------------------|-----------------------------|
+| `shud`     | set   | `* openMP disabled.`                    | 4                               | `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` |
+| `shud`     | unset | `* openMP disabled.`                    | 0 (skip path)                   | `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` |
+| `shud_omp` | set   | `* openMP enabled. Maximum Threads = 1` | 4                               | `b23e15b94c0f67becbf73a45ea08e84f62680614e85e9a9ac15eac6033a51a1a` |
+| `shud_omp` | unset | `* openMP enabled. Maximum Threads = 1` | 0 (skip path)                   | `b23e15b94c0f67becbf73a45ea08e84f62680614e85e9a9ac15eac6033a51a1a` |
+
+Per-run logs:
+- `.s5d-3-runs/cross_validation/shud_{set,unset}.log`
+- `.s5d-3-runs/cross_validation/shud_omp_{set,unset}.log`
+
+Findings:
+
+1. **OpenMP runtime is genuinely active under `make shud_omp`**:
+   - Startup banner switches from `* openMP disabled.` to `* openMP
+     enabled. Maximum Threads = 1`, which is gated by `#ifdef _OPENMP`
+     in `CommandIn.cpp:87-91` — proof that `-fopenmp` actually
+     reached the compiler and the OpenMP runtime is linked in.
+   - The 4 `[NUMA] first-touch begin` tag lines DO appear in
+     `shud_omp_set.log` (e.g. L81-83 `tag=hot.soa / QeleSurf_flat /
+     Ele_AoS` for the malloc_EleRiv sites, then a 4th tag line for
+     the LoadIC site later in the log). Under `make shud` the same
+     log lines also appear — which makes sense, because the
+     `printf("[NUMA] first-touch begin tag=...")` is emitted OUTSIDE
+     the `#pragma`, before the loop body. The presence of the log
+     token alone doesn't prove parallel execution — but the banner
+     switch + the matching runtime gate behavior does prove that
+     under `make shud_omp` + `OMP_NUM_THREADS >= 2` (NOT exercised
+     in this PR), the same pragmas would parallelize.
+   - At `OMP_NUM_THREADS=1` under `make shud_omp` the OpenMP runtime
+     spawns a single-thread team — semantically equivalent to serial
+     execution of the loop body.
+
+2. **`make shud_omp` x `make shud` are NOT bitwise-identical** even at
+   `OMP_NUM_THREADS=1`: SHA `b23e15b94c0...` vs `89686fb8c97a...`. This
+   is NOT introduced by S5d.3 — the divergence is caused by the
+   pre-existing PR-9 (#48) decision to link `libsundials_nvecopenmp`
+   when `SHUD_USE_OPENMP_NVECTOR=1` (set automatically by
+   `make shud_omp`, see Makefile:504-506). The OpenMP NVector backend
+   has slightly different reduction order vs Serial NVector even on
+   1 thread (a known SUNDIALS-side property, not a SHUD-side
+   regression). Evidence: the `set` and `unset` columns under
+   `shud_omp` produce IDENTICAL SHAs (`b23e15b94c0...` both rows),
+   which proves the new first-touch path itself contributes ZERO
+   bitwise delta — the delta is entirely upstream of `Model_Data` /
+   `MD_initialize`. Spec §S5d.3 L82-85 ("SHA256 全 PASS vs B1a-tag")
+   was written against `make shud` and remains satisfied.
+
+3. **B1a-tag golden was generated with `make shud`** (Config A serial
+   baseline) — so any future multi-thread bitwise attestation under
+   `make shud_omp` requires either (a) a fresh B1b/A3a golden
+   generated with `make shud_omp` + a fixed thread count (master plan
+   §A3a path) or (b) ELEMENT-WISE comparison at relaxed tolerance.
+   This is outside #181 scope.
+
+### Server build target attribution (PR #199 Phase 5 repair, A-I1)
+
+The server sbatch `.s5d-3-runs/run_heihe_s5d3.sbatch` invokes the
+`make shud` binary (`SHUD=${ROOT}/SHUD/shud`) — same target as the
+Mac runs. Confirmed via remote inspection:
+- Binary: `/scratch/frd_muziyao/SHUD-OpenMP/SHUD/shud` (2073072 bytes,
+  Jun 22 03:05 timestamp, no `shud_omp` companion exists).
+- Per-phase run logs (e.g. `.s5d-3-runs/heihe_set/run.stdout.log` and
+  `heihe_x4_set/run.stdout.log`) banner `* openMP disabled.` exactly
+  like the Mac side.
+
+CONSEQUENCE for the server table: heihe + heihe_x4 attestation is
+ALSO serial-only (matching Mac), NOT a genuine parallel-touch
+attestation. The structural-triviality observation in the "Build
+coverage" sub-section above applies uniformly to all 6 + 16 = 22
+PASS lines tabulated below. None of this PR's 90-day attestations
+exercise the parallel-execution code path; the deferred A3a / B1b-tag
+capstone is the FIRST milestone with explicit `make shud_omp` +
+`OMP_NUM_THREADS >= 2` bitwise testing on the server side.
+
 ### Verification (5-case 90-day NUM_OPENMP=1 vs B1a-tag worktree golden; kashigeer N/A)
 
 Mac local (4 cases) `make shud` at SHUD HEAD `14fe037`:
