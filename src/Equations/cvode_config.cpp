@@ -103,6 +103,27 @@ void PrintFinalStats(void *cvode_mem, FILE *fout)
         fprintf(fout, "leniw=%ld\n",   leniw);
         fprintf(fout, "lenrwLS=%ld\n", lenrwLS);
         fprintf(fout, "leniwLS=%ld\n", leniwLS);
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+        /* S5c-A (#173) — S5c diagnostic channel additions (master plan
+         * §S5c L1365 + spec s5c-solver-diagnostics "接入 SUNDIALS CVODE
+         * stats 7 个 API"). The 5 existing keys above (nst / nfe / netf
+         * / nni / nli) plus these 2 satisfy the spec 7-key contract.
+         *
+         * `hlast` / `qlast` are gated behind SHUD_ENABLE_DIAGNOSTICS so
+         * the default build emits the same 15-key snapshot PR-12 froze
+         * (B1a-tag bitwise invariant). Both are SUNDIALS 6.0.0 public
+         * API reads (post-solve, no RHS path mutation) — diagnostics-ON
+         * dat outputs remain bitwise == B1a-tag; only this file's
+         * trailing key set differs. */
+        int qlast;
+        realtype hlast;
+        flag = CVodeGetLastStep(cvode_mem, &hlast);
+        check_flag(&flag, "CVodeGetLastStep", 1);
+        flag = CVodeGetLastOrder(cvode_mem, &qlast);
+        check_flag(&flag, "CVodeGetLastOrder", 1);
+        fprintf(fout, "hlast=%.17g\n", (double)hlast);
+        fprintf(fout, "qlast=%d\n",    qlast);
+#endif
     }
 }
 

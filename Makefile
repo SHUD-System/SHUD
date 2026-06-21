@@ -424,6 +424,7 @@ help:
 	@echo "       make shud_omp SHUD_ENABLE_PROFILE=1 - OpenMP build with wall-clock profile timer compiled in"
 	@echo "       make shud SHUD_ENABLE_OPENMP_RHS=1  - compile in StrictOMP/ProductionOMP std::abort stubs (smoke only; openMP #47)"
 	@echo "       make shud SHUD_USE_OPENMP_NVECTOR=1 - serial build with OpenMP N_Vector backend (Config D dim; openMP #48)"
+	@echo "       make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS - serial build with S5c CVODE diagnostic keys (hlast/qlast) added to cvode_stats.txt (S5c-A #173)"
 	@echo "       make smoke_strictomp                - build + run StrictOMP SIGABRT regression smoke test (openMP #47)"
 	@echo "       make smoke_configd                  - build + run Config D OpenMP NVector runtime probe (openMP #49)"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
