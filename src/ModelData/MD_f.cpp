@@ -235,9 +235,18 @@ void Model_Data::PassValue(){
             Qe2r_Sub[ie]  += -QsegSub[iseg];
         }
     }
-    for (i = 0; i < NumRiv; i++) {
-        if(iDownStrm >= 0 && Riv[i].toLake <= 0){
-            QrivUp[iDownStrm] += - QrivDown[i];
+    /* S3c.2 (PR-11): downstream river -> upstream gather using S4.3
+     * upstream_by_down. Replaces the legacy NumRiv loop
+     * (`for i: if(iDownStrm>=0 && Riv[i].toLake<=0) QrivUp[iDownStrm] += -QrivDown[i]`).
+     * upstream_by_down[ir] is built (MD_adjacency.cpp L108-115) by walking
+     * i in [0,NumRiv) and bucketing under Riv[i].down-1 when both the
+     * `iDownStrm>=0` and `Riv[i].toLake<=0` predicates hold, so the guard
+     * is already baked in -- no extra check needed here. List elements
+     * are in B0 ascending i order, preserving the per-accumulator
+     * += sequence and bitwise neutrality. */
+    for (int ir = 0; ir < NumRiv; ir++) {
+        for (int up : upstream_by_down[ir]) {
+            QrivUp[ir] += -QrivDown[up];
         }
     }
     /* S3b.1 (PR-9): transitional lake gather river -> per-lake.
