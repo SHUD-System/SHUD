@@ -1050,10 +1050,14 @@ PASS: 4 hot-path files have 0 bare QeleSurf_flat[...] / QeleSub_flat[...] indexi
 
 ### Verified against SHUD HEAD
 
-SHUD HEAD = `20b5a56` on `openmp-baseline` (= post-PR-9 / S5d.3 CHANGELOG HEAD;
-source-change commit `14fe037` adds the 4 first-touch sites + extern
-flag + emit_numa_token; the follow-on `20b5a56` adds THIS changelog
-section).
+SHUD HEAD = `0c3d371` on `openmp-baseline` (= post-PR #199 Phase 5
+repair HEAD; chain: `14fe037` adds the 4 first-touch sites + extern
+flag + emit_numa_token; `20b5a56` adds the original S5d.3 CHANGELOG
+section; `38c8353` self-cites the SHA bump 14fe037 -> 20b5a56;
+`0c3d371` appends the "Build coverage" + "Cross-validation" +
+"Server build target attribution" honesty sub-sections per A-I1
+CONFIRMED reviewer finding — no source change, documentation +
+cross-validation evidence only).
 
 ### Scope NOT touched
 
