@@ -1,5 +1,6 @@
 #include "Model_Data.hpp"
 #include "is_sm_et.hpp"
+#include <cassert> /* S5d.1 (#178) — DEBUG asserts in initialize_hot() */
 
 Model_Data::Model_Data(){
 }
@@ -172,6 +173,106 @@ void Model_Data::malloc_EleRiv(){
     t_lai   = new double[NumEle];  //
     t_mf    = new double[NumEle];  //
 //    t_hc    = new double[NumEle];  //
+
+    /* S5d.1 (#178) — ElementHotData SoA allocation. Sized NumEle (or
+     * NumEle*3 for flat-3 arrays). Layout mirrors docs/s5d_hot_fields.yaml.
+     * NumEle is read at this call site; if NumEle changes after this
+     * call, hot must be reallocated (no such code path exists today).
+     * Free in symmetric order at MD_readin.cpp Model_Data::FreeData(). */
+    hot.nabr_flat       = new int[NumEle * 3];
+    hot.lakenabr_flat   = new int[NumEle * 3];
+    hot.edge_flat       = new double[NumEle * 3];
+    hot.area            = new double[NumEle];
+    hot.z_bottom        = new double[NumEle];
+    hot.z_surf          = new double[NumEle];
+    hot.iSoil           = new int[NumEle];
+    hot.iLC             = new int[NumEle];
+    hot.iMF             = new int[NumEle];
+    hot.iForc           = new int[NumEle];
+    hot.iLake           = new int[NumEle];
+    hot.iBC             = new int[NumEle];
+    hot.iSS             = new int[NumEle];
+    hot.Dist2Nabor_flat = new double[NumEle * 3];
+    hot.Dist2Edge_flat  = new double[NumEle * 3];
+    hot.avgRough_flat   = new double[NumEle * 3];
+    hot.FixPressure     = new double[NumEle];
+    hot.WetlandLevel    = new double[NumEle];
+    hot.RootReachLevel  = new double[NumEle];
+    hot.depression      = new double[NumEle];
+    hot.QBC             = new double[NumEle];
+    hot.QSS             = new double[NumEle];
+    hot.windH           = new double[NumEle];
+    hot.u_qi            = new double[NumEle];
+    hot.u_qex           = new double[NumEle];
+    hot.u_effKH         = new double[NumEle];
+    hot.u_satn          = new double[NumEle];
+    hot.Sy              = new double[NumEle];
+    hot.VegFrac         = new double[NumEle];
+    hot.Albedo          = new double[NumEle];
+    hot.Rough           = new double[NumEle];
+    hot.ImpAF           = new double[NumEle];
+}
+
+void Model_Data::initialize_hot() {
+    /* S5d.1 (#178) — populate ElementHotData SoA from _Element AoS.
+     * Bitwise contract: every SoA value matches the AoS source EXACTLY
+     * (assignment-only; no rounding or cast loss). Called from
+     * Model_Data::initialize() AFTER element AoS load is complete and
+     * BEFORE any RHS dispatch. Dynamic fields (u_qi, u_qex, u_effKH,
+     * u_satn) are seeded here from current Ele[i] values; subsequent
+     * writes via Ele[i].updateElement / Flux_Infiltration / etc. are
+     * propagated by sync_hot_dynamic(i) at each call site. */
+    for (int i = 0; i < NumEle; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            hot.nabr_flat[3*i + j]       = Ele[i].nabr[j];
+            hot.lakenabr_flat[3*i + j]   = Ele[i].lakenabr[j];
+            hot.edge_flat[3*i + j]       = Ele[i].edge[j];
+            hot.Dist2Nabor_flat[3*i + j] = Ele[i].Dist2Nabor[j];
+            hot.Dist2Edge_flat[3*i + j]  = Ele[i].Dist2Edge[j];
+            hot.avgRough_flat[3*i + j]   = Ele[i].avgRough[j];
+        }
+        hot.area[i]           = Ele[i].area;
+        hot.z_bottom[i]       = Ele[i].z_bottom;
+        hot.z_surf[i]         = Ele[i].z_surf;
+        hot.iSoil[i]          = Ele[i].iSoil;
+        hot.iLC[i]            = Ele[i].iLC;
+        hot.iMF[i]            = Ele[i].iMF;
+        hot.iForc[i]          = Ele[i].iForc;
+        hot.iLake[i]          = Ele[i].iLake;
+        hot.iBC[i]            = Ele[i].iBC;
+        hot.iSS[i]            = Ele[i].iSS;
+        hot.FixPressure[i]    = Ele[i].FixPressure;
+        hot.WetlandLevel[i]   = Ele[i].WetlandLevel;
+        hot.RootReachLevel[i] = Ele[i].RootReachLevel;
+        hot.depression[i]     = Ele[i].depression;
+        hot.QBC[i]            = Ele[i].QBC;
+        hot.QSS[i]            = Ele[i].QSS;
+        hot.windH[i]          = Ele[i].windH;
+        hot.u_qi[i]           = Ele[i].u_qi;
+        hot.u_qex[i]          = Ele[i].u_qex;
+        hot.u_effKH[i]        = Ele[i].u_effKH;
+        hot.u_satn[i]         = Ele[i].u_satn;
+        hot.Sy[i]             = Ele[i].Sy;
+        hot.VegFrac[i]        = Ele[i].VegFrac;
+        hot.Albedo[i]         = Ele[i].Albedo;
+        hot.Rough[i]          = Ele[i].Rough;
+        hot.ImpAF[i]          = Ele[i].ImpAF;
+
+#ifdef DEBUG
+        /* S5d.1 (#178) — sample assertion to catch SoA-vs-AoS drift on
+         * DEBUG builds. Spec: scenario "DEBUG 一致性 assertion 通过".
+         * Sampling = full sweep across all elements (cheap; DEBUG only). */
+        assert(hot.area[i]    == Ele[i].area);
+        assert(hot.u_effKH[i] == Ele[i].u_effKH);
+        assert(hot.iLake[i]   == Ele[i].iLake);
+        assert(hot.VegFrac[i] == Ele[i].VegFrac);
+        assert(hot.Sy[i]      == Ele[i].Sy);
+        for (int j = 0; j < 3; ++j) {
+            assert(hot.nabr_flat[3*i+j] == Ele[i].nabr[j]);
+            assert(hot.edge_flat[3*i+j] == Ele[i].edge[j]);
+        }
+#endif
+    }
 }
 
 void Model_Data::copyCalib(){

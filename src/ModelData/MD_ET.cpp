@@ -32,26 +32,34 @@ void Model_Data::updateforcing(double t){
     tsd_LAI.movePointer(t);
 //    tsd_RL.movePointer(t);
     for(i = 0; i < NumEle; i++){
+        /* S5d.1 (#178) — updateElement writes Ele[i].u_effKH / u_satn
+         * / Kmax / u_deficit / u_theta / u_satKr / u_phius / u_effkInfi
+         * (member method on AoS); sync_hot_dynamic(i) refreshes the SoA
+         * mirror of the subset RHS subsequent reads. */
         Ele[i].updateElement(uYsf[i], uYus[i], uYgw[i]);
+        sync_hot_dynamic(i);
         tReadForcing(t,i);
     }
 }
 void Model_Data::tReadForcing(double t, int i){
-    int idx = Ele[i].iForc - 1;
+    /* S5d.1 (#178) — Ele[i].{iForc, z_surf, iLC, iMF, Albedo, FixPressure,
+     * iLake, windH} reads rerouted to SoA mirror. tsd_weather / tsd_LAI /
+     * tsd_MF are non-element heap state and unchanged. */
+    int idx = hot.iForc[i] - 1;
     double etp, ra, rs, t0, hc, U2, Uz, Zmeasure, lai;
     double GroundHeatFlux, RG;
     t_prcp[i] = tsd_weather[idx].getX(t, i_prcp) * gc.cPrep;
     t0= tsd_weather[idx].getX(t, i_temp);
-    t_temp[i] = TemperatureOnElevation(t0, Ele[i].z_surf, tsd_weather[idx].xyz[2]) +  gc.cTemp;
-    t_lai[i] = tsd_LAI.getX(t, Ele[i].iLC) * gc.cLAItsd ;
+    t_temp[i] = TemperatureOnElevation(t0, hot.z_surf[i], tsd_weather[idx].xyz[2]) +  gc.cTemp;
+    t_lai[i] = tsd_LAI.getX(t, hot.iLC[i]) * gc.cLAItsd ;
     lai = t_lai[i];
-    t_mf[i] = tsd_MF.getX(t, Ele[i].iMF) * gc.cMF / 1440.;  /*  [m/day/C] to [m/min/C].
+    t_mf[i] = tsd_MF.getX(t, hot.iMF[i]) * gc.cMF / 1440.;  /*  [m/day/C] to [m/min/C].
                                                             1.6 ~ 6.0 mm/day/C is typical value in USDA book
                                                             Input is 1.4 ~ 3.0 mm/d/c */
-    t_rn[i] = tsd_weather[idx].getX(t, i_rn) * (1 - Ele[i].Albedo);
+    t_rn[i] = tsd_weather[idx].getX(t, i_rn) * (1 - hot.Albedo[i]);
     Uz = t_wind[i] = (fabs(tsd_weather[idx].getX(t, i_wind) ) + 0.001); // +.001 voids ZERO.
     t_rh[i] = tsd_weather[idx].getX(t, i_rh);
-//    t_hc[i] = tsd_RL.getX(t, Ele[i].iLC);
+//    t_hc[i] = tsd_RL.getX(t, hot.iLC[i]);
 //    t_hc[i] = max(t_hc[i], CONSt_hc);
     /* Precipitation  */
     t_prcp[i]   = t_prcp[i] * 0.001 / 1440. ; // [mm d-1] to [m min-1]
@@ -63,17 +71,17 @@ void Model_Data::tReadForcing(double t, int i){
      t_rh  [0-1] ;
      */
     t_rh[i]     = min(max(t_rh[i], CONST_RH), 1.0); // [value is b/w 0~1 ]
-    
+
     qElePrep[i] = t_prcp[i];
     double lambda = LatentHeat(t_temp[i]);                      // eq 4.2.1  [MJ/kg]
-    double Gamma = PsychrometricConstant(Ele[i].FixPressure, lambda); // eq 4.2.28  [kPa C-1]
+    double Gamma = PsychrometricConstant(hot.FixPressure[i], lambda); // eq 4.2.28  [kPa C-1]
     double es = VaporPressure_Sat(t_temp[i]);                   // eq 4.2.2 [kpa]
     double ea = es * t_rh[i];   // [kPa]
     double ed = es - ea ;  // [kPa]
     double Delta = SlopeSatVaporPressure(t_temp[i], es);        // eq 4.2.3 [kPa C-1]
-    double rho = AirDensity(Ele[i].FixPressure, t_temp[i]);;    // eq 4.2.4 [kg m-3]
+    double rho = AirDensity(hot.FixPressure[i], t_temp[i]);;    // eq 4.2.4 [kg m-3]
     /* R - G in the PM equation.*/
-    if(Ele[i].iLake > 0 ){
+    if(hot.iLake[i] > 0 ){
         GroundHeatFlux = 0.;
         RG = t_rn[i];
     }else{
@@ -84,9 +92,9 @@ void Model_Data::tReadForcing(double t, int i){
         }
     }
     RG = t_rn[i] - GroundHeatFlux;
-    U2 = WindProfile(2.0, t_wind[i], Ele[i].windH, 0., ROUGHNESS_WATER); // [m s-1]
+    U2 = WindProfile(2.0, t_wind[i], hot.windH[i], 0., ROUGHNESS_WATER); // [m s-1]
     qPotEvap[i] = gc.cETP * PET_PM_openwater(Delta, Gamma, lambda, RG, ed, U2) * 60.; // eq 4.2.30
-    if(Ele[i].iLake > 0){        /* Open-water */
+    if(hot.iLake[i] > 0){        /* Open-water */
         qPotTran[i] = gc.cETP * 0.;
         etp = qPotEvap[i];
     }else if(lai <= 0.){        /* Bare soiln */
@@ -111,7 +119,7 @@ void Model_Data::tReadForcing(double t, int i){
 //        CheckNANi(ra, i, "Aerodynamic Resistance");
         rs = BulkSurfaceResistance(lai);  // eq 4.2.22 & 4.2.25  [s m-1]
         qPotTran[i] = gc.cETP * PET_Penman_Monteith(RG, rho, ed, Delta, ra, rs, Gamma, lambda) * 60.;// eq 4.2.27
-        etp = qPotTran[i] * Ele[i].VegFrac + qPotEvap[i] * (1. - Ele[i].VegFrac);
+        etp = qPotTran[i] * hot.VegFrac[i] + qPotEvap[i] * (1. - hot.VegFrac[i]);
         CheckNANi(qPotTran[i], i, "qPotTran[i]");
     }
     qEleETP[i] = etp;
@@ -162,7 +170,8 @@ void Model_Data::ET(double t, double tnext){
         /* Interception */
         double LAI = t_lai[i];
         double icStg = yEleIS[i];
-        double vgFrac = Ele[i].VegFrac;
+        /* S5d.1 (#178) — Ele[i].VegFrac SoA read. */
+        double vgFrac = hot.VegFrac[i];
         double icAcc, icEvap;
         if(LAI > ZERO){
             double icMax = gc.cISmax * IC_MAX * LAI;
@@ -185,15 +194,19 @@ void Model_Data::ET(double t, double tnext){
     }
 }
 void Model_Data::f_etFlux(int i, double t){
+    /* S5d.1 (#178) — Ele[i].{VegFrac, ImpAF, iSoil, u_satn, WetlandLevel,
+     * RootReachLevel} reads rerouted to SoA mirror. Soil[idx] indexed
+     * lookup still uses Soil array (non-element heap state); only the
+     * `iSoil - 1` selector comes from the SoA. */
     double Es = 0., Eu = 0., Tu = 0., Eg = 0., Tg = 0.;
-    double va = Ele[i].VegFrac, vb = 1. - Ele[i].VegFrac;
-    double pj = 1. - Ele[i].ImpAF;
-    iBeta[i] = SoilMoistureStress(Soil[(Ele[i].iSoil - 1)].ThetaS, Soil[(Ele[i].iSoil - 1)].ThetaR, Ele[i].u_satn);
+    double va = hot.VegFrac[i], vb = 1. - hot.VegFrac[i];
+    double pj = 1. - hot.ImpAF[i];
+    iBeta[i] = SoilMoistureStress(Soil[(hot.iSoil[i] - 1)].ThetaS, Soil[(hot.iSoil[i] - 1)].ThetaR, hot.u_satn[i]);
     /* Evaporation from SURFACE ponding water */
     Es = min(max(0., uYsf[i]), qPotEvap[i]) * vb;
     if(Es < qPotEvap[i]){
         /* Some PET is extracted by surface Evaporation, so PET - Es is the effective PET now. */
-        if(uYgw[i] > Ele[i].WetlandLevel){
+        if(uYgw[i] > hot.WetlandLevel[i]){
             /* Evporation from GroundWater, ONLY when gw above wetland level*/
             Eg = min(max(0., uYgw[i]), qPotEvap[i] - Es) * pj * vb;
             Eu = 0.;
@@ -213,7 +226,7 @@ void Model_Data::f_etFlux(int i, double t){
             Tg = Tu = 0.;
             qEleE_IC[i] = qPotTran[i] * pj * va;
         }else{
-            if(uYgw[i] > Ele[i].RootReachLevel){
+            if(uYgw[i] > hot.RootReachLevel[i]){
                 Tg = min(max(0., uYgw[i]), (qPotTran[i] - qEleE_IC[i]) ) * pj * va;
                 Tu = 0.;
             }else{

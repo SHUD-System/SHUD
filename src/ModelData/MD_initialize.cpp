@@ -253,6 +253,13 @@ void Model_Data::initialize(){
      * fallback path + assert booleans are exposed via MD_adjacency.hpp
      * and exercised by tests/test_adjacency_fallback.cpp. */
     build_adjacency_lists(this);
+    /* S5d.1 (#178) — populate ElementHotData SoA from _Element AoS.
+     * MUST happen AFTER all element AoS load (geometry / soil-geol /
+     * landcover / IC) and BEFORE any RHS dispatch. RHS hot path reads
+     * the SoA copy; sync_hot_dynamic(i) keeps the dynamic subset
+     * (u_qi / u_qex / u_effKH / u_satn) in sync across each writer
+     * call. See MD_layout.hpp + docs/s5d_hot_fields.yaml. */
+    initialize_hot();
 }
 void Model_Data:: initialize_output (){
     int ip = 0;

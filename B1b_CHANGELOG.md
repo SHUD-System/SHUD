@@ -205,3 +205,84 @@ Per spec scenario "nFCall != nfe 时 changelog 强制解释" (无数值阈值; �
 - (3) Server Slurm cn08 CPU NUM_OPENMP=1 90d OFF build: heihe + heihe_x4 .dat SHA256 PASS vs B1a-tag (3/3 in job 8568 / cn08 logs).
 - (4) `tools/cvode_stats_diff/test_15key_excludes_nfcall.py` PASS.
 - (5) cvode_stats.txt grep `nFCall` returns 0 hits (15-key snapshot stays clean).
+
+## S5d.1 — ElementHotData SoA + RHS hot-path rewrite + DEBUG asserts (#178)
+
+### Scope
+- New `SHUD/src/ModelData/MD_layout.hpp` declares `ElementHotData` SoA
+  container; 32 fields covering the actual RHS hot-path footprint of
+  the three TUs `MD_ElementFlux.cpp` / `MD_f.cpp` / `MD_ET.cpp`.
+- `_Element` AoS preserved verbatim — init / IO / calibration / R-side
+  tooling unaffected (D2 double-track contract).
+- `Model_Data::initialize_hot()` populates the SoA from `_Element`
+  immediately after `build_adjacency_lists(this)` in
+  `Model_Data::initialize()`.
+- `Model_Data::sync_hot_dynamic(i)` (inline) refreshes the dynamic SoA
+  subset (`u_qi` / `u_qex` / `u_effKH` / `u_satn`) after each `_Element`
+  writer-method invocation in the RHS hot path (`updateElement` /
+  `updateLakeElement` / `Flux_Infiltration` / `Flux_Recharge`).
+- Three RHS TUs (`MD_ElementFlux.cpp` / `MD_f.cpp` / `MD_ET.cpp`)
+  rerouted: every `Ele[<expr>].<hot-field>` data access now reads
+  `hot.<field>[<idx>]`. The four AoS member-method invocations are
+  preserved (per D2) and gated by sync points.
+
+### Hot-field audit method
+The roster is the union of all distinct field expressions matched by
+
+```
+grep -nE 'Ele\[[^]]+\]\.' SHUD/src/ModelData/MD_{ElementFlux,f,ET}.cpp \
+  | grep -oE 'Ele\[[^]]+\]\.[A-Za-z_0-9]+(\[[^]]+\])?' | sort -u
+```
+
+across the three RHS TUs, minus the four `_Element` member methods
+(`Flux_Infiltration`, `Flux_Recharge`, `updateElement`,
+`updateLakeElement`). This is a strict subset of the master-plan
+§4.22.1 estimate (the estimate over-counts by listing several fields
+that grep does not hit, e.g. `Triangle::slope`, `_Element::MacporeLevel`,
+`_Element::Kmax`). The roster reflects what the hot path actually
+reads; `docs/s5d_hot_fields.yaml` is the source-of-truth and the CI
+grep gate (`tools/check_manifest/check_hot_fields.py`) enforces
+yaml ↔ MD_layout.hpp ↔ RHS-3-file alignment on every PR.
+
+### Yaml ↔ MD_layout.hpp ↔ initialize_hot field count
+32 entries in `hot_fields`; 32 SoA pointers declared in MD_layout.hpp;
+32 AoS→SoA copy lines per element in `Model_Data::initialize_hot()`.
+
+### DEBUG consistency asserts
+`Model_Data::initialize_hot()` runs 7 asserts per element on DEBUG
+builds (`area`, `u_effKH`, `iLake`, `VegFrac`, `Sy`, `nabr[3]`,
+`edge[3]`). Compile via `make shud EXTRA_CXXFLAGS=-DDEBUG`. keliya 90d
+DEBUG run completes without abort.
+
+### Grep gate output (local pre-push)
+```
+PASS: 32 hot fields declared in MD_layout.hpp
+PASS: RHS 3 files have 0 Ele[..].<hot-field> hits
+```
+
+### Bitwise verification
+- Mac local 4-case 90d NUM_OPENMP=1 RELEASE build vs B1a-tag:
+  - `keliya/keliya.rivqdown.dat` = `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` PASS
+  - `xinanjiang_upstream/xinanjiang.eleygw.dat` = `f6e86f013f4f92d1c99429eafb27ec38cc7fc417e6d7d9aeef1725f8fa0a46a1` PASS
+  - `xinanjiang_upstream/xinanjiang.rivqdown.dat` = `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020` PASS
+  - `qinyijiang/nanlin.rivqdown.dat` = `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57` PASS
+  - `qhh/qhh.rivqdown.dat` = `d9a42798eb649dcea75ad2d64125af35bfda1da601ebd07795d51536fa7b62ce` PASS
+  - `qhh/qhh.lakqrivin.dat` = `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` PASS
+  - `qhh/qhh.lakqrivout.dat` = `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` PASS
+  - `qhh/qhh.lakystage.dat` = `4fcebe3ad8b3d7a51633a766dd9b139b9ad86853aafeb87cb572d2752e0ca250` PASS
+  - Total: 8/8 PASS.
+- DEBUG build (`-DDEBUG`) keliya 90d NUM_OPENMP=1: run-to-completion, no
+  assertion abort.
+- Server Slurm 6-case 90d NUM_OPENMP=1 RELEASE: PENDING (handed off to
+  orchestrator for `.s5d-1-runs/` Slurm submission per Slurm 三铁律;
+  acceptance recorded post-merge per the S5d spec's "S5d.1 独立 bitwise
+  通过" scenario).
+
+### Scope NOT touched
+- `nFCall` / `cvode_stats` / `SHUD_ENABLE_PROFILE` /
+  `SHUD_ENABLE_DIAGNOSTICS` channels untouched.
+- `QeleSurf` / `QeleSub` jagged → flat refactor deferred to S5d.2.
+- `parallel first-touch` deferred to S5d.3.
+- `run_omp.sh` / NUMA manifest fields deferred to S5d.4.
+- `_Element` AoS struct is unmodified — only its hot subset is shadowed
+  in the SoA.

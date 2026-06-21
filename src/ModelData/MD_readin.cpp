@@ -633,6 +633,43 @@ void Model_Data::FreeData(){
     delete[] Riv_Type;
     delete[] rivNode;
     
+    /* S5d.1 (#178) — ElementHotData SoA delete, symmetric to
+     * Model_Data::malloc_EleRiv() alloc order. Must precede `delete[] Ele`
+     * because hot is a struct of pointers (no pointer-into-Ele dependency,
+     * but keep clean ordering). */
+    delete[] hot.nabr_flat;
+    delete[] hot.lakenabr_flat;
+    delete[] hot.edge_flat;
+    delete[] hot.area;
+    delete[] hot.z_bottom;
+    delete[] hot.z_surf;
+    delete[] hot.iSoil;
+    delete[] hot.iLC;
+    delete[] hot.iMF;
+    delete[] hot.iForc;
+    delete[] hot.iLake;
+    delete[] hot.iBC;
+    delete[] hot.iSS;
+    delete[] hot.Dist2Nabor_flat;
+    delete[] hot.Dist2Edge_flat;
+    delete[] hot.avgRough_flat;
+    delete[] hot.FixPressure;
+    delete[] hot.WetlandLevel;
+    delete[] hot.RootReachLevel;
+    delete[] hot.depression;
+    delete[] hot.QBC;
+    delete[] hot.QSS;
+    delete[] hot.windH;
+    delete[] hot.u_qi;
+    delete[] hot.u_qex;
+    delete[] hot.u_effKH;
+    delete[] hot.u_satn;
+    delete[] hot.Sy;
+    delete[] hot.VegFrac;
+    delete[] hot.Albedo;
+    delete[] hot.Rough;
+    delete[] hot.ImpAF;
+
     /* free mesh, read_mesh */
     delete[] Ele;
     delete[] Node;

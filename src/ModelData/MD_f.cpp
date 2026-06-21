@@ -13,29 +13,38 @@
 #include "MD_rhs_dump.h"
 #endif
 void Model_Data:: f_loop(double t){
+    /* S5d.1 (#178) — all Ele[i].<hot-field> reads rerouted to
+     * hot.<field>[i]. The four _Element writer methods
+     * (updateLakeElement / updateElement / Flux_Infiltration via
+     * fun_Ele_Infiltraion / Flux_Recharge via fun_Ele_Recharge) keep
+     * AoS dispatch; each is followed by sync_hot_dynamic(i) so the
+     * dynamic SoA subset (u_qi, u_qex, u_effKH, u_satn) reflects the
+     * post-write AoS value before subsequent reads. */
     int i;
     for (i = 0; i < NumEle; i++) {
-        if(lakeon && Ele[i].iLake > 0){
+        if(lakeon && hot.iLake[i] > 0){
             /* Lake elements */
             Ele[i].updateLakeElement();
+            sync_hot_dynamic(i);
             fun_Ele_lakeVertical(i, t);
             /* S3b.4 (PR-9): shared writes extracted to per-element slots.
              * See MD_rhs_core.cpp::rhs_flux for full rationale (mirror
              * change here so the dead-code f_loop stays semantically
              * identical to the active rhs_flux). */
-            qEleEvapo_lake[i] = qEleEvapo[i] / lake[Ele[i].iLake - 1].NumEleLake;
-            qElePrep_lake[i]  = qElePrep[i]  / lake[Ele[i].iLake - 1].NumEleLake;
+            qEleEvapo_lake[i] = qEleEvapo[i] / lake[hot.iLake[i] - 1].NumEleLake;
+            qElePrep_lake[i]  = qElePrep[i]  / lake[hot.iLake[i] - 1].NumEleLake;
         }else{
             f_etFlux(i, t);
             /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
             /*========infiltration/Recharge Function==============*/
             Ele[i].updateElement(uYsf[i] , uYus[i] , uYgw[i] ); // step 1 update the kinf, kh, etc. for elements.
+            sync_hot_dynamic(i);
             fun_Ele_Infiltraion(i, t); // step 2 calculate the infiltration.
             fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
         }
     }
     for (i = 0; i < NumEle; i++) {
-        if(lakeon && Ele[i].iLake > 0){
+        if(lakeon && hot.iLake[i] > 0){
             /* Lake elements */
             fun_Ele_lakeHorizon(i, t);
         }else{
@@ -59,8 +68,8 @@ void Model_Data:: f_loop(double t){
             qLakePrcp[i] = 0.;
         }
         for (i = 0; i < NumEle; i++) {
-            if(Ele[i].iLake > 0){
-                int ilake = Ele[i].iLake - 1;
+            if(hot.iLake[i] > 0){
+                int ilake = hot.iLake[i] - 1;
                 qLakeEvap[ilake] += qEleEvapo_lake[i];
                 qLakePrcp[ilake] += qElePrep_lake[i];
             }
@@ -100,11 +109,13 @@ void Model_Data:: f_loop(double t){
 }
 
 void Model_Data::f_applyDY(double *DY, double t){
+    /* S5d.1 (#178) — Ele[i].{area, iBC, QBC, iSS, QSS, Sy, iLake} reads
+     * rerouted to SoA mirror. No writes to AoS here. */
     double area;
     int isf, ius, igw;
     for (int i = 0; i < NumEle; i++) {
         isf = iSF; ius = iUS; igw = iGW;
-        area = Ele[i].area;
+        area = hot.area[i];
         QeleSurfTot[i] = Qe2r_Surf[i];
         QeleSubTot[i] = Qe2r_Sub[i];
         for (int j = 0; j < 3; j++) {
@@ -116,7 +127,7 @@ void Model_Data::f_applyDY(double *DY, double t){
         DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEs[i];
         DY[ius] = qEleInfil[i] - qEleRecharge[i] - qEu[i] - qTu[i];
         DY[igw] = qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area - qEg[i] - qTg[i];
-//        if(uYgw[i] > Ele[i].WetlandLevel ){ /* IF GW above surface, exfil from GW, OR, from UNSAT*/
+//        if(uYgw[i] > hot.WetlandLevel[i] ){ /* IF GW above surface, exfil from GW, OR, from UNSAT*/
 //            DY[igw] += - qEleExfil[i];
 //        }else{
 //            if(uYus[i] > 0.){
@@ -126,23 +137,23 @@ void Model_Data::f_applyDY(double *DY, double t){
 //            }
 //        }
         /* Boundary condition and Source/Sink */
-        if(Ele[i].iBC == 0){
-        }else if(Ele[i].iBC > 0){ // Fix head of GW.
+        if(hot.iBC[i] == 0){
+        }else if(hot.iBC[i] > 0){ // Fix head of GW.
             DY[igw] = 0;
-        }else if(Ele[i].iBC < 0){ // Fix flux in GW
-            DY[igw] += Ele[i].QBC / area;
+        }else if(hot.iBC[i] < 0){ // Fix flux in GW
+            DY[igw] += hot.QBC[i] / area;
         }
 
-        if(Ele[i].iSS == 0){
-        }else if(Ele[i].iSS > 0){ // SS in Landusrface
-            DY[isf] += Ele[i].QSS / area;
-        }else if(Ele[i].iSS < 0){ // SS in GW
-            DY[igw] += Ele[i].QSS / area;
+        if(hot.iSS[i] == 0){
+        }else if(hot.iSS[i] > 0){ // SS in Landusrface
+            DY[isf] += hot.QSS[i] / area;
+        }else if(hot.iSS[i] < 0){ // SS in GW
+            DY[igw] += hot.QSS[i] / area;
         }
         /* Convert with specific yield */
-        DY[ius] /= Ele[i].Sy;
-        DY[igw] /= Ele[i].Sy;
-        
+        DY[ius] /= hot.Sy[i];
+        DY[igw] /= hot.Sy[i];
+
 //        if(i+1==ID_ELE && DY[i]+uYsf[i] > 0.1 ){  // debug only
 //            printf("%.3f, %d: %.2e, %.2e, %.2e | (%.2e, %.2e, %.2e, %.2e, %.2e )\n",
 //                   t, i+1,
@@ -156,7 +167,7 @@ void Model_Data::f_applyDY(double *DY, double t){
 //                   -QeleSurfTot[i] / area, qEleRecharge[i]);
 //            printf("\n");
 //        }
-        if(Ele[i].iLake > 0){
+        if(hot.iLake[i] > 0){
             DY[i] = 0.;
             DY[ius] = 0.;
             DY[igw] = 0.;
@@ -227,15 +238,17 @@ void Model_Data::f_applyDY(double *DY, double t){
  *     for (i = 0; i < NumEle; i++) { ... } */
 
 void Model_Data::applyBCSS(double *DY, int i){
-    if(Ele[i].iBC > 0){ // Fix head of GW.
+    /* S5d.1 (#178) — Ele[i].{iBC, QBC, area, iSS, QSS} reads rerouted
+     * to SoA mirror. Read-only; no AoS write. */
+    if(hot.iBC[i] > 0){ // Fix head of GW.
         DY[iGW] = 0;
-    }else if(Ele[i].iBC < 0){ // Fix flux in GW
-        DY[iGW] += Ele[i].QBC / Ele[i].area;
+    }else if(hot.iBC[i] < 0){ // Fix flux in GW
+        DY[iGW] += hot.QBC[i] / hot.area[i];
     }else{}
-    
-    if(Ele[i].iSS > 0){ // SS in Landusrface
-        DY[iSF] += Ele[i].QSS / Ele[i].area;
-    }else if(Ele[i].iSS < 0){ // SS in GW
-        DY[iGW] += Ele[i].QSS / Ele[i].area;
+
+    if(hot.iSS[i] > 0){ // SS in Landusrface
+        DY[iSF] += hot.QSS[i] / hot.area[i];
+    }else if(hot.iSS[i] < 0){ // SS in GW
+        DY[iGW] += hot.QSS[i] / hot.area[i];
     }else{}
 }

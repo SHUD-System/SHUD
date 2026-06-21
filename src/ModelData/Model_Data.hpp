@@ -20,6 +20,7 @@
 #include "Flux_RiverElement.hpp"
 #include "Macros.hpp"
 #include "AccTemperature.hpp"
+#include "MD_layout.hpp" /* S5d.1 (#178) — ElementHotData SoA */
 using namespace std;
 
 /* ExecPolicy — S1d.1 (openMP #47).
@@ -111,6 +112,15 @@ public:
     Control_Data CS;
     
     _Element *Ele;        /* Store Element Information */
+    /* S5d.1 (#178) — ElementHotData SoA hot field container. See
+     * MD_layout.hpp + docs/s5d_hot_fields.yaml. Populated by
+     * initialize_hot() called from initialize() AFTER _Element AoS data
+     * is fully loaded. Dynamic fields (u_qi, u_qex, u_effKH, u_satn) are
+     * resynced by sync_hot_dynamic(i) after each Ele[i].updateElement /
+     * updateLakeElement / Flux_Infiltration / Flux_Recharge call. RHS hot
+     * path (MD_ElementFlux/MD_f/MD_ET) reads this; init/IO/calib path
+     * reads _Element. */
+    ElementHotData hot;
     _Node *Node;        /* Store Node Information */
     //element_IC * Ele_IC;    /* Store Element Initial Condtion */
     Soil_Layer *Soil;        /* Store Soil Information */
@@ -243,6 +253,22 @@ public:
     /* Model input/output */
     void loadinput();
     void initialize();
+    /* S5d.1 (#178) — populate ElementHotData SoA static fields from
+     * _Element AoS. Called from initialize() AFTER all element AoS
+     * fields are loaded and BEFORE any RHS dispatch. Dynamic fields
+     * (u_*) are seeded here too but get resynced by sync_hot_dynamic(i)
+     * after each writer-method call during the RHS hot path. */
+    void initialize_hot();
+    /* S5d.1 (#178) — re-sync the four dynamic SoA fields (u_qi, u_qex,
+     * u_effKH, u_satn) for element i from _Element AoS. Called after
+     * Ele[i].updateElement(...) / updateLakeElement() / Flux_Infiltration() /
+     * Flux_Recharge(). Inline so default-build emits no call overhead. */
+    inline void sync_hot_dynamic(int i) {
+        hot.u_qi[i]    = Ele[i].u_qi;
+        hot.u_qex[i]   = Ele[i].u_qex;
+        hot.u_effKH[i] = Ele[i].u_effKH;
+        hot.u_satn[i]  = Ele[i].u_satn;
+    }
     void initializeLake();
     void initialize_output();
     void SetIC2Y(N_Vector udata1, N_Vector udata2, N_Vector udata3, N_Vector udata4, N_Vector udata5);
