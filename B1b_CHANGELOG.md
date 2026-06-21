@@ -26,3 +26,45 @@ Caller audit: `Model_Data::updateforcing(double t)` is invoked from `SHUD/src/Mo
 - (c) Zero-order hold rule preserved. The function returns the value at the current pointer `iNow`; there is no interpolation, no time-decay, no comparison against `t`. `movePointer` is the only routine in `_TimeSeriesData` that advances `iNow` / `iNext` (verified by reading L116–L136 and the `initialize` constructor at L26–L44 — the latter only sets `iNow=0` at startup). Thus, as long as the single-threaded driver invokes `movePointer(t)` once before a batch of `getX(t, col)` reads (which is exactly the pattern in `Model_Data::updateforcing` → `Model_Data::tReadForcing`), concurrent readers on different threads would see a consistent snapshot of `ts[iNow][*]`.
 
 Verdict: thread-safe read-only post-movePointer. Single read-only access pattern matches the spec's contract; safe to call `getX` from within future `#pragma omp parallel for` regions (e.g. element-loop parallelization in S5b/S5c/A3a) provided `movePointer` is invoked on the driver thread before the parallel region begins.
+
+## S5b — scratch arrays ownership audit + lake reset 顺序 + RHS print migration (#177)
+
+### updateElement / updateRiver / Lake::update self-only audit
+
+| Method | Definition (file:line) | Writes | Verdict |
+|---|---|---|---|
+| `_Element::updateElement` | SHUD/src/classes/Element.cpp:257 | `this->u_effKH`, `this->u_deficit`, `this->Kmax`, `this->u_satn`, `this->u_theta`, `this->u_satKr`, `this->u_phius`, `this->u_effkInfi` (all instance members of `*this`) | PASS — self-only |
+| `_River::updateRiver` | SHUD/src/classes/River.cpp:49 | `this->u_Ystage`, `this->u_topWidth`, `this->u_CSarea`, `this->u_CSperem`, `this->u_eqWidth`, `this->u_TopArea` (all instance members of `*this`) | PASS — self-only |
+| `_Lake::update` | SHUD/src/classes/Lake.cpp:104 | `this->u_toparea` only | PASS — self-only |
+
+Evidence: read each function body verbatim. No `Ele[`, `Riv[`, `lake[`, or `MD->` writes appear in the method bodies — all left-hand sides are bare member names (resolved as `this->member`). No cross-index state mutation. The only callee `this->bathymetry.toparea(...)` in `_Lake::update` is a const read on a member's child object (returns by value). All three methods are safe to invoke in parallel across distinct entity indices (under the existing serial-driver contract; thread-safety for future parallel-element loops in S5c/A3a needs separate audit because of forcing/state reads, not writes).
+
+### Scratch arrays ownership audit (Task 3.1)
+
+Documented as a separate machine-readable manifest in OUTER repo `docs/topology_manifest.yaml` under section `s5b_scratch_ownership`. Summary: 13 RHS scratch arrays surveyed (full list in topology yaml); 100% have a single owner-class write-site path traceable to `Model_Data::rhs_*` callees. None violate single-writer invariants under the B1a contract. Lake `+=` accumulator sites (`QrivSurf[ir] += QsegSurf[iseg]`, etc.) are deterministic-gather sites driven by S4 adjacency lists (PR-10/PR-11) and live inside `rhs_deterministic_gather()`; they are sequential `+=` loops in B0 ascending iteration order — bitwise-preserved.
+
+### Lake reset 顺序 audit (Task 3.4)
+
+Documented in OUTER repo `docs/topology_manifest.yaml` under section `s5b_lake_reset_order`. Summary: in qhh (the only Mac benchmark case with `lakeon=1`), the per-RHS-call reset sequence is:
+
+1. `rhs_update()` at `SHUD/src/Model/MD_rhs_core.cpp:114-125` zero-resets per-lake arrays (`QLakeSub[i] = 0.`, `QLakeSurf[i] = 0.`, `qLakeEvap[i] = 0.`, `qLakePrcp[i] = 0.`, `QLakeRivIn[i] = 0.`, `QLakeRivOut[i] = 0.`) BEFORE
+2. `rhs_flux()` at `SHUD/src/Model/MD_rhs_core.cpp:170-201` element loop, which writes the per-element scratch slots `QeleSurf_lake[i*3+j]`, `QeleSub_lake[i*3+j]`, `qEleEvapo_lake[i]`, `qElePrep_lake[i]` via `fun_Ele_surface`/`fun_Ele_sub`/the `if(lakeon && Ele[i].iLake > 0)` branches.
+3. The transitional per-element->per-lake gather (`rhs_flux()` L214-226) zero-resets `qLakeEvap[i]` / `qLakePrcp[i]` again BEFORE the element-loop-driven `+=` gather; the lake clamp at L227-230 then reads the gathered values. This 2nd reset is required because `qLakeEvap` / `qLakePrcp` are written via `+=` and the clamp reads the result; the 1st reset in `rhs_update()` could be stale if a previous CVODE iteration emitted partial values.
+4. `rhs_deterministic_gather()` (called from `rhs_flux()` L257) zero-resets `QrivSurf` / `QrivSub` / `QrivUp` (L298-302), `Qe2r_Surf` / `Qe2r_Sub` (L303-306), `QLakeRivIn` (L338-340), `QLakeSurf` (L350-352), `QLakeSub` (L363-365) BEFORE its per-lake `+=` gather loops drive them from the per-element scratch slots.
+
+Verdict: every lake-side accumulator is zero-reset before any `+=` accumulation, in source order. The execution order (rhs_update -> rhs_flux pre-loop reset -> element loop scratch writes -> rhs_deterministic_gather reset -> gather) is the single sequential call chain from `f(t, Y, DY, DS)` (Model/f.cpp:54 -> `MD->rhs_core(Y, DY, t, ExecPolicy::Serial)`); no inter-iteration leak possible. The element loop NEVER writes directly to the per-lake `QLake*` accumulators — only to the per-element scratch slots — so the "reset before write" property is structurally enforced by the scratch-slot pattern (PR-9).
+
+### RHS print migration (Task 3.5)
+
+- **Approach**: `#ifdef DEBUG` wrap of the single active printf at `SHUD/src/ModelData/MD_ET.cpp:236`.
+- **Justification**: The codebase convention at `SHUD/src/Model/MD_rhs_core.cpp:100-102` (`CheckNANi(uYriv[i], ...)` wrap), `:462-466` (DY checks), and `SHUD/src/Model/f.cpp:57-59` (`printDY(...)`) consistently gates per-element diagnostics behind `#ifdef DEBUG`. The buffer approach would require either a new per-element field in `Model_Data` (disallowed by PR scope) or a thread-local static accumulator (over-engineering for a single warning site). `#ifdef DEBUG` matches existing pattern and is minimally invasive (4 added lines: 2 preprocessor directives + a comment block describing the migration).
+- **CheckNonNegative() context**: The 5 `CheckNonNegative(...)` calls at MD_ET.cpp:238-242 are NOT `#ifdef DEBUG` guarded (the function impl at SHUD/src/Equations/functions.cpp:148-154 calls `printf` + `myexit` on negative values). However, these are error-exit paths (not informational warnings on normal data) and the task scope explicitly excludes algorithmic changes to MD_ET.cpp. Left untouched per PR boundary.
+- **Pre-migration active RHS prints** (block-comment-aware scan across `MD_rhs_core.cpp` / `MD_f.cpp` / `MD_ElementFlux.cpp` / `MD_ET.cpp` / `f.cpp`): 1 — `SHUD/src/ModelData/MD_ET.cpp:236`.
+- **Post-migration active RHS prints**: 0 (in default release build with no -DDEBUG; the `MD_ET.cpp:236` print is now gated behind `#ifdef DEBUG`).
+- **Output content preserved**: yes — the warning text and trigger condition are byte-for-byte identical under `-DDEBUG` builds; under release builds, the printf only wrote to stdout (never to output binaries), so the bitwise contract against B1a-tag holds regardless.
+
+### Grep gates (Task 3.6)
+
+- `grep -rnE '\bPassValue\b' SHUD/src/` → **0 hits** (PR-11 #155 retired `PassValue_legacy` in favor of `rhs_deterministic_gather`).
+- New shared-write `+=` introduced in this PR → **0** (verified by reading the only edit in S5b — the printf wrap — which adds no compound-assignment or shared-write expression).
+- Pre-existing `+=` patterns in `MD_rhs_core.cpp` / `MD_f.cpp` (PR-9/PR-10/PR-11 vintage): all live inside `rhs_deterministic_gather()` (driven by S4 adjacency lists) or per-lake gather loops (driven by per-element scratch slots); none are racy shared writes under the B1a sequential contract.

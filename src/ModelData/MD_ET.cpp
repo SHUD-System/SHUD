@@ -232,9 +232,23 @@ void Model_Data::f_etFlux(int i, double t){
     qEleTrans[i] = Tg + Tu;
     qEleEvapo[i] = Eu + Eg + Es;  
     qEleETA[i] = qEleE_IC[i] + qEleEvapo[i] + qEleTrans[i];
+    /* S5b (#177) — RHS hot-path print migration. The per-element AET/PET
+     * warning (formerly an unconditional `printf` inside the per-element
+     * `f_etFlux` loop body, called from `rhs_flux` MD_rhs_core.cpp:184)
+     * is gated behind `#ifdef DEBUG` to remove the unbuffered stdout
+     * write from the RHS hot path. Default builds (no -DDEBUG) emit no
+     * code here and produce bitwise-identical output to the B1a-tag
+     * baseline (the printf only wrote to stdout — not to output binaries
+     * — so the bitwise contract holds regardless, but #ifdef DEBUG also
+     * removes the function-call overhead from the hot path and matches
+     * the project convention used at MD_rhs_core.cpp:100/463 for
+     * `CheckNANi`. Warning content is preserved verbatim under
+     * -DDEBUG. */
+#ifdef DEBUG
     if(qEleETA[i] > qEleETP[i] * 2.){
         printf("Warning: More AET(%.3E) than PET(%.3E) on Element (%d).", qEleETA[i], qEleETP[i], i+1);
     }
+#endif
     CheckNonNegative(Es, i, "Es"); // Debug Only
     CheckNonNegative(Eu, i, "Eu");
     CheckNonNegative(Eg, i, "Eg");
