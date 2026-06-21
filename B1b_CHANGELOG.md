@@ -1145,11 +1145,14 @@ Scenarios satisfied:
 
 Design `b1b-baseline-completion/design.md` D5 forbids program-side
 override of `OMP_PROC_BIND`. This PR ships:
-- `tools/run_omp.sh` uses `: "${OMP_PROC_BIND:=close}"` (POSIX
-  assign-if-unset). Operator-set values WIN. SLURM/PBS jobs that
-  already export `OMP_PROC_BIND=spread` for cross-socket testing
-  keep their setting; the wrapper layers defaults only when the
-  caller's environment is silent.
+- `tools/run_omp.sh` uses `: "${OMP_PROC_BIND=close}"` (POSIX
+  assign-if-unset — colon-less form, **post-M1 review-fix**; see
+  S5d.4 review-fix follow-up section below for the `:=` → `=`
+  rationale). Operator-set values — including deliberately empty
+  `OMP_PROC_BIND=` — WIN. SLURM/PBS jobs that already export
+  `OMP_PROC_BIND=spread` for cross-socket testing keep their
+  setting; the wrapper layers defaults only when the caller's
+  environment is fully unset.
 - `shud.cpp` only WARNs on unset; never calls `setenv` /
   `omp_set_num_threads` / similar override. The stdout token
   `[NUMA] OMP_PROC_BIND=unset` + the stderr `[OMP] WARNING` are
@@ -1159,9 +1162,9 @@ override of `OMP_PROC_BIND`. This PR ships:
 ### `tools/run_omp.sh` content excerpt (verbatim)
 
 ```bash
-: "${OMP_PROC_BIND:=close}"
-: "${OMP_PLACES:=cores}"
-: "${OMP_NUM_THREADS:=1}"
+: "${OMP_PROC_BIND=close}"   # post-M1: colon-less form preserves operator empty override
+: "${OMP_PLACES=cores}"
+: "${OMP_NUM_THREADS=1}"
 export OMP_PROC_BIND OMP_PLACES OMP_NUM_THREADS
 
 printf '[OMP] PROC_BIND=%s, PLACES=%s, NUM_THREADS=%s\n' \
