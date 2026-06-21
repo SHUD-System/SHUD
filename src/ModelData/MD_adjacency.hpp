@@ -8,7 +8,7 @@
  * reproducibility vs B0.
  *
  * PR-10 BUILDS the lists at init time but does NOT YET USE them at
- * runtime (PR-11 will replace PassValue's gather). PR-10's bitwise
+ * runtime (PR-11 will replace PassValue_legacy's gather). PR-10's bitwise
  * vs B0 guarantee is therefore trivial: adding init-time data
  * structures cannot change runtime behavior.
  *
@@ -27,7 +27,7 @@ class Model_Data;  // forward decl — full include would re-enter classes/
 
 /* ---- S4.1 — seg_by_riv[ir] ---------------------------------------------
  * Per-river segment indices. B0 source: MD_f.cpp:170-171 (legacy)
- * == MD_f.cpp PassValue() body L214-221 (post-PR-9 = post-S3a).
+ * == MD_f.cpp PassValue_legacy() body L214-221 (post-PR-9 = post-S3a).
  * Iteration: `for i in [0, NumSegmt): if RivSeg[i].iRiv - 1 == ir yield i`.
  * Sort rule: B0 iseg array index ascending.
  */
@@ -43,7 +43,7 @@ extern std::vector<std::vector<int>> seg_by_ele;
 
 /* ---- S4.3 — upstream_by_down[ir] ---------------------------------------
  * Per-downstream-river upstream river indices. B0 source: MD_f.cpp:177
- * == PassValue() L222-226 (post-PR-9). Uses Riv[i].down (= iDownStrm macro).
+ * == PassValue_legacy() L222-226 (post-PR-9). Uses Riv[i].down (= iDownStrm macro).
  * Iteration: `for i in [0, NumRiv): if Riv[i].down - 1 == ir yield i`.
  * Sort rule: B0 iriv array index ascending.
  */
@@ -52,8 +52,8 @@ extern std::vector<std::vector<int>> upstream_by_down;
 /* ---- S4.4 — riv_in_by_lake[ilake] --------------------------------------
  * Per-lake river-inflow indices. B0 source: MD_RiverFlux.cpp Flux_RiverDown
  * old shared-write (`QLakeRivIn[Riv[i].toLake] += QrivDown[i]`); post-PR-9
- * this lives in PassValue (MD_f.cpp L233-241). Riv[i].toLake is currently
- * 0-indexed in the post-PR-9 code (PassValue L238-239 uses it as direct
+ * this lives in PassValue_legacy (MD_f.cpp L233-241). Riv[i].toLake is currently
+ * 0-indexed in the post-PR-9 code (PassValue_legacy L238-239 uses it as direct
  * index into QLakeRivIn — no `-1` applied, with the guard
  * `Riv[i].toLake >= 0` for "no lake"). The spec L65 + master plan §5 L1288
  * describe the conceptual mapping as `riv_in_by_lake[ilake]` where
@@ -76,7 +76,7 @@ extern std::vector<std::vector<int>> ele_by_lake;
 /* ---- S4.6 — lake_bank_edge_by_lake[ilake] ------------------------------
  * Per-lake (element-index, edge-index) pairs. B0 source: fun_Ele_surface +
  * fun_Ele_sub lake branches; the gather equivalent post-PR-9 lives in
- * PassValue (MD_f.cpp L248-271).
+ * PassValue_legacy (MD_f.cpp L248-271).
  * Iteration: `for i in [0, NumEle): for j in {0,1,2}: if Ele[i].lakenabr[j]-1 >= 0
  *             yield (i, j) into bucket lakenabr[j]-1`.
  * Sort rule: B0 iele ascending, j inner = 0,1,2.

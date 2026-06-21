@@ -204,7 +204,7 @@ public:
     /* S3b (PR-9): per-edge / per-element scratch slots for shared-write
      * splitting. Element->Lake surface/sub fluxes write to these slots
      * (size NumEle*3, indexed i*3+j) instead of the racy `QLakeSurf[ilake] += Q`
-     * pattern; PassValue() then gathers into QLakeSurf/QLakeSub.
+     * pattern; PassValue_legacy() then gathers into QLakeSurf/QLakeSub.
      * Transitional — PR-11 (S3c) will replace the gather with
      * rhs_deterministic_gather(). */
     double *QeleSurf_lake;
@@ -212,8 +212,8 @@ public:
     /* S3b.4 (PR-9): per-element scratch for lake-cell evap/prcp split
      * (NumEle sized). Lake-cell elements write the pre-divided per-element
      * contribution; gather (in rhs_flux / f_loop BEFORE the lake clamp)
-     * sums to per-lake qLakeEvap / qLakePrcp. Cannot live in PassValue
-     * because the lake clamp reads qLakeEvap/qLakePrcp BEFORE PassValue
+     * sums to per-lake qLakeEvap / qLakePrcp. Cannot live in PassValue_legacy
+     * because the lake clamp reads qLakeEvap/qLakePrcp BEFORE PassValue_legacy
      * is called. */
     double *qEleEvapo_lake;
     double *qElePrep_lake;
@@ -287,6 +287,12 @@ public:
     void rhs_flux(double t);
     void rhs_apply(double * DY, double t);
     void rhs_core(double * Y, double * DY, double t, ExecPolicy policy);
+    /* S3c.3 (PR-11 #155): unified deterministic gather called from
+     * rhs_flux at the prior PassValue_legacy() call site. Consumes the 7 S4
+     * adjacency lists (PR-10) to perform segment->river/element +
+     * downstream + lake gathers. Body in MD_rhs_core.cpp per design.md
+     * D12. Retires PassValue_legacy() (deleted in same commit). */
+    void rhs_deterministic_gather();
     
 //    void updateWF(double dt);
     void CheckInputData();
@@ -298,7 +304,6 @@ public:
     void ET(double t, double tnext);
     void updateforcing(double t);
     double getArea();
-    void PassValue();
 private:
     void fillpits(int i);
     void tReadForcing(double t, int i);

@@ -5,8 +5,10 @@
 //
 
 #include "Model_Data.hpp"
-#include "MD_adjacency.hpp"  /* S3c (PR-11 #155): S4 adjacency lists used
-                              * by PassValue's segment/river/element gather. */
+/* S3c.3 (PR-11 #155): PassValue_legacy() retired; f_loop's gather call now
+ * dispatches to Model_Data::rhs_deterministic_gather() defined in
+ * MD_rhs_core.cpp (member declaration in Model_Data.hpp). f_loop is
+ * legacy dead code preserved as a mirror of rhs_flux. */
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
 #endif
@@ -68,16 +70,16 @@ void Model_Data:: f_loop(double t){
         qLakeEvap[i] = min(qLakeEvap[i], qLakePrcp[i] + yLakeStg[i]);
         qLakeEvap[i] = max(0, qLakeEvap[i]);
     }
-    /* #43 (S1-pre-B): before-PassValue probe. Dumps Qe2r_Surf
-     * (length NumEle), a PassValue() write-set member that carries
+    /* #43 (S1-pre-B): before-PassValue_legacy probe. Dumps Qe2r_Surf
+     * (length NumEle), a PassValue_legacy() write-set member that carries
      * the previous iteration's element-to-river surface flux state.
-     * PassValue (see body at L182-205) zero-resets Qe2r_Surf[0..NumEle-1]
+     * PassValue_legacy (see body at L182-205) zero-resets Qe2r_Surf[0..NumEle-1]
      * and then accumulates QsegSurf over NumSegmt segments; capturing
      * Qe2r_Surf HERE gives a deterministic snapshot of the value that
-     * is about to be cleared + re-derived by PassValue. PR #54 round-1
+     * is about to be cleared + re-derived by PassValue_legacy. PR #54 round-1
      * fix F4 replaced the prior QeleSurfTot probe payload (which
      * f_update zero-resets so the snapshot was always all zeros and
-     * thus useless as a before-vs-after PassValue diff) with this
+     * thus useless as a before-vs-after PassValue_legacy diff) with this
      * write-set member. Site tag "f_loop_before_passvalue" is distinct
      * from the no-op "f_loop" hook below + the "f_update" hook in
      * MD_update.cpp:151; the writer SHUD_DUMP_FNAME_SUFFIX env
@@ -87,8 +89,11 @@ void Model_Data:: f_loop(double t){
 #ifdef SHUD_DUMP_RHS
     shud_rhs_dump_point("f_loop_before_passvalue", t, Qe2r_Surf, NumEle);
 #endif
-    /* Shared for both OpenMP and Serial, to update */
-    PassValue();
+    /* Shared for both OpenMP and Serial, to update.
+     * S3c.3 (PR-11 #155): PassValue_legacy() retired, replaced by
+     * rhs_deterministic_gather() (MD_rhs_core.cpp); f_loop is
+     * legacy dead code kept as a mirror of rhs_flux. */
+    rhs_deterministic_gather();
 #ifdef SHUD_DUMP_RHS
     shud_rhs_dump_point("f_loop", t, NULL, 0);
 #endif
@@ -202,116 +207,24 @@ void Model_Data::f_applyDY(double *DY, double t){
 #endif
 }
 
-void Model_Data::PassValue(){
-    int i;
-    for (i = 0; i < NumRiv; i++) {
-        QrivSurf[i] = 0.;
-        QrivSub[i] = 0.;
-        QrivUp[i] = 0.;
-    }
-    for (i = 0; i < NumEle; i++) {
-        Qe2r_Surf[i] = 0.;
-        Qe2r_Sub[i] = 0.;
-    }
-    /* S3c.1 (PR-11): segment -> river gather using S4.1 seg_by_riv.
-     * Replaces the legacy NumSegmt loop (`for i in [0,NumSegmt):
-     * QrivSurf[RivSeg[i].iRiv-1] += QsegSurf[i]; ...`). The S4.1 list
-     * is populated in B0 ascending iseg order (MD_adjacency.cpp L84-89),
-     * so the per-accumulator `+=` sequence is identical to the legacy
-     * segment-major loop and bitwise neutrality is preserved. */
-    for (int ir = 0; ir < NumRiv; ir++) {
-        for (int iseg : seg_by_riv[ir]) {
-            QrivSurf[ir] += QsegSurf[iseg]; // Positive from River to Element
-            QrivSub[ir]  += QsegSub[iseg];
-        }
-    }
-    /* S3c.1 (PR-11): segment -> element gather using S4.2 seg_by_ele.
-     * Replaces the legacy NumSegmt loop's element-side accumulate
-     * (`Qe2r_Surf[RivSeg[i].iEle-1] += -QsegSurf[i]; ...`). seg_by_ele
-     * is also B0 ascending iseg order (MD_adjacency.cpp L93-98). */
-    for (int ie = 0; ie < NumEle; ie++) {
-        for (int iseg : seg_by_ele[ie]) {
-            Qe2r_Surf[ie] += -QsegSurf[iseg]; // Positive from Element to River
-            Qe2r_Sub[ie]  += -QsegSub[iseg];
-        }
-    }
-    /* S3c.2 (PR-11): downstream river -> upstream gather using S4.3
-     * upstream_by_down. Replaces the legacy NumRiv loop
-     * (`for i: if(iDownStrm>=0 && Riv[i].toLake<=0) QrivUp[iDownStrm] += -QrivDown[i]`).
-     * upstream_by_down[ir] is built (MD_adjacency.cpp L108-115) by walking
-     * i in [0,NumRiv) and bucketing under Riv[i].down-1 when both the
-     * `iDownStrm>=0` and `Riv[i].toLake<=0` predicates hold, so the guard
-     * is already baked in -- no extra check needed here. List elements
-     * are in B0 ascending i order, preserving the per-accumulator
-     * += sequence and bitwise neutrality. */
-    for (int ir = 0; ir < NumRiv; ir++) {
-        for (int up : upstream_by_down[ir]) {
-            QrivUp[ir] += -QrivDown[up];
-        }
-    }
-    /* S3b.1 (PR-9): transitional lake gather river -> per-lake.
-     * Replaces the shared `QLakeRivIn[Riv[i].toLake] += QrivDown[i]`
-     * write that was previously in Flux_RiverDown (MD_RiverFlux.cpp).
-     * Reads per-river QrivDown (just computed in Flux_RiverDown loop)
-     * and aggregates to per-lake QLakeRivIn. Will be replaced by
-     * rhs_deterministic_gather() in S3c (PR-11). */
-    if(lakeon){
-        for (i = 0; i < NumLake; i++) {
-            QLakeRivIn[i] = 0.;
-        }
-        for (i = 0; i < NumRiv; i++) {
-            if(Riv[i].toLake >= 0){
-                QLakeRivIn[Riv[i].toLake] += QrivDown[i]; // toLake is 0-indexed
-            }
-        }
-        /* S3b.2 (PR-9): transitional lake gather element-edge surf -> per-lake.
-         * Replaces `QLakeSurf[ilake] += Q` write in fun_Ele_surface lake branch.
-         * Reads QeleSurf_lake[i*3+j] (written only inside that lake branch)
-         * and aggregates per (i,j) pair to per-lake QLakeSurf. The traversal
-         * condition mirrors fun_Ele_surface (lakenabr[j]-1 >= 0). Will be
-         * replaced by rhs_deterministic_gather() in S3c (PR-11). */
-        for (i = 0; i < NumLake; i++) {
-            QLakeSurf[i] = 0.;
-        }
-        for (i = 0; i < NumEle; i++) {
-            for (int j = 0; j < 3; j++) {
-                int ilake = Ele[i].lakenabr[j] - 1;
-                if(ilake >= 0){
-                    QLakeSurf[ilake] += QeleSurf_lake[i*3 + j];
-                }
-            }
-        }
-        /* S3b.3 (PR-9): same pattern for subsurface flux.
-         * Replaces `QLakeSub[ilake] += Q` write in fun_Ele_sub lake branch. */
-        for (i = 0; i < NumLake; i++) {
-            QLakeSub[i] = 0.;
-        }
-        for (i = 0; i < NumEle; i++) {
-            for (int j = 0; j < 3; j++) {
-                int ilake = Ele[i].lakenabr[j] - 1;
-                if(ilake >= 0){
-                    QLakeSub[ilake] += QeleSub_lake[i*3 + j];
-                }
-            }
-        }
-    }
-    //    for (i = 0; i < NumEle; i++) { /*Check flux A->B  = Flux B->A*/
-    //        for (j = 0; j < 3; j++) {
-    //            inabr = Ele[i].nabr[j] - 1;
-    //            if (inabr >= 0) {
-    //                jnabr = Ele[i].nabrToMe[j];
-    //                if(Ele[inabr].iupdSF[jnabr]){
-    //                    //void
-    //                }else{
-    //                    QeleSurf[inabr][jnabr] = - QeleSurf[i][j];
-    //                    Ele[inabr].iupdSF[jnabr] = 1;
-    //                    QeleSub[inabr][jnabr] = - QeleSub[i][j];
-    //                    Ele[inabr].iupdGW[jnabr] = 1;
-    //                }
-    //            }
-    //        }
-    //    }
-}
+/* S3c.3 (PR-11 #155): Model_Data::PassValue_legacy() retired. Its body has
+ * been refactored into Model_Data::rhs_deterministic_gather() in
+ * MD_rhs_core.cpp (per design.md D12 -- gather lives WITH the RHS
+ * core, not in a separate MD_gather.cpp file). The new function
+ * consumes the 7 S4 adjacency lists (PR-10) to perform all gather
+ * work (segment->river/element, downstream river, lake river-in,
+ * lake-bank surf/sub). Bitwise neutrality vs B0 is preserved because
+ * the S4 lists are built in B0 ascending array-index order, so the
+ * per-accumulator += sequence is identical to the legacy serial
+ * iteration. The B.4 qLakeEvap/qLakePrcp per-element->per-lake
+ * gather REMAINS in rhs_flux (MD_rhs_core.cpp ~L214-L226) because
+ * the lake clamp pass reads those gathered values BEFORE the
+ * call to rhs_deterministic_gather() -- ordering constraint
+ * documented in PR-9 / S3b.4.
+ *
+ * Comment retained verbatim about the original f_loop NumEle
+ * neighbor sanity loop (commented-out by upstream long before PR-11):
+ *     for (i = 0; i < NumEle; i++) { ... } */
 
 void Model_Data::applyBCSS(double *DY, int i){
     if(Ele[i].iBC > 0){ // Fix head of GW.

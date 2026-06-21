@@ -51,7 +51,7 @@ void Model_Data::fun_Ele_surface(int i, double t){
                               Ele[i].z_surf, isf,
                               Ele[i].z_surf, 0.6, B, 0.01); /* func WeirFlow_jtoi is */
             /* S3b.2 (PR-9): shared write `QLakeSurf[ilake] += Q` replaced
-             * with deterministic per-edge slot. PassValue() will gather
+             * with deterministic per-edge slot. PassValue_legacy() will gather
              * QeleSurf_lake -> QLakeSurf. Will be replaced by
              * rhs_deterministic_gather() in S3c (PR-11). */
             QeleSurf_lake[i*3 + j] = Q;
@@ -125,7 +125,7 @@ void Model_Data::fun_Ele_sub(int i, double t){
 //                CheckNANi(Q, i, "Q in Model_Data::fun_Ele_sub");
             }
             /* S3b.3 (PR-9): shared write `QLakeSub[ilake] += Q` replaced
-             * with deterministic per-edge slot. PassValue() will gather
+             * with deterministic per-edge slot. PassValue_legacy() will gather
              * QeleSub_lake -> QLakeSub. Will be replaced by
              * rhs_deterministic_gather() in S3c (PR-11). */
             QeleSub_lake[i*3 + j] = Q;

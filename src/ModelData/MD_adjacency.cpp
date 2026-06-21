@@ -5,7 +5,7 @@
  * b0_source references.
  *
  * PR-10 BUILDS the lists but does NOT YET USE them at runtime. PR-11
- * (S3c) will replace `Model_Data::PassValue()`'s in-loop gather with
+ * (S3c) will replace `Model_Data::PassValue_legacy()`'s in-loop gather with
  * `rhs_deterministic_gather()` that iterates by list index. PR-10's
  * bitwise vs B0 guarantee is trivial: init-time-only changes cannot
  * affect runtime output.
@@ -79,7 +79,7 @@ bool build_adjacency_lists(Model_Data* MD){
 
     /* ---- S4.1 — seg_by_riv -------------------------------------------- */
     /* B0 source: legacy MD_f.cpp:170-171 (deleted in PR-9 S3a but the
-     * conceptual gather lives on in PassValue L214-221). Iteration: outer
+     * conceptual gather lives on in PassValue_legacy L214-221). Iteration: outer
      * `for i in [0, NumSegmt)` produces ascending array-index order. */
     for (int i = 0; i < MD->NumSegmt; ++i){
         int ir = MD->RivSeg[i].iRiv - 1;
@@ -98,7 +98,7 @@ bool build_adjacency_lists(Model_Data* MD){
     }
 
     /* ---- S4.3 — upstream_by_down -------------------------------------- */
-    /* B0 source: legacy MD_f.cpp:177 == PassValue() L222-226 (post-PR-9).
+    /* B0 source: legacy MD_f.cpp:177 == PassValue_legacy() L222-226 (post-PR-9).
      * Macros.hpp:49 `#define iDownStrm Riv[i].down - 1`; predicate
      * `iDownStrm >= 0` ⇒ skip rivers whose down sentinel is -1 / 0
      * boundary. Iteration: outer `for i in [0, NumRiv)`. The legacy code
@@ -115,7 +115,7 @@ bool build_adjacency_lists(Model_Data* MD){
     }
 
     /* ---- S4.4 — riv_in_by_lake ---------------------------------------- */
-    /* B0 source: PassValue() L237-241 (post-PR-9). The post-PR-9 code uses
+    /* B0 source: PassValue_legacy() L237-241 (post-PR-9). The post-PR-9 code uses
      * `Riv[i].toLake` as a 0-based lake index (no `-1` applied; guard
      * `Riv[i].toLake >= 0` filters non-lake-bound rivers). Replicate
      * exactly so the list iteration order matches the runtime gather. */
@@ -141,7 +141,7 @@ bool build_adjacency_lists(Model_Data* MD){
     }
 
     /* ---- S4.6 — lake_bank_edge_by_lake -------------------------------- */
-    /* B0 source: PassValue() L251-258 + L264-271 (post-PR-9 lake-bank
+    /* B0 source: PassValue_legacy() L251-258 + L264-271 (post-PR-9 lake-bank
      * gather pattern). 2-D iteration: outer i ∈ [0, NumEle), inner j ∈
      * {0,1,2}; predicate `Ele[i].lakenabr[j] - 1 >= 0` ⇒ append (i, j)
      * to bucket key `lakenabr[j] - 1`. */

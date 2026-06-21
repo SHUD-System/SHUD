@@ -102,7 +102,7 @@ void Model_Data:: f_loop4(double t){
             QrivUp[iDownStrm] += - QrivDown[i];
         }
     }
-//    PassValue();
+//    rhs_deterministic_gather();   // PassValue_legacy retired in S3c.3 (PR-11 #155)
 }
 void Model_Data:: f_loop5(double t){
 }

@@ -23,7 +23,7 @@ void Model_Data::Flux_RiverDown(double t, int i){
             QrivDown[i] = ManningEquation(CSarea, n, R, s);
             /* S3b.1 (PR-9): shared write `QLakeRivIn[Riv[i].toLake] += QrivDown[i]`
              * extracted out of Flux_RiverDown. The per-river QrivDown[i] above is
-             * the per-river slot; PassValue() now performs a transitional gather
+             * the per-river slot; PassValue_legacy() now performs a transitional gather
              * from QrivDown -> QLakeRivIn (per-lake aggregate). Will be replaced
              * by rhs_deterministic_gather() in S3c (PR-11). */
     }else if (iDown >= 0) {
@@ -109,7 +109,7 @@ void Model_Data::fun_Seg_surface(int iEle, int iRiv, int i){
                            Ele[iEle].z_surf - Riv[iRiv].depth, uYriv[iRiv],
                            Ele[iEle].z_surf + Riv[iRiv].zbank, RivSeg[i].Cwr, RivSeg[i].length, Ele[iEle].depression);
     /* S3a.1/S3a.2 (PR-9): redundant `QrivSurf[iRiv] += QsegSurf[i]` and
-     * `Qe2r_Surf[iEle] += -QsegSurf[i]` deleted. PassValue() (MD_f.cpp)
+     * `Qe2r_Surf[iEle] += -QsegSurf[i]` deleted. PassValue_legacy() (MD_f.cpp)
      * zeros these arrays then re-accumulates the same sums from
      * QsegSurf — these writes were double-accumulation. */
 
@@ -125,7 +125,7 @@ void Model_Data::fun_Seg_sub( int iEle, int iRiv, int i){
                              RivSeg[i].length,Riv[iRiv].BedThick);
     QsegSub[i] *= fu_Sub[iEle];
     /* S3a.3/S3a.4 (PR-9): redundant `QrivSub[iRiv] += QsegSub[i]` and
-     * `Qe2r_Sub[iEle] += -QsegSub[i]` deleted. PassValue() zeros these
+     * `Qe2r_Sub[iEle] += -QsegSub[i]` deleted. PassValue_legacy() zeros these
      * then re-accumulates from QsegSub — these writes were
      * double-accumulation. fun_Seg_sub is now a PURE FUNCTION that only
      * computes QsegSub[i] (no accumulator side-effects). */

@@ -68,7 +68,7 @@ static_assert(sizeof(ShudSnapshotRecordHeader) == 12,
  *   SHUD_DUMP_SITE          default "f_update"
  *   SHUD_DUMP_FNAME_SUFFIX  default "" (empty); when non-empty filename
  *                           becomes snapshot_t<v>_<suffix>.bin instead of
- *                           snapshot_t<v>.bin. Used by #43 before-PassValue
+ *                           snapshot_t<v>.bin. Used by #43 before-PassValue_legacy
  *                           probe to coexist with existing f_update goldens
  *                           in same output dir without collision. Suffix
  *                           MUST NOT contain '/' or '\\' (path traversal
