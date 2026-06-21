@@ -1442,3 +1442,49 @@ skip-path in `Model_Data::malloc_EleRiv()` and `MD_initialize::LoadIC()`.
 - Multi-thread (`NUM_OPENMP > 1`) bitwise — deferred to A3a + later
   milestones (this PR attests `NUM_OPENMP=1` bitwise only).
 
+### S5d.4 review-fix follow-up (#182 PR-13 review verifier verdicts)
+
+Three review findings closed before merge, all surgical edits to outer
+`tools/` shell wrappers — no SHUD numerical-path change, hence the
+self-cite SHA bump is the only entry that lands in SHUD; the wrapper
+files live in the outer repo.
+
+| Finding | Severity | File                  | Fix |
+|---------|----------|-----------------------|-----|
+| M1      | MAJOR    | `tools/run_omp.sh`    | Replace POSIX `:=` colon-form with `=` so operator-set empty strings are preserved (design D5 "do not strip user testing knobs"). The L46-47 comment is now correct under the new code. |
+| M2      | MAJOR    | `tools/numa_check.sh` | (a) Compute `warning_state` BEFORE the emit pipeline so the LHS-subshell scope problem does not lose the WARNING decision; (b) emit the `[NUMA] WARNING:` line ONCE from the producer block (was duplicated: once via `tee`, once via stderr-only printf); (c) exit code 3 on multi-socket + `OMP_PROC_BIND` unset (was always 0); (d) summary `numa_first_touch: OK` line now reports the bind value AND socket count for traceability. |
+| m4      | MINOR    | `tools/run_omp.sh`    | Move zero-arg `[[ $# -eq 0 ]]` guard to TOP of script so a bare `tools/run_omp.sh` invocation emits only the ERROR line, not also the env state echo. |
+| M3      | SUGGESTION | `tools/numa_check.sh` | One-line load-bearing comment above `socket_count` extraction noting the downstream string-comparison contract. |
+
+Verifier verdicts (Mac local + server cn07):
+
+- Mac local empty-preserve: `OMP_PROC_BIND="" OMP_PLACES="" OMP_NUM_THREADS=""` → stderr `[OMP] PROC_BIND=, PLACES=, NUM_THREADS=` (was `close, cores, 1` under `:=`). PASS.
+- Mac local default-apply: unset → `[OMP] PROC_BIND=close, PLACES=cores, NUM_THREADS=1`. PASS.
+- Mac local zero-args: bare `tools/run_omp.sh` → ONLY `[OMP] ERROR: no command provided ...` on stderr (no env-echo prefix). exit 2. PASS.
+- Mac local single-socket `tools/numa_check.sh`: exit 0, summary contains exactly `socket_count: 1` + `numa_first_touch: N/A (single-socket UMA)`. PASS.
+- Mac local 4-case 90d NUM_OPENMP=1 bitwise vs B1a-tag re-run after fix: 8/8 PASS (4 cases × 2 modes); identical SHAs to PR-12 (#199) row-for-row — confirms tooling change is numerical no-op.
+- Server cn07 dual-socket `tools/numa_check.sh` (Slurm-submitted): with `unset OMP_PROC_BIND` → exit 3, summary contains BOTH `numa_first_touch: WARNING (OMP_PROC_BIND unset on 2-socket host)` AND `[NUMA] WARNING: ... Use tools/run_omp.sh.` (single copy each, no duplicate); with `OMP_PROC_BIND=close` → exit 0, summary contains `numa_first_touch: OK (OMP_PROC_BIND=close on 2-socket host)`. PASS.
+- Server heihe / heihe_x4 bitwise NOT re-run (tooling change is shell wrappers; no SHUD numerical-path touch, regression risk = 0).
+
+### Residual / deferred to #183 or follow-up
+
+Review verifier flagged additional polish items below; all are real but
+non-BLOCKER and explicitly out of scope for PR-13. Tracked for #183 or
+a dedicated tooling-hardening PR:
+
+- (m2) `OMP_NUM_THREADS=0` is allowed by current wrapper (would be a
+  user error); deferred — adding numeric / non-empty validation would
+  expand scope.
+- (m3) `OMP_PROC_BIND=true` is allowed by current wrapper but is not a
+  documented spec value; deferred.
+- (m5) `check_omp_env.py` pyyaml-missing path returns the same exit
+  code as schema-fail; deferred — splitting is cosmetic for CI gates.
+- (s1) `pyyaml` install pattern (bare-python3 + `python3 -m pip install
+  pyyaml`) is duplicated across `check_omp_env.py` and the older
+  `check_hot_fields.py`; deferred consolidation.
+- (s2) `[OMP]` log-token taxonomy could land in `openspec/glossary.md`;
+  deferred.
+- (s3) `numactl --hardware` non-zero exit currently swallowed via
+  `|| true` so the summary still lands; deferred — making this a hard
+  fail would surprise the existing CI gate path.
+
