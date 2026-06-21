@@ -172,7 +172,7 @@ ON build (`make clean && make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS`):
 ## S5c-C (#175) — nFCall vs nfe channel separation
 
 **SHUD commits**: c2395c3 (initial S5c-C changes), plus a second commit appending server validation numbers (see git log on `openmp-baseline`).
-- Comment added at f.cpp:56 documenting nFCall = RHS kernel entry counter (Model_Data.hpp L58).
+- Comment block inserted above f.cpp:61 (`MD->nFCall++;`) documenting nFCall = RHS kernel entry counter (Model_Data.hpp L58).
 - shud.cpp emits nFCall to `<output>/nfcall.txt` (independent of cvode_stats.txt 15-key snapshot).
 
 ### Per-case nFCall vs nfe documentation (Task 1.6)

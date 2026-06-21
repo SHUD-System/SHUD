@@ -395,7 +395,7 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     /* S5c-C (#175): nFCall channel emission in the uncouple path. Same
      * rationale as the main SHUD() path above — single nfcall.txt next
      * to cvode_stats.txt, NOT a 15-key column. MD->nFCall is the single
-     * global free-running counter (incremented inside f() at Model/f.cpp:62);
+     * global free-running counter (incremented inside f() at Model/f.cpp:61);
      * f_surf/f_unsat/f_gw/f_river/f_lake increment the alt counters
      * nFCall1..5 which are NOT shipped per spec (out of scope). */
     {
