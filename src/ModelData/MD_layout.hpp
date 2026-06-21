@@ -46,8 +46,8 @@
  *   - Per-Element layout uses flat int/double arrays. NumEle-sized arrays
  *     hold scalars; arrays with 3 slots are flattened as
  *     `<name>_flat[NumEle * 3]` accessed at index (3*i + j) per index
- *     convention; matches existing PassValue deterministic_gather idiom
- *     for hot-loop predictability.
+ *     convention; matches the existing rhs_deterministic_gather() row-major
+ *     idiom for hot-loop predictability.
  *   - Bitwise contract: ElementHotData populated values SHALL match
  *     _Element source values bit-for-bit (no rounding, no cast loss).
  *     DEBUG builds assert via initialize_hot() and sync_hot_dynamic().
