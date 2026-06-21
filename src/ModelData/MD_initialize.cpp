@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <stdio.h>  /* S5d.3 (#181) — printf for [NUMA] first-touch token */
 #include "ModelConfigure.hpp"
 #include "IO.hpp"
 #include "functions.hpp"
@@ -12,6 +13,13 @@
                               * present. Init-time only — no runtime
                               * behavior change (PR-11 / S3c will consume
                               * the lists in rhs_deterministic_gather). */
+
+/* S5d.3 (#181) — see Model_Data.cpp for the gate semantics. LoadIC()
+ * appends a fourth first-touch site after IC values are populated so
+ * the page residency of yEle* / yRivStg / yLakeStg moves from the
+ * master thread to the prospective worker threads (design D4 + master
+ * plan §S5d.3 L1413 "LoadIC 串行加载后额外做一次 parallel touch"). */
+extern int g_numa_first_touch_enabled;
 
 void Model_Data::LoadIC(){
     for (int i = 0; i < NumEle; i++) {
@@ -116,6 +124,32 @@ void Model_Data::LoadIC(){
         yEleSnowCanopy[i] = Ele[i].VegFrac * yEleSnow[i];
     }
     Sub2Global(yEleSurf, yEleUnsat, yEleGW, yRivStg, yLakeStg, NumEle, NumRiv, NumLake);
+
+    /* S5d.3 (#181) — fourth first-touch site: re-touch the IC arrays
+     * that were just populated by the serial switch above so their
+     * Linux NUMA-page residency moves from the master thread to the
+     * worker threads that will own those slots in parallel RHS. The
+     * read-then-write self-assignment is a no-op for the heap state
+     * (bitwise-safe at NUM_OPENMP=1: schedule(static) makes thread 0
+     * the sole iterator, so the write order is identical to the
+     * serial baseline). */
+    if (g_numa_first_touch_enabled) {
+        printf("[NUMA] first-touch begin tag=LoadIC\n"); fflush(stdout);
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < NumEle; ++i) {
+            double v0 = yEleIS[i];          yEleIS[i] = v0;
+            double v1 = yEleSnow[i];        yEleSnow[i] = v1;
+            double v2 = yEleSurf[i];        yEleSurf[i] = v2;
+            double v3 = yEleUnsat[i];       yEleUnsat[i] = v3;
+            double v4 = yEleGW[i];          yEleGW[i] = v4;
+            double v5 = yEleSnowGrnd[i];    yEleSnowGrnd[i] = v5;
+            double v6 = yEleSnowCanopy[i];  yEleSnowCanopy[i] = v6;
+            double v7 = yEleWetFront[i];    yEleWetFront[i] = v7;
+        }
+    } else {
+        printf("[NUMA] first-touch skipped: OMP_PROC_BIND unset (1 site: LoadIC)\n");
+        fflush(stdout);
+    }
 }
 void Model_Data::SetIC2Y(N_Vector udata){
     /* PUT the values into CV_Y */

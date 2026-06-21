@@ -38,17 +38,54 @@ int global_fflush_mode = 0;
 int global_implicit_mode = 1;
 int global_verbose_mode = 1;
 int lakeon = 0; /* Whether lake module ON(1), OFF(0) */
+/* S5d.3 (#181) — NUMA first-touch gate. 1 = OMP_PROC_BIND was set at
+ * startup so threads have a deterministic core affinity and Linux
+ * first-touch page policy can route SoA pages to the consumer thread's
+ * local NUMA node; 0 = OMP_PROC_BIND unset (design R3 mitigation #2:
+ * skip parallel first-touch entirely to keep behaviour deterministic
+ * and bitwise-identical to the serial baseline). Set ONCE at SHUD()
+ * entry from getenv("OMP_PROC_BIND") and read by malloc_EleRiv() /
+ * LoadIC() before each parallel first-touch loop. */
+int g_numa_first_touch_enabled = 0;
 using namespace std;
+
+/* S5d.3 (#181) — deterministic NUMA log-token emitter, called once at
+ * the start of every SHUD() entry point. Spec L75-77 grep ordering
+ * assertion requires "[NUMA] OMP_PROC_BIND=" to appear BEFORE any
+ * "[NUMA] first-touch begin" line — that ordering is satisfied by the
+ * call sequence in SHUD()/SHUD_uncouple(): emit_numa_token() ->
+ * MD->initialize() (which calls malloc_EleRiv with 3 first-touch
+ * sites) -> MD->LoadIC() (1 first-touch site). */
+static void emit_numa_token(void){
+    const char *bind = getenv("OMP_PROC_BIND");
+    if (bind != NULL && bind[0] != '\0') {
+        printf("[NUMA] OMP_PROC_BIND=%s\n", bind);
+        g_numa_first_touch_enabled = 1;
+    } else {
+        printf("[NUMA] OMP_PROC_BIND=unset\n");
+        printf("[NUMA] WARNING: OMP_PROC_BIND unset - skipping first-touch optimization for determinism guarantee.\n");
+        g_numa_first_touch_enabled = 0;
+    }
+    fflush(stdout);
+}
+
 double SHUD(FileIn *fin, FileOut *fout){
     double ret = 0.;
     Model_Data  *MD;        /* Model Data                */
     N_Vector    udata;
     N_Vector    du;
-    
+
+    /* S5d.3 (#181) — emit deterministic NUMA log token + set
+     * g_numa_first_touch_enabled BEFORE any malloc_EleRiv / LoadIC
+     * call so spec L75-77 grep ordering assertion holds:
+     *   min_line('[NUMA] OMP_PROC_BIND=') < min_line('[NUMA] first-touch begin')
+     */
+    emit_numa_token();
+
     SUNContext sunctx;
     ret = SUNContext_Create(NULL, &sunctx);
     check_flag(&ret, "SUNContext_Create", 1);
-    
+
     void    *mem = NULL;
     SUNLinearSolver LS = NULL;
     int     flag;            /* flag to test return value */
@@ -220,6 +257,12 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     Model_Data  *MD;        /* Model Data                */
     N_Vector    u1, u2, u3, u4, u5;
     N_Vector    du1, du2, du3, du4, du5;
+
+    /* S5d.3 (#181) — same NUMA token + gate emit as in SHUD() (kept
+     * symmetric so uncouple-path runs also satisfy the L75-77 grep
+     * ordering assertion). */
+    emit_numa_token();
+
     SUNContext sunctx1, sunctx2, sunctx3, sunctx4, sunctx5;
     ret = SUNContext_Create(NULL, &sunctx1);check_flag(&ret, "SUNContext_Create", 1);
     ret = SUNContext_Create(NULL, &sunctx2);check_flag(&ret, "SUNContext_Create", 1);

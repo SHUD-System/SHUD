@@ -1,6 +1,13 @@
 #include "Model_Data.hpp"
 #include "is_sm_et.hpp"
 #include <cassert> /* S5d.1 (#178) — DEBUG asserts in initialize_hot() */
+#include <cstdio>  /* S5d.3 (#181) — printf for [NUMA] first-touch tokens */
+
+/* S5d.3 (#181) — NUMA first-touch gate set in shud.cpp emit_numa_token()
+ * at SHUD() entry. Read here in malloc_EleRiv() to decide whether to
+ * run parallel first-touch loops (1) or skip them (0; OMP_PROC_BIND
+ * unset — design R3 mitigation #2). */
+extern int g_numa_first_touch_enabled;
 
 Model_Data::Model_Data(){
 }
@@ -222,6 +229,121 @@ void Model_Data::malloc_EleRiv(){
     hot.Albedo          = new double[NumEle];
     hot.Rough           = new double[NumEle];
     hot.ImpAF           = new double[NumEle];
+
+    /* S5d.3 (#181) — parallel first-touch initialization. THREE entry
+     * points per master plan §S5d.3 L1411-L1413 + design D4:
+     *   (1) hot.* SoA fields                       (this block, below)
+     *   (2) QeleSurf_flat / QeleSub_flat etc.      (next block)
+     *   (3) _Element AoS Ele[] placement-new touch (last block)
+     * Each is gated by g_numa_first_touch_enabled — when OMP_PROC_BIND
+     * is unset at SHUD() entry the gate stays 0 and ALL three blocks
+     * fall through to the serial path so the binary is byte-identical
+     * to the pre-#181 baseline (spec L79-81 + L83-85 scenario).
+     *
+     * Writes are zero-init (and assignment-back for AoS in entry 3) so
+     * downstream consumers (initialize_hot, LoadIC, RHS) see the same
+     * memory state as before. The "[NUMA] first-touch begin tag=<arr>"
+     * stdout tokens are emitted unconditionally per site so the log
+     * trace is uniform whether the gate is on or off — when off, the
+     * tag line is followed by `(skipped: OMP_PROC_BIND unset)` so
+     * `grep '[NUMA] first-touch begin'` still finds NO touch lines per
+     * spec L79-81. */
+    if (g_numa_first_touch_enabled) {
+        /* Entry (1): hot.* SoA arrays. Mirrors the field roster declared
+         * above so every owned array gets a touch. NumEle-sized arrays
+         * iterate i in [0,NumEle); flat3 arrays iterate i in [0,NumEle)
+         * then j in [0,3). schedule(static) keeps the iteration->thread
+         * mapping deterministic across runs at fixed NUM_OPENMP. */
+        printf("[NUMA] first-touch begin tag=hot.soa\n"); fflush(stdout);
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < NumEle; ++i) {
+            hot.area[i]           = 0.0;
+            hot.z_bottom[i]       = 0.0;
+            hot.z_surf[i]         = 0.0;
+            hot.iSoil[i]          = 0;
+            hot.iLC[i]            = 0;
+            hot.iMF[i]            = 0;
+            hot.iForc[i]          = 0;
+            hot.iLake[i]          = 0;
+            hot.iBC[i]            = 0;
+            hot.iSS[i]            = 0;
+            hot.FixPressure[i]    = 0.0;
+            hot.WetlandLevel[i]   = 0.0;
+            hot.RootReachLevel[i] = 0.0;
+            hot.depression[i]     = 0.0;
+            hot.QBC[i]            = 0.0;
+            hot.QSS[i]            = 0.0;
+            hot.windH[i]          = 0.0;
+            hot.u_qi[i]           = 0.0;
+            hot.u_qex[i]          = 0.0;
+            hot.u_effKH[i]        = 0.0;
+            hot.u_satn[i]         = 0.0;
+            hot.Sy[i]             = 0.0;
+            hot.VegFrac[i]        = 0.0;
+            hot.Albedo[i]         = 0.0;
+            hot.Rough[i]          = 0.0;
+            hot.ImpAF[i]          = 0.0;
+            for (int j = 0; j < 3; ++j) {
+                hot.nabr_flat[3*i + j]       = 0;
+                hot.lakenabr_flat[3*i + j]   = 0;
+                hot.edge_flat[3*i + j]       = 0.0;
+                hot.Dist2Nabor_flat[3*i + j] = 0.0;
+                hot.Dist2Edge_flat[3*i + j]  = 0.0;
+                hot.avgRough_flat[3*i + j]   = 0.0;
+            }
+        }
+
+        /* Entry (2): flat3 + NumEle flux scratch arrays allocated above
+         * (QeleSurf_flat / QeleSub_flat / QeleSurf_lake / QeleSub_lake
+         * + the NumEle-sized flux/state scratch arrays). They are
+         * overwritten by RHS evaluations / LoadIC, so a zero touch
+         * here is bitwise-safe. */
+        printf("[NUMA] first-touch begin tag=QeleSurf_flat\n"); fflush(stdout);
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < NumEle; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                QeleSurf_flat[3*i + j] = 0.0;
+                QeleSub_flat[3*i + j]  = 0.0;
+                QeleSurf_lake[3*i + j] = 0.0;
+                QeleSub_lake[3*i + j]  = 0.0;
+            }
+            QeleSurfTot[i]    = 0.0;
+            QeleSubTot[i]     = 0.0;
+            QoutSurf[i]       = 0.0;
+            Qe2r_Surf[i]      = 0.0;
+            Qe2r_Sub[i]       = 0.0;
+            qEleEvapo_lake[i] = 0.0;
+            qElePrep_lake[i]  = 0.0;
+        }
+
+        /* Entry (3): _Element AoS placement-new touch. `Ele = new
+         * _Element[NumEle]` was executed earlier in MD_readin.cpp:208
+         * during loadinput(); here we walk the same NumEle slots so
+         * each _Element's memory page is faulted in on the consumer
+         * thread per master plan §S5d.3 L1412 ("placement-new 之后
+         * 用 parallel 循环 touch 一次"). The touch is a self-assignment
+         * of one stable scalar field (`Ele[i].index` was already set
+         * during readin and is read-back-write here), which only
+         * exercises the page without changing any value.
+         *
+         * Bitwise safety: read-modify-write of an already-set int field
+         * with the same value is a no-op for the heap state. */
+        printf("[NUMA] first-touch begin tag=Ele_AoS\n"); fflush(stdout);
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < NumEle; ++i) {
+            int tmp = Ele[i].index;
+            Ele[i].index = tmp;
+        }
+    } else {
+        /* Per acceptance criterion (PR-9 message + spec L79-81): when
+         * OMP_PROC_BIND is unset the log MUST NOT contain ANY
+         * "[NUMA] first-touch begin" line so a grep of that exact
+         * pattern reports zero hits. We still emit a single audit-
+         * trail line per malloc_EleRiv invocation, but it uses the
+         * distinct "first-touch skipped" verb so the grep stays clean. */
+        printf("[NUMA] first-touch skipped: OMP_PROC_BIND unset (3 sites: hot.soa, QeleSurf_flat, Ele_AoS)\n");
+        fflush(stdout);
+    }
 }
 
 void Model_Data::initialize_hot() {
