@@ -55,7 +55,18 @@ using namespace std;
  * "[NUMA] first-touch begin" line — that ordering is satisfied by the
  * call sequence in SHUD()/SHUD_uncouple(): emit_numa_token() ->
  * MD->initialize() (which calls malloc_EleRiv with 3 first-touch
- * sites) -> MD->LoadIC() (1 first-touch site). */
+ * sites) -> MD->LoadIC() (1 first-touch site).
+ *
+ * S5d.4 (#182) — additional stderr WARNING emitted alongside the
+ * stdout [NUMA] OMP_PROC_BIND=unset token, satisfying spec
+ * s5d-data-layout-soa-numa Scenario "shud.cpp warning 路径生效"
+ * (Requirement "线程绑定 run script 与 manifest 字段必填"). The
+ * stdout token is preserved unchanged (PR #181 grep ordering gate
+ * keeps consuming it from the run log); the new stderr warning is
+ * the operator-facing channel matching design D5: program SHALL NOT
+ * override OMP_PROC_BIND, only surface its absence as a warning that
+ * points at tools/run_omp.sh as the fix. The wording embeds the
+ * exact spec phrase so the spec grep assertion is verbatim. */
 static void emit_numa_token(void){
     const char *bind = getenv("OMP_PROC_BIND");
     if (bind != NULL && bind[0] != '\0') {
@@ -64,6 +75,16 @@ static void emit_numa_token(void){
     } else {
         printf("[NUMA] OMP_PROC_BIND=unset\n");
         printf("[NUMA] WARNING: OMP_PROC_BIND unset - skipping first-touch optimization for determinism guarantee.\n");
+        /* S5d.4 (#182): stderr WARNING — operator-facing channel.
+         * Spec phrase verbatim: "OMP_PROC_BIND not set, NUMA
+         * first-touch may be ineffective." Append a pointer to the
+         * canonical fix (tools/run_omp.sh) so the user gets a
+         * one-step recovery without consulting docs. */
+        fprintf(stderr,
+                "[OMP] WARNING: OMP_PROC_BIND not set, NUMA "
+                "first-touch may be ineffective. Use "
+                "tools/run_omp.sh to set defaults.\n");
+        fflush(stderr);
         g_numa_first_touch_enabled = 0;
     }
     fflush(stdout);
