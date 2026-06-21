@@ -295,8 +295,9 @@ public:
      * row-major: at(i,j) ↔ `_flat[3*i + j]`, matching the
      * MD_layout.hpp flat-3 idiom. The CI grep gate
      * tools/check_manifest/check_no_bare_flat_index.py forbids bare
-     * `*_flat[3*i + j]` indexing in the three RHS hot-path TUs
-     * (MD_ElementFlux.cpp / MD_f.cpp / MD_ET.cpp) — every read/write
+     * `*_flat[3*i + j]` indexing in the 4 hot-path TUs
+     * (MD_ElementFlux.cpp / MD_f.cpp / MD_f_uncouple.cpp / MD_update.cpp)
+     * — every read/write
      * MUST go through these accessors. Rationale (design D3):
      * (a) one source for the index expression — index-flip bugs
      * (3*j+i vs 3*i+j) are caught by a single review of the accessor,

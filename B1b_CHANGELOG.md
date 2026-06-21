@@ -419,7 +419,7 @@ cases with heihe / heihe_x4 marked `residual_deferred`; spec has no
 such clause. Server runs added in this repair pass; Slurm 8575 on
 `cn08`.
 
-Local Mac (4 cases / 8 dat / `cn08` of localhost — Apple Silicon UMA):
+Local Mac (4 cases / 8 dat / Apple Silicon UMA localhost):
 
 | Case | dat | SHA256 vs B1a-tag | Result |
 |---|---|---|---|
@@ -432,7 +432,7 @@ Local Mac (4 cases / 8 dat / `cn08` of localhost — Apple Silicon UMA):
 | qhh | qhh.lakqrivout.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS |
 | qhh | qhh.lakystage.dat | `4fcebe3ad8b3d7a51633a766dd9b139b9ad86853aafeb87cb572d2752e0ca250` | PASS |
 
-Server (heihe + heihe_x4, Slurm 8575 on `cn08`, CPU partition,
+Server (heihe: Slurm 8575_0 on `cn08`; heihe_x4: Slurm 8585 on `cn03`; CPU partition,
 NUM_OPENMP=1, 90-day truncation):
 
 | heihe | heihe.rivqdown.dat | `55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f` | PASS |
@@ -444,9 +444,11 @@ Slurm job IDs:
 - heihe_x4 bitwise: 8585 on `cn03`, Elapsed 01:01:56 (bitwise phase 23:30:39 -> 23:50:48, ~20 min), ExitCode 0:0. Logs: `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_x4_bitwise/run.stdout.log` (+ `run.stderr.log`, `dat_sha256.txt`). Full job stdout: `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_x4_serial_8585.out`.
 
 Mac subtotal: 8/8 dat PASS across 4 cases.
-Server subtotal: see table above (Slurm 8575_0 + 8575_2).
+Server subtotal: 3/3 dat PASS (Slurm 8575_0 heihe bitwise + 8585 heihe_x4 bitwise phase).
 Grand total: 5 cases (keliya, xinanjiang_upstream, qinyijiang, qhh,
-heihe, heihe_x4) covered; kashigeer N/A per master plan.
+heihe, heihe_x4) — heihe_x4 is a heihe variant (4× refined mesh, not a
+separate case per `SHUD_openMP_master_plan.md` §1.1.1); kashigeer N/A per
+master plan.
 
 ### ASan + UBSan (5-case 90-day NUM_OPENMP=1, `halt_on_error=1`)
 Per spec L55-57 the gate is 5-case (kashigeer N/A) — PR #197 review
@@ -470,7 +472,7 @@ Mac local (4 cases):
 | qinyijiang | 0 | 0 | 0 | 0 | `SHUD/Basins/qinyijiang/sanitizer_report.txt` |
 | qhh | 0 | 0 | 0 | 0 | `SHUD/Basins/qhh/sanitizer_report.txt` |
 
-Server (heihe + heihe_x4, Slurm 8575 array tasks 1 + 3, `cn08`):
+Server (heihe: Slurm 8575_1 on `cn08`; heihe_x4: Slurm 8585 on `cn03`):
 
 | Case | ASan ERROR | UBSan ERROR | Sanitizer WARNING | Run exit | sanitizer_report.txt |
 |---|---|---|---|---|---|
