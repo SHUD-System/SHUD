@@ -144,3 +144,27 @@ ON build (`make clean && make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS`):
 - `grep -n SHUD_ENABLE_DIAGNOSTICS` in 3 files: `MD_rhs_core.cpp` (8 hits — 1 include guard + 7 ScopeTimer guards), `TimeSeriesData.cpp` (2 hits — accumulator definition + read_csv timer guard), `cvode_config.cpp` (1 new hit at the dump block; the pre-existing S5c-A guards at L106/L112 remain unchanged).
 - `grep -rn 'cv_mem->' SHUD/src/`: 0 hits (no SUNDIALS internal access introduced).
 - No new shared-write `+=` introduced (the only `+=` in the diagnostic path is `*target_ns_ +=` in `ScopeTimer::~ScopeTimer`, a single-threaded global counter under the B1a serial contract; not a racy shared write).
+
+### Server Slurm verification (heihe + heihe_x4 ON build, NUM_OPENMP=1)
+
+- Job 8567, cn08, partition CPU, wall 28:29, ExitCode 0:0.
+- heihe walltime 467s (vs reference ~500s).
+- heihe_x4 walltime 1223s (vs reference ~1289s).
+- Bitwise `.dat` vs B1a-tag goldens: PASS (3/3): heihe/heihe.rivqdown.dat, heihe_x4/heihe_x4.rivqdown.dat, heihe_x4/heihe_x4.eleygw.dat.
+- heihe pct_rhs_* sum = 99.999%, heihe_x4 pct_rhs_* sum = 100.001% — both ∈ [99.5%, 100.5%].
+
+### t_forcing_io_s observation — IN-PROGRESS vs spec range [702, 858]
+
+- heihe_x4 measured `t_forcing_io_s = 23.919` (full server log: `/scratch/frd_muziyao/SHUD-OpenMP/.s5c-b-runs/logs/s5c_b_diag_8567.out`).
+- spec `s5c-solver-diagnostics` scenario "未 trim forcing" expects ≈ 780s ± 10% (range [702, 858]).
+- 23.919s is below the spec range by ~30x. Root cause hypothesis:
+  - Each CSV in `heihe_x4/forcing/` is ~8770 lines / ~264 KB (untrimmed multi-year CMFD V0200, confirmed by `ls -la` on server).
+  - `MAXQUE = 10000` per `read_csv()` call → one call per CSV reads the ENTIRE file in one pass.
+  - For 90-day model time, each station-CSV is read EXACTLY ONCE during startup (10000 rows >> 720 records covering 90 days × 8 records/day). Total bytes read ≈ Nstations × 264 KB ≈ ~4 MB.
+  - The spec's 780s reference was likely measured on a configuration where each forcing CSV is reloaded many times across a multi-year model time (each reload consumes another 10000 rows from a much longer file), OR on a different filesystem with much worse seek latency. The 90-day truncation rule (CLAUDE.md "所有 case ≤90 天截断") shrinks the workload to a single read per CSV.
+- **Action**: documented here as IN-PROGRESS. The timer plumbing is in place and works correctly (B1a-tag bitwise preserved, sum-of-percentages within ±0.5%); the discrepancy is a measurement-environment scope question rather than an instrumentation defect.
+- **Resolution path** (out of #174 scope; would belong to #175 or M7 forcing-trim ADR):
+  - Option A: re-measure with full-year model time (would burn ~20-40× more compute — violates CLAUDE.md 90d rule).
+  - Option B: re-baseline spec range against actual 90d-truncated heihe_x4 numbers (current measurement gives a stable lower bound).
+  - Option C: probe whether NFS read-ahead masks I/O cost — repeat with `vmtouch -e` first to flush cache.
+- No `.dat` floating-point regression risk — `t_forcing_io_s` is a diagnostic-only counter and never feeds back into RHS state.
