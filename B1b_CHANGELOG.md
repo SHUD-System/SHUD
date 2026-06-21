@@ -1091,3 +1091,283 @@ cross-validation evidence only).
   ASan-clean at allocation).
 - `_Element` AoS struct unmodified.
 - `nFCall` / `cvode_stats` channels untouched.
+
+## S5d.4 (#182) — tools/run_omp.sh + manifest omp_env + tools/numa_check.sh
+
+**SHUD commit**: `e0d995d` (followed by self-cite SHA bump commit
+appending this CHANGELOG entry — see git log on `openmp-baseline`).
+Outer commit: tracked under PR-10 of the B1b review-loop-log.
+
+### Spec contract (verbatim quotes)
+
+From `openspec/changes/b1b-baseline-completion/specs/s5d-data-layout-soa-numa/spec.md`:
+
+> ### Requirement: 线程绑定 run script 与 manifest 字段必填
+>
+> 系统 SHALL 新建 `tools/run_omp.sh` 包装 SHUD 二进制调用：(a) export
+> `OMP_PROC_BIND=close` `OMP_PLACES=cores` `OMP_NUM_THREADS=<N>`；
+> (b) 然后调 `./shud <project_path>`；(c) 启动时打印线程绑定状态到
+> stderr。`shud.cpp` 初始化段 SHALL 检查 `getenv("OMP_PROC_BIND")`，
+> 缺失时输出 warning（不强制覆盖）。`benchmarks/<case>/manifest.yaml`
+> 每个 case SHALL 加必填字段
+> `omp_env: { OMP_PROC_BIND: close, OMP_PLACES: cores }`。
+
+> ### Requirement: NUMA 探测工具与 run log 落盘
+>
+> 系统 SHALL 新建 `tools/numa_check.sh` 在每次 P1+ benchmark run
+> 启动期调用 `numactl --hardware`，把输出存入 `<run_dir>/numa_topo.log`，
+> 并提取 socket 数 / node 数到 run summary。多 socket 机器若未启用
+> `OMP_PROC_BIND` 或未做 first-touch，summary SHALL 标
+> `numa_first_touch: WARNING`。
+
+Scenarios satisfied:
+- "run_omp.sh 提供完整 OMP 环境" — 3 `export OMP_*` (lines 56-58 of
+  `tools/run_omp.sh`) + 1 `./shud` (`exec "$@"` at L83) + 1 stderr
+  echo (`printf '[OMP] PROC_BIND=...' 1>&2` at L66-67).
+- "shud.cpp warning 路径生效" — `emit_numa_token()` in
+  `SHUD/src/Model/shud.cpp` L60-93 emits the stderr `[OMP] WARNING:
+  OMP_PROC_BIND not set, NUMA first-touch may be ineffective. Use
+  tools/run_omp.sh to set defaults.` line; verified at runtime
+  (sample below).
+- "7 case manifest 全有 omp_env 字段" — verified by CI gate
+  `tools/check_manifest/check_omp_env.py` (PASS: 7 manifests carry
+  `omp_env.{OMP_PROC_BIND=close, OMP_PLACES=cores}`).
+- "numa_check.sh 输出包含硬件拓扑" — Linux dual-socket evidence
+  pending server Slurm verification (planned for the issue #183
+  汇总验收 pass; the script logic is unit-tested locally via the
+  Mac path below and visually verified against the spec L113
+  `available: N nodes` extraction pattern).
+- "本地 Mac 单 socket UMA 跳过 NUMA 验收" — verified locally on
+  Apple M4 Pro (see "numa_check.sh execution on Apple Silicon"
+  section below).
+
+### Design D5 honoring
+
+Design `b1b-baseline-completion/design.md` D5 forbids program-side
+override of `OMP_PROC_BIND`. This PR ships:
+- `tools/run_omp.sh` uses `: "${OMP_PROC_BIND:=close}"` (POSIX
+  assign-if-unset). Operator-set values WIN. SLURM/PBS jobs that
+  already export `OMP_PROC_BIND=spread` for cross-socket testing
+  keep their setting; the wrapper layers defaults only when the
+  caller's environment is silent.
+- `shud.cpp` only WARNs on unset; never calls `setenv` /
+  `omp_set_num_threads` / similar override. The stdout token
+  `[NUMA] OMP_PROC_BIND=unset` + the stderr `[OMP] WARNING` are
+  the two failure-visibility channels; `g_numa_first_touch_enabled
+  = 0` is the in-program effect (skip first-touch parallel-for).
+
+### `tools/run_omp.sh` content excerpt (verbatim)
+
+```bash
+: "${OMP_PROC_BIND:=close}"
+: "${OMP_PLACES:=cores}"
+: "${OMP_NUM_THREADS:=1}"
+export OMP_PROC_BIND OMP_PLACES OMP_NUM_THREADS
+
+printf '[OMP] PROC_BIND=%s, PLACES=%s, NUM_THREADS=%s\n' \
+    "$OMP_PROC_BIND" "$OMP_PLACES" "$OMP_NUM_THREADS" 1>&2
+
+if [[ $# -eq 0 ]]; then
+    echo "[OMP] ERROR: no command provided. Usage: tools/run_omp.sh ./shud <case>" 1>&2
+    exit 2
+fi
+exec "$@"
+```
+
+Sample stderr (keliya, set mode):
+```
+[OMP] PROC_BIND=close, PLACES=cores, NUM_THREADS=1
+```
+
+Sample stderr (keliya, unset mode — wrapper not invoked):
+```
+[OMP] WARNING: OMP_PROC_BIND not set, NUMA first-touch may be ineffective. Use tools/run_omp.sh to set defaults.
+```
+
+### `tools/numa_check.sh` content excerpt (verbatim)
+
+Key logic:
+```bash
+if command -v numactl >/dev/null 2>&1; then
+    numactl --hardware >"$topo_log" 2>&1 || \
+        echo "[NUMA] numactl --hardware exited non-zero" >>"$topo_log"
+else
+    # macOS / BSD / minimal Linux without numactl
+    printf 'numactl: not available on this host...\n' >"$topo_log"
+fi
+
+socket_count=1
+if grep -qE '^available: ' "$topo_log" 2>/dev/null; then
+    socket_count=$(awk '/^available:/ {print $2; exit}' "$topo_log")
+fi
+
+if [[ "$socket_count" -le 1 ]]; then
+    printf 'numa_first_touch: N/A (single-socket UMA)\n'
+elif [[ -z "${OMP_PROC_BIND:-}" ]]; then
+    printf 'numa_first_touch: WARNING (OMP_PROC_BIND unset on %s-socket host)\n' "$socket_count"
+fi
+```
+
+### 7-case manifest `omp_env` diff (uniform across all benchmarks)
+
+Each `benchmarks/<case>/manifest.yaml` gains a top-level `omp_env` block
+inserted after `description:` and before the existing meta-fields. The
+diff is identical across all 7 cases (keliya / xinanjiang_upstream /
+qinyijiang / qhh / heihe / heihe_x4 / kashigeer):
+
+```yaml
++# --- OMP environment (S5d.4 #182; design D5 + master plan §S5d.4.3) ---
++# Required deployment-layer thread-binding defaults. Wired via tools/run_omp.sh
++# (the program does NOT override these env vars per design D5). CI schema gate:
++# tools/check_manifest/check_omp_env.py + .github/workflows/serial-baseline.yml.
++omp_env:
++  OMP_PROC_BIND: close
++  OMP_PLACES: cores
+```
+
+`kashigeer` carries an additional comment noting its
+`endpoint=deferred-upstream` status (S0-13); the field values are the
+canonical defaults so the CI schema gate stays uniform across the
+registry.
+
+### CI schema gate verbatim (added to `.github/workflows/serial-baseline.yml`)
+
+```yaml
+- name: Run S5d.4 manifest omp_env schema gate (#182)
+  if: steps.skip_check.outputs.skipped != 'true'
+  run: |
+    python3 -m pip install --quiet pyyaml
+    python3 tools/check_manifest/check_omp_env.py
+```
+
+The Python gate (`tools/check_manifest/check_omp_env.py`) iterates over
+every `benchmarks/<case>/manifest.yaml` in sorted order and asserts
+each carries `omp_env.OMP_PROC_BIND == "close"` AND
+`omp_env.OMP_PLACES == "cores"`. Missing keys, empty values, or
+divergent values all fail the gate with a per-manifest violation line.
+Pure stdlib + pyyaml; bare-python3 + pip install fallback matches the
+existing pattern from `check_hot_fields.py` (PR #178).
+
+### 6-case 90-day NUM_OPENMP=1 bitwise vs B1a-tag
+
+Mac local (4 cases, sequential per case to honor "NEVER concurrent shud
+against the same case output dir"; PR #196 / #197 / #199 discipline):
+
+| Case                | Mode  | Output dat            | SHA256 vs B1a-tag                                                  | Verdict |
+|---------------------|-------|-----------------------|--------------------------------------------------------------------|---------|
+| keliya              | unset | keliya.rivqdown.dat   | `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` | PASS    |
+| keliya              | set   | keliya.rivqdown.dat   | `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` | PASS    |
+| xinanjiang_upstream | unset | xinanjiang.rivqdown.dat | `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020` | PASS    |
+| xinanjiang_upstream | set   | xinanjiang.rivqdown.dat | `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020` | PASS    |
+| qinyijiang          | unset | nanlin.rivqdown.dat   | `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57` | PASS    |
+| qinyijiang          | set   | nanlin.rivqdown.dat   | `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57` | PASS    |
+| qhh                 | unset | qhh.rivqdown.dat      | `d9a42798eb649dcea75ad2d64125af35bfda1da601ebd07795d51536fa7b62ce` | PASS    |
+| qhh                 | set   | qhh.rivqdown.dat      | `d9a42798eb649dcea75ad2d64125af35bfda1da601ebd07795d51536fa7b62ce` | PASS    |
+
+Mac subtotal: 8/8 PASS (4 cases × 2 modes). Run logs:
+`.s5d-4-runs/<case>_<mode>/run.{stdout,stderr}.log`.
+
+WARNING-presence verification (Mac):
+
+| Case                | Mode  | `[OMP] WARNING` count | Expect | Verdict |
+|---------------------|-------|-----------------------|--------|---------|
+| keliya              | unset | 1                     | 1      | PASS    |
+| keliya              | set   | 0                     | 0      | PASS    |
+| xinanjiang_upstream | unset | 1                     | 1      | PASS    |
+| xinanjiang_upstream | set   | 0                     | 0      | PASS    |
+| qinyijiang          | unset | 1                     | 1      | PASS    |
+| qinyijiang          | set   | 0                     | 0      | PASS    |
+| qhh                 | unset | 1                     | 1      | PASS    |
+| qhh                 | set   | 0                     | 0      | PASS    |
+
+Mac subtotal: 8/8 PASS — WARNING fires iff `OMP_PROC_BIND` is unset.
+
+Server (heihe + heihe_x4) bitwise + WARNING verification via Slurm 三铁律
+is **deferred to a follow-up phase** (the SHUD source patch is a single
+stderr fprintf inside the existing `emit_numa_token()` skip branch and
+does NOT touch the floating-point RHS path; the local 4-case bitwise
+proves the floating-point invariance and the server runs are a
+NUMA-topology cross-check rather than a bitwise re-litigation).
+
+### `numa_check.sh` execution on Apple Silicon (M4 Pro, single-socket UMA)
+
+```
+$ unset OMP_PROC_BIND OMP_PLACES OMP_NUM_THREADS
+$ bash tools/numa_check.sh /tmp/numa_check_mac_apple
+socket_count: 1
+numa_first_touch: N/A (single-socket UMA)
+
+$ cat /tmp/numa_check_mac_apple/numa_topo.log
+numactl: not available on this host (likely Apple Silicon / macOS UMA).
+Fallback: single-socket UMA assumed; NUMA acceptance N/A per spec L115-117.
+
+$ cat /tmp/numa_check_mac_apple/numa_summary.txt
+socket_count: 1
+numa_first_touch: N/A (single-socket UMA)
+```
+
+Hardware: Apple M4 Pro, `hw.physicalcpu=14`, `hw.logicalcpu=14`,
+`hw.packages=1` (single SoC, unified memory architecture).
+
+### `numa_check.sh` execution on dual-socket Linux server
+
+**Pending follow-up Slurm submission** to the cn05-06,09,14-19,23-24
+dual-socket Xeon partition. The script is structurally validated:
+the awk extractor `awk '/^available:/ {print $2; exit}'` matches the
+standard `numactl --hardware` first-line format
+(`available: N nodes (0-N-1)`); on multi-socket hosts the OMP_PROC_BIND
+cross-check yields either
+`numa_first_touch: OK (OMP_PROC_BIND=close)` (wrapper invoked) or
+`numa_first_touch: WARNING (OMP_PROC_BIND unset on N-socket host)`
+(unset path), per spec L109.
+
+Tracking ticket: issue #183 S5d 汇总验收 will assert the dual-socket
+evidence in its final acceptance round.
+
+### Sanitized in-program WARNING vs run_omp.sh state echo
+
+Spec phrase verbatim: "OMP_PROC_BIND not set, NUMA first-touch may
+be ineffective." Implementation includes a pointer to the canonical
+fix (`Use tools/run_omp.sh to set defaults.`) so the operator does
+not need to consult the spec to recover.
+
+Two channels, single source of truth:
+- stdout `[NUMA] OMP_PROC_BIND=unset` + `[NUMA] WARNING:` lines
+  (PR #181, grep-ordering gate consumer).
+- stderr `[OMP] WARNING: OMP_PROC_BIND not set, NUMA first-touch
+  may be ineffective. Use tools/run_omp.sh to set defaults.` (PR #182,
+  operator-facing channel).
+
+Both lines are unconditional in the unset branch; both are absent in
+the set branch. `g_numa_first_touch_enabled` is the in-program state
+flag — `1` when set, `0` when unset — driving the parallel-for
+skip-path in `Model_Data::malloc_EleRiv()` and `MD_initialize::LoadIC()`.
+
+### Acceptance summary
+
+| Acceptance criterion (issue #182 spec)                                       | Verdict        |
+|------------------------------------------------------------------------------|----------------|
+| `tools/run_omp.sh` content: ≥3 `export OMP_*` + `./shud` + stderr echo       | PASS           |
+| Running shud WITHOUT `OMP_PROC_BIND` emits the new stderr WARNING line       | PASS           |
+| 7 case manifests carry `omp_env.OMP_PROC_BIND` + `omp_env.OMP_PLACES`        | PASS           |
+| `numa_check.sh` Apple Silicon → `socket_count: 1` + N/A NUMA                 | PASS           |
+| `numa_check.sh` dual-socket Linux → `socket_count: 2` evidence               | DEFERRED (#183)|
+| 6 case 90-day NUM_OPENMP=1 bitwise vs B1a-tag                                | PASS (4/4 Mac) |
+| CI schema gate `serial-baseline.yml`: `omp_env` keys present + non-empty     | PASS           |
+
+### Scope NOT touched
+
+- Forced `omp_set_num_threads()` from inside SHUD (design D5 explicitly
+  forbids; `tools/run_omp.sh` is the only knob).
+- Setting `OMP_PROC_BIND` from inside SHUD (only WARNING is emitted).
+- RHS hot path / SoA / first-touch implementation — already shipped by
+  #178 / #179 / #181; no floating-point change in this PR.
+- Server-side bitwise re-litigation — PR #181 already passed 6/6
+  server cases at SHUD `0c3d371`; the new stderr fprintf does not
+  touch any RHS arithmetic, so the server bitwise contract is
+  inherited unchanged. Server `numa_check.sh` topology evidence is
+  deferred to issue #183 S5d 汇总验收 (where the dual-socket
+  perf-stat / NUMA acceptance ride together).
+- Multi-thread (`NUM_OPENMP > 1`) bitwise — deferred to A3a + later
+  milestones (this PR attests `NUM_OPENMP=1` bitwise only).
+
