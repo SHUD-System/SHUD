@@ -38,6 +38,19 @@
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
 #endif
+/* S5c-B (#174): RHS 7-bucket diagnostic timer. Header is empty under
+ * default (SHUD_ENABLE_DIAGNOSTICS undefined) — zero new code in hot
+ * path, zero floating-point change, B1a-tag bitwise contract intact. */
+#include "MD_diagnostics.hpp"
+
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+namespace shud_diag {
+/* Definition of the 7-bucket nanosecond accumulators declared in
+ * MD_diagnostics.hpp. Single TU storage — single-threaded driver makes
+ * this race-free under B1a contract. */
+long long g_rhs_timer_ns[RHS_BUCKET_COUNT] = {0, 0, 0, 0, 0, 0, 0};
+}  // namespace shud_diag
+#endif
 
 void Model_Data::rhs_update(double *Y, double *DY, double t){
     for (int i = 0; i < NumEle; i++) {
@@ -166,6 +179,17 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
  * split inside rhs_flux"). */
 void Model_Data:: rhs_flux(double t){
     int i;
+    /* S5c-B (#174): 5 inner buckets (ET / lateral / segment / river /
+     * gather) are scoped via `shud_diag::ScopeTimer`. The block braces
+     * are pre-existing in some loops (none here) so we add explicit
+     * `{ }` to scope each ScopeTimer to exactly one phase. Under
+     * `SHUD_ENABLE_DIAGNOSTICS` undefined, the timer macros expand to
+     * nothing — the loop bodies and brace nesting are unchanged. */
+    {
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+        shud_diag::ScopeTimer _t_et(
+            &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_ET]);
+#endif
     for (i = 0; i < NumEle; i++) {
         if(lakeon && Ele[i].iLake > 0){
             /* Lake elements */
@@ -189,6 +213,12 @@ void Model_Data:: rhs_flux(double t){
             fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
         }
     }
+    } /* end ET bucket */
+    {
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+        shud_diag::ScopeTimer _t_lat(
+            &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_LATERAL]);
+#endif
     for (i = 0; i < NumEle; i++) {
         if(lakeon && Ele[i].iLake > 0){
             /* Lake elements */
@@ -199,10 +229,22 @@ void Model_Data:: rhs_flux(double t){
             fun_Ele_sub(i, t);
         }
     } //end of for loop.
+    } /* end lateral bucket */
+    {
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+        shud_diag::ScopeTimer _t_seg(
+            &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_SEGMENT]);
+#endif
     for (i = 0; i < NumSegmt; i++) {
         fun_Seg_surface(RivSeg[i].iEle-1, RivSeg[i].iRiv-1, i);
         fun_Seg_sub(RivSeg[i].iEle-1, RivSeg[i].iRiv-1, i);
     }
+    } /* end segment bucket */
+    {
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+        shud_diag::ScopeTimer _t_riv(
+            &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_RIVER]);
+#endif
     for (i = 0; i < NumRiv; i++) {
         Flux_RiverDown(t, i);
     }
@@ -228,6 +270,7 @@ void Model_Data:: rhs_flux(double t){
         qLakeEvap[i] = min(qLakeEvap[i], qLakePrcp[i] + yLakeStg[i]);
         qLakeEvap[i] = max(0, qLakeEvap[i]);
     }
+    } /* end river bucket (incl. lake transitional gather + clamp) */
     /* #43 (S1-pre-B): before-PassValue_legacy probe. Dumps Qe2r_Surf
      * (length NumEle), a PassValue_legacy() write-set member that carries
      * the previous iteration's element-to-river surface flux state.
@@ -254,7 +297,13 @@ void Model_Data:: rhs_flux(double t){
      * (PR-10) to do all segment->river/element + downstream river +
      * lake river-in/surf/sub gathering, with bitwise-preserved
      * iteration order. */
-    rhs_deterministic_gather();
+    {
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+        shud_diag::ScopeTimer _t_gather(
+            &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_GATHER]);
+#endif
+        rhs_deterministic_gather();
+    } /* end gather bucket */
 #ifdef SHUD_DUMP_RHS
     shud_rhs_dump_point("f_loop", t, NULL, 0);
 #endif
@@ -533,9 +582,27 @@ void Model_Data::rhs_apply(double *DY, double t){
 void Model_Data::rhs_core(double *Y, double *DY, double t, ExecPolicy policy){
     switch (policy) {
         case ExecPolicy::Serial:
-            rhs_update(Y, DY, t);
+            /* S5c-B (#174): bucket 0 (update) + bucket 6 (applyDY) are
+             * wrapped at the dispatch seam; buckets 1-5 are wrapped
+             * inside rhs_flux(). rhs_flux as a whole is NOT timed as a
+             * single bucket — its 5 inner sub-phases collectively cover
+             * it, so the sum of the 7 buckets equals the wall time of
+             * rhs_core's Serial branch (modulo std::chrono overhead). */
+            {
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+                shud_diag::ScopeTimer _t_upd(
+                    &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_UPDATE]);
+#endif
+                rhs_update(Y, DY, t);
+            }
             rhs_flux(t);
-            rhs_apply(DY, t);
+            {
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+                shud_diag::ScopeTimer _t_app(
+                    &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_APPLYDY]);
+#endif
+                rhs_apply(DY, t);
+            }
             break;
 #ifdef SHUD_ENABLE_OPENMP_RHS
         case ExecPolicy::StrictOMP:

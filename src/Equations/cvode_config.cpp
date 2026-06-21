@@ -1,5 +1,8 @@
 
 #include "cvode_config.hpp"
+/* S5c-B (#174): RHS 7-bucket + forcing I/O wall-clock timer dumps.
+ * Header is empty under default (SHUD_ENABLE_DIAGNOSTICS undefined). */
+#include "../Model/MD_diagnostics.hpp"
 
 int check_flag(void *flagvalue, const char *funcname, int opt)
 {
@@ -123,6 +126,42 @@ void PrintFinalStats(void *cvode_mem, FILE *fout)
         check_flag(&flag, "CVodeGetLastOrder", 1);
         fprintf(fout, "hlast=%.17g\n", (double)hlast);
         fprintf(fout, "qlast=%d\n",    qlast);
+
+        /* S5c-B (#174): RHS 7-bucket + forcing I/O wall-clock dump.
+         * Sum of pct_rhs_* SHALL ∈ [99.5%, 100.5%] per spec scenario
+         * "7 个 bucket 输出完整时间分布". Buckets 0-6 are defined in
+         * MD_diagnostics.hpp; their accumulators live in
+         * MD_rhs_core.cpp (g_rhs_timer_ns) and TimeSeriesData.cpp
+         * (g_forcing_io_ns). All values are integer nanoseconds — no
+         * floating-point arithmetic in the timer path itself; the
+         * percentage / seconds renders below are post-run diagnostics
+         * and never feed back into RHS state. */
+        long long t_total_ns = 0;
+        for (int i = 0; i < shud_diag::RHS_BUCKET_COUNT; ++i) {
+            t_total_ns += shud_diag::g_rhs_timer_ns[i];
+        }
+        fprintf(fout, "t_rhs_update=%lld\n",  shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_UPDATE]);
+        fprintf(fout, "t_rhs_ET=%lld\n",      shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_ET]);
+        fprintf(fout, "t_rhs_lateral=%lld\n", shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_LATERAL]);
+        fprintf(fout, "t_rhs_segment=%lld\n", shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_SEGMENT]);
+        fprintf(fout, "t_rhs_river=%lld\n",   shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_RIVER]);
+        fprintf(fout, "t_rhs_gather=%lld\n",  shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_GATHER]);
+        fprintf(fout, "t_rhs_applyDY=%lld\n", shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_APPLYDY]);
+        fprintf(fout, "t_rhs_total=%lld\n",   t_total_ns);
+        /* Percentages — division by 0 only possible if no RHS call was
+         * ever made, which would mean the run never started; emit 0.0
+         * defensively rather than NaN. */
+        double total_d = (t_total_ns > 0) ? (double)t_total_ns : 1.0;
+        fprintf(fout, "pct_rhs_update=%.3f\n",  100.0 * (double)shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_UPDATE]  / total_d);
+        fprintf(fout, "pct_rhs_ET=%.3f\n",      100.0 * (double)shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_ET]      / total_d);
+        fprintf(fout, "pct_rhs_lateral=%.3f\n", 100.0 * (double)shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_LATERAL] / total_d);
+        fprintf(fout, "pct_rhs_segment=%.3f\n", 100.0 * (double)shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_SEGMENT] / total_d);
+        fprintf(fout, "pct_rhs_river=%.3f\n",   100.0 * (double)shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_RIVER]   / total_d);
+        fprintf(fout, "pct_rhs_gather=%.3f\n",  100.0 * (double)shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_GATHER]  / total_d);
+        fprintf(fout, "pct_rhs_applyDY=%.3f\n", 100.0 * (double)shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_APPLYDY] / total_d);
+        /* Forcing I/O — separate channel, NOT included in t_rhs_total. */
+        fprintf(fout, "t_forcing_io_ns=%lld\n", shud_diag::g_forcing_io_ns);
+        fprintf(fout, "t_forcing_io_s=%.3f\n", (double)shud_diag::g_forcing_io_ns / 1.0e9);
 #endif
     }
 }

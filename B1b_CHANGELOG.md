@@ -68,3 +68,79 @@ Verdict: every lake-side accumulator is zero-reset before any `+=` accumulation,
 - `grep -rnE '\bPassValue\b' SHUD/src/` → **0 hits** (PR-11 #155 retired `PassValue_legacy` in favor of `rhs_deterministic_gather`).
 - New shared-write `+=` introduced in this PR → **0** (verified by reading the only edit in S5b — the printf wrap — which adds no compound-assignment or shared-write expression).
 - Pre-existing `+=` patterns in `MD_rhs_core.cpp` / `MD_f.cpp` (PR-9/PR-10/PR-11 vintage): all live inside `rhs_deterministic_gather()` (driven by S4 adjacency lists) or per-lake gather loops (driven by per-element scratch slots); none are racy shared writes under the B1a sequential contract.
+
+## S5c-B — RHS 7-bucket timer + forcing I/O timer (#174)
+
+### Compile macro + scope
+
+- New macro `SHUD_ENABLE_DIAGNOSTICS` (already introduced PR-1 #173 for `hlast`/`qlast`) reused as the single switch. Default build (macro undefined) emits ZERO new code in RHS hot path and ZERO new symbols — verified by SHA256 bitwise pass on 4 cases (keliya / xinanjiang_upstream / qinyijiang / qhh) vs B1a-tag goldens.
+- Macro `SHUD_ENABLE_PROFILE` (the prior coarse-grained `t_RHS_total` / `t_RHS_kernel` RAII scaffolding in `f.cpp` and `shud.cpp`) is left untouched per PR-12 #174 boundary; it remains an independent channel for outer-loop wall-clock work.
+
+### RHS 7-bucket timer (Task 1.3)
+
+7 buckets per master plan §S5c L1366: `update` / `ET` / `lateral` / `segment` / `river` / `gather` / `applyDY`.
+
+| Bucket | Source region | File:lines |
+|---|---|---|
+| `update`  | `rhs_update()` whole call | `src/Model/MD_rhs_core.cpp` `rhs_core` Serial branch |
+| `ET`      | `rhs_flux()` pass-1 element loop: `f_etFlux` + `updateElement` + `fun_Ele_Infiltraion` + `fun_Ele_Recharge` (+ lake `updateLakeElement` + `fun_Ele_lakeVertical` + per-element scratch slot writes) | `MD_rhs_core.cpp` `rhs_flux` |
+| `lateral` | `rhs_flux()` pass-2 element loop: `fun_Ele_surface` + `fun_Ele_sub` (+ lake `fun_Ele_lakeHorizon`) | `MD_rhs_core.cpp` `rhs_flux` |
+| `segment` | `rhs_flux()` segment loop: `fun_Seg_surface` + `fun_Seg_sub` | `MD_rhs_core.cpp` `rhs_flux` |
+| `river`   | `rhs_flux()` river loop: `Flux_RiverDown` + lake transitional gather (`qLakeEvap`/`qLakePrcp` reset/`+=`/clamp) | `MD_rhs_core.cpp` `rhs_flux` |
+| `gather`  | `rhs_deterministic_gather()` whole call | `MD_rhs_core.cpp` `rhs_flux` tail |
+| `applyDY` | `rhs_apply()` whole call | `MD_rhs_core.cpp` `rhs_core` Serial branch |
+
+Implementation:
+- Storage: a single global `long long g_rhs_timer_ns[7]` defined in `src/Model/MD_rhs_core.cpp` and declared `extern` in `src/Model/MD_diagnostics.hpp`. Integer nanoseconds — no floating-point arithmetic in the timer path.
+- Measurement: `shud_diag::ScopeTimer` (RAII) wraps `std::chrono::steady_clock::now()` at entry / exit and adds the elapsed `nanoseconds` to the target accumulator on destruction. Header-only class in `MD_diagnostics.hpp`.
+- Gating: ALL 7 `ScopeTimer` declarations are inside `#ifdef SHUD_ENABLE_DIAGNOSTICS` blocks. The braces of each scope are present unconditionally (they only create a new C++ scope; the compiler discards an empty scope at -O*). Verified by `grep -n SHUD_ENABLE_DIAGNOSTICS SHUD/src/Model/MD_rhs_core.cpp` returning the 7 expected pre-include + per-bucket guards.
+- Bitwise neutrality: under default build (macro undefined), each `ScopeTimer` declaration line is preprocessed away — zero ctor/dtor instances, zero memory writes to `g_rhs_timer_ns`, the variable itself has zero linker presence. Verified ON-build dat outputs also bitwise == B1a-tag (chrono reads steady_clock outside the FP pipeline; integer accumulators never feed back).
+
+Output dump in `cvode_config.cpp::PrintFinalStats()` (extending the existing `#ifdef SHUD_ENABLE_DIAGNOSTICS` block):
+- 7 `t_rhs_*=<ns>` keys
+- `t_rhs_total=<ns>` (sum of 7 buckets)
+- 7 `pct_rhs_*=<%.3f>` keys (each bucket / total × 100; defensive `/1.0` if total==0 to avoid NaN)
+- Sum of 7 pct values targeted ∈ [99.5%, 100.5%] per spec.
+
+Local keliya 90d ON run (NUM_OPENMP=1):
+- 7 ns values + 7 pct values present; sum of pct = `5.992 + 56.333 + 14.473 + 5.734 + 2.983 + 3.184 + 11.301 = 100.000` (exact).
+- Distribution dominated by ET bucket (56.3%) which matches expectation: per-element ET + infiltration + recharge is the densest arithmetic kernel.
+
+### Forcing I/O timer (Task 1.4)
+
+- Storage: a single global `long long g_forcing_io_ns` defined in `src/classes/TimeSeriesData.cpp` and declared `extern` in `MD_diagnostics.hpp`. Independent channel from the 7-bucket RHS array (separate name, NOT included in `t_rhs_total`).
+- Measurement site: `_TimeSeriesData::read_csv()` whole-function scope (wraps both `if(!eof)` and early-return path — early-return cost is essentially zero, the scope timer adds a single steady_clock read + write).
+- Accumulates across every forcing CSV file load for the entire run: ~16 forcing files × ~Length/MAXQUE reloads per CSV. Single-threaded driver per S5a movePointer audit — no race.
+- Output: 2 keys `t_forcing_io_ns=<ns>` and `t_forcing_io_s=<%.3f>` appended after the 7-bucket block in `cvode_stats.txt`.
+
+Local keliya 90d ON run: `t_forcing_io_s = 3.430` (small basin, ~7 weather stations × 1-2 file reloads per 90-day window).
+
+### cvode_stats.txt key layout (post S5c-B)
+
+Default (`#undef SHUD_ENABLE_DIAGNOSTICS`): 15 keys (B1a-tag invariant — PR-12 froze this).
+
+With `-DSHUD_ENABLE_DIAGNOSTICS` (ON):
+- 15 default keys
+- 2 from PR-1 #173 (S5c-A): `hlast` / `qlast`
+- 7 bucket ns + 1 sum ns + 7 bucket pct = 15 from S5c-B
+- 2 forcing I/O = `t_forcing_io_ns` / `t_forcing_io_s`
+- Total = 34 keys
+
+`nFCall` (RHS call counter) is NOT emitted in this PR — deferred to #175 per design.md D10.
+
+### Verification (local, NUM_OPENMP=1, 90-day truncated)
+
+OFF build (`make clean && make shud`):
+- Compile clean (only pre-existing sprintf-deprecation warnings).
+- 4 cases bitwise vs B1a-tag goldens: PASS (8/8 `.dat` files: keliya.rivqdown, xinanjiang.rivqdown, xinanjiang.eleygw, nanlin.rivqdown, qhh.rivqdown, qhh.lakqrivin, qhh.lakqrivout, qhh.lakystage).
+
+ON build (`make clean && make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS`):
+- Compile clean (same pre-existing warnings, none new from S5c-B).
+- 4 cases bitwise vs B1a-tag: PASS (8/8 same files).
+- keliya `cvode_stats.txt` has all 7 `t_rhs_*` + `t_rhs_total` + 7 `pct_rhs_*` + `t_forcing_io_ns` + `t_forcing_io_s` keys. Sum of `pct_rhs_*` = 100.000% ∈ [99.5%, 100.5%].
+
+### Grep gates (Task 1.x)
+
+- `grep -n SHUD_ENABLE_DIAGNOSTICS` in 3 files: `MD_rhs_core.cpp` (8 hits — 1 include guard + 7 ScopeTimer guards), `TimeSeriesData.cpp` (2 hits — accumulator definition + read_csv timer guard), `cvode_config.cpp` (1 new hit at the dump block; the pre-existing S5c-A guards at L106/L112 remain unchanged).
+- `grep -rn 'cv_mem->' SHUD/src/`: 0 hits (no SUNDIALS internal access introduced).
+- No new shared-write `+=` introduced (the only `+=` in the diagnostic path is `*target_ns_ +=` in `ScopeTimer::~ScopeTimer`, a single-threaded global counter under the B1a serial contract; not a racy shared write).

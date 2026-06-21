@@ -2,6 +2,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "TimeSeriesData.hpp"
+/* S5c-B (#174): forcing I/O wall-clock timer. Header is empty under
+ * default (SHUD_ENABLE_DIAGNOSTICS undefined). Accumulator definition
+ * lives in this TU so that link order against MD_rhs_core.cpp's
+ * 7-bucket array remains independent. */
+#include "../Model/MD_diagnostics.hpp"
+
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+namespace shud_diag {
+/* Aggregate wall-clock time spent inside read_csv() across every
+ * forcing CSV file load for the entire run. Single-threaded driver
+ * (movePointer call-site audit, S5a B1b_CHANGELOG) — no race. */
+long long g_forcing_io_ns = 0;
+}  // namespace shud_diag
+#endif
 
 void CheckFile(std::ifstream * fp, const char *s)
 {
@@ -44,6 +58,12 @@ void _TimeSeriesData::initialize(int n)
 }
 void _TimeSeriesData::read_csv()
 {
+#ifdef SHUD_ENABLE_DIAGNOSTICS
+    /* Whole-function timer. Includes the early-return path when
+     * `eof` is set (zero-length measurement at first call after EOF),
+     * matching the spec scenario "forcing I/O timer 独立 channel". */
+    shud_diag::ScopeTimer _t_io(&shud_diag::g_forcing_io_ns);
+#endif
     if (!eof) {
         std::ifstream file(fn);
         CheckFile(&file, fn.c_str());
