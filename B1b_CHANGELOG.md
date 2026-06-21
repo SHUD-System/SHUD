@@ -533,3 +533,178 @@ were appended).
 - `tools/run_omp.sh` / NUMA manifest fields — deferred to S5d.4.
 - nFCall / cvode_stats channels untouched.
 - `_Element` AoS struct unmodified.
+
+## S5d.2-5b — selective small-array SoA fold-in + Riv/RivSeg audit (#180)
+
+### Scope
+Audit-only PR per spec L45-47 ("Riv/RivSeg 内部小数组审计落地") +
+L1401-L1403. The audit examines (a) `_Element.iupdGW[3]` /
+`_Element.iupdSF[3]` access frequency in the RHS hot path, and (b)
+`_River` / `RiverSegement` internal `double[N]` / `double*` member fields
+for SoA fold-in candidacy. The audit returns NEGATIVE on all three
+scopes (see `docs/topology_manifest.yaml` `s5d2_riv_audit` section for
+the full per-member decision matrix); ZERO source-layout changes were
+made to `MD_layout.hpp` / `Element.hpp` / `River.{hpp,cpp}` /
+`Model_Data.hpp`. The PR is an audit-attestation + manifest-
+documentation PR.
+
+### Audit findings (full table → `docs/topology_manifest.yaml` `s5d2_riv_audit`)
+
+| Member | Active hot-path reads | Active hot-path writes | Decision | Rationale |
+|---|---|---|---|---|
+| `Ele[].iupdGW[3]` | 0 | 0 | keep-AoS | dead field — only 2 commented-out hits in repo (MD_rhs_core.cpp:84, MD_update.cpp:92); folding wastes 12 bytes/element with zero hot-path payoff |
+| `Ele[].iupdSF[3]` | 0 | 0 | keep-AoS | same dead-field pattern (MD_rhs_core.cpp:83, MD_update.cpp:91 commented) |
+| `_River` / `river_para` | N/A — no `double[N]` / `double*` member exists | N/A | no-RiverHotData-SoA | River.hpp L26-93 audit: every field is a plain `int` / `double` scalar. Only `double *x` hit (L39) is a function param, not a member. 74 hot-path accesses spread across .BC ×20, .u_CSarea ×10, .u_TopArea ×9, .qBC ×9, .yBC ×8, ..., all plain scalars |
+| `RiverSegement` | N/A — no `double[N]` / `double*` member exists | N/A | no-RiverHotData-SoA | River.hpp L95-104 audit: 7 plain scalar fields. 14 hot-path accesses to .iRiv ×10, .iEle ×10, .length ×2, .Cwr ×1, all plain scalars |
+
+Per the spec scenario L45-47 the SoA fold-in trigger is the existence of
+`double[N]` / `double*` MEMBER FIELDS with hot-path access — that
+trigger does NOT fire on `_River` / `RiverSegement` (no such member
+exists). A potential generic NumRiv / NumSegmt-sized scalar SoA is a
+cache-locality optimisation orthogonal to the "small-array fold-in"
+spec scenario; deferred to a post-B1b ADR (NumRiv typically 1-2 orders
+of magnitude smaller than NumEle — keliya 484/121, heihe 6335/~1500 —
+so payoff is likely below noise floor).
+
+### Audit reproducibility
+Method: static grep + manual cross-reference over the RHS hot-path TU
+universe (`MD_f.cpp`, `MD_f_uncouple.cpp`, `MD_ElementFlux.cpp`,
+`MD_RiverFlux.cpp`, `MD_update.cpp`, `MD_rhs_core.cpp`,
+`Flux_RiverElement.cpp`). Comment lines (`//`) excluded. See
+`docs/topology_manifest.yaml` `s5d2_riv_audit.audit_reproducibility`
+for the exact grep recipes (4 shell snippets).
+
+```
+# iupdGW / iupdSF audit (expect 3 hits each: 1 decl + 2 commented)
+grep -rn 'iupdGW' SHUD/src/
+grep -rn 'iupdSF' SHUD/src/
+
+# _River / RiverSegement member arrays audit (expect 0 array/pointer members)
+grep -nE 'double\s+\*|double\s+[A-Za-z_]+\s*\[|int\s+\*|int\s+[A-Za-z_]+\s*\[' \
+  SHUD/src/classes/River.hpp
+```
+
+### Files changed (SHUD submodule, on `openmp-baseline`)
+None. SHUD HEAD unchanged at `8a577b7` (= post-PR-7 #197 HEAD). The
+S5d.2-5b audit is an outer-repo + topology_manifest-only PR.
+
+### Files changed (outer repo, on `feat/issue-180-b1b-s5d-2-5b`)
+- `docs/topology_manifest.yaml`: append `s5d2_riv_audit` section
+  (header + 3 sub-sections + reproducibility + global_verdict)
+- `SHUD/B1b_CHANGELOG.md` (this entry)
+
+### Verification (5-case 90-day NUM_OPENMP=1 vs B1a-tag worktree golden; kashigeer N/A)
+
+No source code changed; all 5 cases bitwise-match B1a-tag because no
+floating-point path moved. SHAs match those reported in PR #197 (#179
+S5d.2-5a) row-for-row.
+
+Mac local (4 cases) using `make shud` at SHUD HEAD `8a577b7`:
+
+| Case | dat | SHA256 | vs B1a-tag |
+|---|---|---|---|
+| keliya | keliya.rivqdown.dat | `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` | PASS |
+| xinanjiang_upstream | xinanjiang.rivqdown.dat | `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020` | PASS |
+| xinanjiang_upstream | xinanjiang.eleygw.dat | `f6e86f013f4f92d1c99429eafb27ec38cc7fc417e6d7d9aeef1725f8fa0a46a1` | PASS |
+| qinyijiang | nanlin.rivqdown.dat | `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57` | PASS |
+| qhh | qhh.rivqdown.dat | `d9a42798eb649dcea75ad2d64125af35bfda1da601ebd07795d51536fa7b62ce` | PASS |
+| qhh | qhh.lakqrivin.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS |
+| qhh | qhh.lakqrivout.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS |
+| qhh | qhh.lakystage.dat | `4fcebe3ad8b3d7a51633a766dd9b139b9ad86853aafeb87cb572d2752e0ca250` | PASS |
+
+Mac subtotal: 8/8 dat PASS across 4 cases. Run script:
+`.s5d-2-5b-runs/run_bitwise.sh` (cloned from PR-3 #177 script and
+re-staged under this PR's run dir). Run log: `.s5d-2-5b-runs/run_bitwise.log`.
+
+Server (heihe + heihe_x4) via Slurm 三铁律, sbatch FROM /scratch with
+`--output=/scratch/...` `--error=/scratch/...`:
+
+| Case | dat | SHA256 | vs B1a-tag |
+|---|---|---|---|
+| heihe | heihe.rivqdown.dat | `55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f` | PASS |
+| heihe_x4 | heihe_x4.eleygw.dat | `192b0da4deacdf9218690cc501835033b181988e5399ef2d085fc083e17beece` | PASS |
+| heihe_x4 | heihe_x4.rivqdown.dat | `f90601ef5738b972d688016ba1ee74f92ecb54faddaf46e4e2232f9d46567524` | PASS |
+
+Server subtotal: 3/3 dat PASS (Slurm 8611 heihe bitwise phase + 8612
+heihe_x4 bitwise phase).
+
+### ASan + UBSan (5-case 90-day NUM_OPENMP=1, `halt_on_error=1`)
+
+Run command (Mac):
+```
+make shud_asan && ASAN_OPTIONS='detect_leaks=0:halt_on_error=1:print_stacktrace=1' \
+  UBSAN_OPTIONS='print_stacktrace=1:halt_on_error=1' \
+  OMP_NUM_THREADS=1 ../../shud_asan <case> 2> sanitizer_report.txt
+```
+
+Per `<run_dir>/sanitizer_report.txt` per spec literal text.
+
+Mac local (4 cases):
+
+| Case | ASan ERROR | UBSan ERROR | Sanitizer WARNING | Run exit | sanitizer_report.txt |
+|---|---|---|---|---|---|
+| keliya | 0 | 0 | 0 | 0 | `SHUD/Basins/keliya/sanitizer_report.txt` |
+| xinanjiang_upstream | 0 | 0 | 0 | 0 | `SHUD/Basins/xinanjiang_upstream/sanitizer_report.txt` |
+| qinyijiang | 0 | 0 | 0 | 0 | `SHUD/Basins/qinyijiang/sanitizer_report.txt` |
+| qhh | 0 | 0 | 0 | 0 | `SHUD/Basins/qhh/sanitizer_report.txt` |
+
+Note on keliya: 18 `^WARNING::` lines in `sanitizer_report.txt` are
+PRE-EXISTING SHUD application-level mesh-quality stderr (`WARNING:: Aqd
+of Node(18) = 0.000000` ...) — NOT sanitizer warnings (no
+`AddressSanitizer.*WARNING:` / `UndefinedBehaviorSanitizer.*WARNING:`
+hits). Same pattern observed under B1a-tag and PR #197. The
+sanitizer-warning gate is 0/0/0 across all 4 Mac cases.
+
+Server (heihe + heihe_x4 via Slurm 三铁律):
+
+| Case | ASan ERROR | UBSan ERROR | Sanitizer WARNING | Run exit | sanitizer_report.txt |
+|---|---|---|---|---|---|
+| heihe | 0 | 0 | 0 | 0 | `SHUD/Basins/heihe/sanitizer_report.txt` on server (mirrored from `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5b-runs/heihe_sanitizer/sanitizer_report.txt`; `SHUD/Basins/` is gitignored and not on Mac) |
+| heihe_x4 | 0 | 0 | 0 | 0 | `SHUD/Basins/heihe_x4/sanitizer_report.txt` on server (mirrored from `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5b-runs/heihe_x4_sanitizer/sanitizer_report.txt`; `SHUD/Basins/` is gitignored and not on Mac) |
+
+Slurm job IDs:
+- heihe   serial: 8611 on `cn03`, COMPLETED 30:55, ExitCode 0:0.
+  Phase A (bitwise) `01:16:01 -> 01:24:29` (~8m); Phase B (sanitizer)
+  `01:24:29 -> 01:46:56` (~22m). Logs:
+  `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5b-runs/heihe_bitwise/run.stdout.log`,
+  `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5b-runs/heihe_sanitizer/sanitizer_report.txt`
+  + `sanitizer_attestation.txt`.
+- heihe_x4 serial: 8612 on `cn03`, COMPLETED 01:04:13, ExitCode 0:0.
+  Phase A (bitwise) `01:16:01 -> 01:36:51` (~20m); Phase B (sanitizer)
+  `01:36:52 -> 02:20:14` (~43m). Logs:
+  `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5b-runs/heihe_x4_bitwise/run.stdout.log`,
+  `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5b-runs/heihe_x4_sanitizer/sanitizer_report.txt`
+  + `sanitizer_attestation.txt`.
+
+sbatch scripts: `.s5d-2-5b-runs/run_heihe_serial.sbatch` +
+`.s5d-2-5b-runs/run_heihe_x4_serial.sbatch` (single-job
+serial-pipeline pattern per CLAUDE.md "NEVER spawn concurrent shud
+processes against the same case output dir"; inherits PR #197 pattern).
+
+### Grep gate outputs (local pre-push)
+No new grep gate added (audit returns negative; nothing to enforce in
+RHS hot path). Pre-existing #178 + #179 gates continue to PASS at
+SHUD HEAD `8a577b7`:
+```
+$ python3 tools/check_manifest/check_hot_fields.py
+PASS: 32 hot fields declared in MD_layout.hpp
+PASS: RHS 3 files have 0 Ele[..].<hot-field> hits
+$ python3 tools/check_manifest/check_no_bare_flat_index.py
+PASS: 4 hot-path files have 0 bare QeleSurf_flat[...] / QeleSub_flat[...] indexing
+```
+
+### Verified against SHUD HEAD
+SHUD HEAD = `8a577b7` on `openmp-baseline` (= post-PR-7 #197 HEAD; this
+PR makes ZERO SHUD-side changes).
+
+### Scope NOT touched
+- `_Element.iupdGW[3]` / `_Element.iupdSF[3]` — DEAD fields, kept on AoS
+  per audit; folding adds bytes without benefit.
+- `_River` / `RiverSegement` AoS layout — preserved unchanged; no
+  `double[N]` / `double*` member existed to fold.
+- No new `RiverHotData` SoA in `MD_layout.hpp` (audit returns negative).
+- parallel first-touch initialization in `malloc_EleRiv` — deferred to
+  #181 S5d.3.
+- `tools/run_omp.sh` / NUMA manifest fields — deferred to S5d.4.
+- nFCall / cvode_stats channels untouched.
+- `_Element` AoS struct unmodified.
