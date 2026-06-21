@@ -298,9 +298,16 @@ as `double **` in `Model_Data.hpp`) into single contiguous row-major
 `double *QeleSurf_flat` / `double *QeleSub_flat` blocks sized `NumEle*3`.
 Introduce inline accessors `QeleSurfAt(i, j)` / `QeleSubAt(i, j)` and
 route ALL RHS hot-path access through them; bare `_flat[3*i + j]`
-indexing in the three RHS hot-path TUs (`MD_ElementFlux.cpp` / `MD_f.cpp`
-/ `MD_ET.cpp`) is forbidden by a new CI grep gate
-`tools/check_manifest/check_no_bare_flat_index.py`.
+indexing in the four hot-path TUs that actually touch
+`QeleSurfAt` / `QeleSubAt` (`MD_ElementFlux.cpp` / `MD_f.cpp` /
+`MD_f_uncouple.cpp` / `MD_update.cpp`) is forbidden by a new CI
+grep gate `tools/check_manifest/check_no_bare_flat_index.py`.
+(PR #197 review A-S2: the original draft listed `MD_ET.cpp` and
+`MD_rhs_core.cpp`; audit grep confirmed `MD_ET.cpp` contains zero
+Q-array references and `MD_rhs_core.cpp` does not exist in this
+tree — both removed from the gate's `HOT_PATH_FILES` list.
+`MD_f_uncouple.cpp` and `MD_update.cpp`, which DO call the
+accessors, were added.)
 
 Out of scope (per #179 + spec):
 - `Ele[].iupdGW[3]` / `iupdSF[3]` SoA decision — deferred to #180
@@ -323,12 +330,15 @@ Out of scope (per #179 + spec):
 - `src/ModelData/MD_readin.cpp` (`FreeData`) — symmetric single
   `delete[] QeleSurf_flat` / `delete[] QeleSub_flat`; nested per-row
   loop removed.
-- `src/classes/Model_Control.hpp` + `Model_Control.cpp` — add flat-array
-  `InitIJ(...double *x_flat, int j, ...)` overloads (2 overloads:
-  unconditional + flag-IO). Bitwise equivalent to the existing `double**`
-  overload — both store the SAME memory address `&(x[i][j])` (jagged) =
-  `&(x_flat[3*i + j])` (flat) into the PrintCtrl slot; dat output is
-  byte-identical at every print step.
+- `src/classes/Model_Control.hpp` + `Model_Control.cpp` — replace the
+  legacy `double**`-based `InitIJ(...double **x, int j, ...)` overloads
+  with flat-array `InitIJ(...double *x_flat, int j, ...)` overloads
+  (2 overloads: unconditional + flag-IO). PrintCtrl points to the same
+  logical (i, j) slot in both forms; writes go through
+  `QeleSurfAt(i, j) ≡ _flat[3*i + j]` and reads through
+  `*PrintVar[k]` alias correctly — dat output bitwise-identical to the
+  pre-flatten build. The legacy `double**` overloads were deleted in the
+  same PR (review A-S1: post-flatten grep showed zero callers).
 - `src/ModelData/MD_initialize.cpp` — switch the 6 PCtrl call sites that
   emit `ele_Q_sub{0,1,2}` / `ele_Q_surf{0,1,2}` from `QeleSub` /
   `QeleSurf` (the old jagged `double**`) to `QeleSub_flat` /
@@ -339,12 +349,13 @@ Out of scope (per #179 + spec):
   write) flipped to `QeleSurfAt(i, j)` / `QeleSubAt(i, j)` accessors.
 - `src/ModelData/MD_f.cpp` — 4 hot-path sites (`f_update` zero-loop,
   `f_applyDYi` total sum) flipped to accessors.
-- `src/Model/MD_rhs_core.cpp` — 6 hot-path sites (`rhs_update` zero-loop,
-  `rhs_apply` total sum) flipped to accessors.
 - `src/ModelData/MD_update.cpp` — 2 sites (`f_update` zero-loop) flipped
   to accessors.
 - `src/ModelData/MD_f_uncouple.cpp` — 2 sites (`f_applyDY_gw` /
   `f_applyDYi` total sum) flipped to accessors.
+- `src/Model/MD_rhs_core.cpp` — not present in this tree (legacy file
+  retired by S2 capstone PR-8 #152). The corresponding hot-path code
+  lives in `MD_f.cpp` and is covered above.
 - `Makefile` — new `shud_asan` target wrapping the standard `shud` build
   recipe with `-fsanitize=address,undefined -fno-omit-frame-pointer`
   (compile + link), via a dedicated `SHUD_ASAN_FLAGS` variable that
@@ -354,10 +365,14 @@ Out of scope (per #179 + spec):
 
 ### Files changed (outer repo, on `feat/issue-179-b1b-s5d-2-5a`)
 - `tools/check_manifest/check_no_bare_flat_index.py` — new grep gate
-  asserting the 3 RHS hot-path TUs use accessors only; 0 bare
-  `QeleSurf_flat[...]` / `QeleSub_flat[...]` indexing. Pure stdlib
-  (no PyYAML dep), invoked via `python3 ...` directly per CI exception
-  comment.
+  asserting the 4 hot-path TUs that touch QeleSurf/QeleSub use accessors
+  only; 0 bare `QeleSurf_flat[...]` / `QeleSub_flat[...]` indexing.
+  Pure stdlib (no PyYAML dep), invoked via `python3 ...` directly per
+  CI exception comment. `HOT_PATH_FILES` =
+  `[MD_ElementFlux.cpp, MD_f.cpp, MD_f_uncouple.cpp, MD_update.cpp]`
+  (PR #197 review A-S2 / B-B5: original draft used a 3-file `RHS_FILES`
+  variable name including `MD_ET.cpp` which has zero Q-array references;
+  the gate was renamed and expanded to cover all real call sites).
 - `.github/workflows/serial-baseline.yml` —
   (a) wire the new accessor grep gate at Step 4 alongside
       `check_hot_fields.py`;
@@ -372,7 +387,9 @@ Out of scope (per #179 + spec):
       `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1` +
       `UBSAN_OPTIONS=halt_on_error=1`; asserts 0 ASan ERROR + 0 UBSan
       ERROR + 0 sanitizer WARNING via grep counts on stderr; uploads
-      `sanitizer_run_<case>.stderr.log` artifact on failure.
+      `sanitizer_run_<case>.stderr.log` artifact unconditionally
+      (`if: always() && <gating>`, PR #197 review B-B2 — spec L55-57
+      makes the sanitizer log a deliverable on green runs too).
 
 ### Sizes (per-case bytes)
 The jagged form for `QeleSurf` alone allocated `(NumEle + 1)` separate
@@ -394,35 +411,77 @@ Same totals apply to `QeleSub`. Net per-case allocation count drops
 contiguous span, eliminating the indirection-per-access on inner-row
 load.
 
-### Verification (Mac local 4-case 90-day NUM_OPENMP=1 vs B1a-tag worktree golden)
-- `keliya/keliya.rivqdown.dat` =
-  `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc`
-  PASS
-- `xinanjiang_upstream/xinanjiang.eleygw.dat` =
-  `f6e86f013f4f92d1c99429eafb27ec38cc7fc417e6d7d9aeef1725f8fa0a46a1`
-  PASS
-- `xinanjiang_upstream/xinanjiang.rivqdown.dat` =
-  `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020`
-  PASS
-- `qinyijiang/nanlin.rivqdown.dat` =
-  `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57`
-  PASS
-- `qhh/qhh.rivqdown.dat` PASS (90d truncated)
-- `qhh/qhh.lakqrivin.dat` PASS
-- `qhh/qhh.lakqrivout.dat` PASS
-- `qhh/qhh.lakystage.dat` PASS
+### Verification (5-case 90-day NUM_OPENMP=1 vs B1a-tag worktree golden; kashigeer N/A)
+Per spec L129-131 the S5d.2 commit MUST pass 5-case bitwise (the
+benchmark set minus kashigeer, which is N/A per master plan).
+PR #197 review A-B1 (CONFIRMED): the original draft had only 4 Mac
+cases with heihe / heihe_x4 marked `residual_deferred`; spec has no
+such clause. Server runs added in this repair pass; Slurm 8575 on
+`cn08`.
 
-Total: 8/8 PASS across 4 cases (keliya / xinanjiang_upstream /
-qinyijiang / qhh). Server `heihe` + `heihe_x4` verification deferred
-to capstone #188 (server reachability not validated in this PR loop).
+Local Mac (4 cases / 8 dat / `cn08` of localhost — Apple Silicon UMA):
 
-### ASan + UBSan (Mac local 2-case 90-day NUM_OPENMP=1)
-Run via `make shud_asan && ASAN_OPTIONS='detect_leaks=0:halt_on_error=1:print_stacktrace=1' UBSAN_OPTIONS='print_stacktrace=1:halt_on_error=1' ../../shud_asan <case>`.
+| Case | dat | SHA256 vs B1a-tag | Result |
+|---|---|---|---|
+| keliya | keliya.rivqdown.dat | `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` | PASS |
+| xinanjiang_upstream | xinanjiang.rivqdown.dat | `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020` | PASS |
+| xinanjiang_upstream | xinanjiang.eleygw.dat | `f6e86f013f4f92d1c99429eafb27ec38cc7fc417e6d7d9aeef1725f8fa0a46a1` | PASS |
+| qinyijiang | nanlin.rivqdown.dat | `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57` | PASS |
+| qhh | qhh.rivqdown.dat | `d9a42798eb649dcea75ad2d64125af35bfda1da601ebd07795d51536fa7b62ce` | PASS |
+| qhh | qhh.lakqrivin.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS |
+| qhh | qhh.lakqrivout.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS |
+| qhh | qhh.lakystage.dat | `4fcebe3ad8b3d7a51633a766dd9b139b9ad86853aafeb87cb572d2752e0ca250` | PASS |
 
-| Case | ASan ERROR | UBSan ERROR | Sanitizer WARNING | Run exit | Note |
+Server (heihe + heihe_x4, Slurm 8575 on `cn08`, CPU partition,
+NUM_OPENMP=1, 90-day truncation):
+
+| heihe | heihe.rivqdown.dat | `55abad2809418ea8e994e75137988cd94ea302641cfdd23202c7ace50965260f` | PASS |
+| heihe_x4 | heihe_x4.eleygw.dat | `192b0da4deacdf9218690cc501835033b181988e5399ef2d085fc083e17beece` | PASS |
+| heihe_x4 | heihe_x4.rivqdown.dat | `f90601ef5738b972d688016ba1ee74f92ecb54faddaf46e4e2232f9d46567524` | PASS |
+
+Slurm job IDs:
+- heihe   bitwise: 8575_0 on `cn08`, Elapsed 00:08:26, ExitCode 0:0. Logs: `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_bitwise/run.stdout.log` (+ `run.stderr.log`, `dat_sha256.txt`).
+- heihe_x4 bitwise: 8585 on `cn03`, Elapsed 01:01:56 (bitwise phase 23:30:39 -> 23:50:48, ~20 min), ExitCode 0:0. Logs: `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_x4_bitwise/run.stdout.log` (+ `run.stderr.log`, `dat_sha256.txt`). Full job stdout: `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_x4_serial_8585.out`.
+
+Mac subtotal: 8/8 dat PASS across 4 cases.
+Server subtotal: see table above (Slurm 8575_0 + 8575_2).
+Grand total: 5 cases (keliya, xinanjiang_upstream, qinyijiang, qhh,
+heihe, heihe_x4) covered; kashigeer N/A per master plan.
+
+### ASan + UBSan (5-case 90-day NUM_OPENMP=1, `halt_on_error=1`)
+Per spec L55-57 the gate is 5-case (kashigeer N/A) — PR #197 review
+A-B2 (CONFIRMED): original 2-case Mac run extended to 4 Mac cases
++ heihe / heihe_x4 on server. Each `<run_dir>` emits a
+`sanitizer_report.txt` per spec literal text.
+
+Run command (Mac):
+```
+make shud_asan && ASAN_OPTIONS='detect_leaks=0:halt_on_error=1:print_stacktrace=1' \
+  UBSAN_OPTIONS='print_stacktrace=1:halt_on_error=1' \
+  OMP_NUM_THREADS=1 ../../shud_asan <case> 2> sanitizer_report.txt
+```
+
+Mac local (4 cases):
+
+| Case | ASan ERROR | UBSan ERROR | Sanitizer WARNING | Run exit | sanitizer_report.txt |
 |---|---|---|---|---|---|
-| keliya | 0 | 0 | 0 | 0 | 484 elements, 0 lakes; full 90-day run completes |
-| qhh    | 0 | 0 | 0 | 0 | 4,773 elements + lake; full 90-day run completes |
+| keliya | 0 | 0 | 0 | 0 | `SHUD/Basins/keliya/sanitizer_report.txt` |
+| xinanjiang_upstream | 0 | 0 | 0 | 0 | `SHUD/Basins/xinanjiang_upstream/sanitizer_report.txt` |
+| qinyijiang | 0 | 0 | 0 | 0 | `SHUD/Basins/qinyijiang/sanitizer_report.txt` |
+| qhh | 0 | 0 | 0 | 0 | `SHUD/Basins/qhh/sanitizer_report.txt` |
+
+Server (heihe + heihe_x4, Slurm 8575 array tasks 1 + 3, `cn08`):
+
+| Case | ASan ERROR | UBSan ERROR | Sanitizer WARNING | Run exit | sanitizer_report.txt |
+|---|---|---|---|---|---|
+| heihe | 0 | 0 | 0 | 0 | `SHUD/Basins/heihe/sanitizer_report.txt` (mirrored from `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_sanitizer/sanitizer_report.txt`) |
+| heihe_x4 | 0 | 0 | 0 | 0 | `SHUD/Basins/heihe_x4/sanitizer_report.txt` (mirrored from `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_x4_sanitizer/sanitizer_report.txt`) |
+
+Slurm job IDs:
+- heihe   sanitizer: 8575_1 on `cn08`, Elapsed 00:22:03, ExitCode 0:0. Logs: `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_sanitizer/run.stdout.log` (+ `sanitizer_report.txt`, `sanitizer_attestation.txt`).
+- heihe_x4 sanitizer: 8585 on `cn03` (sanitizer phase 23:50:49 -> 00:32:34, ~42 min), ExitCode 0:0. Logs: `/scratch/frd_muziyao/SHUD-OpenMP/.s5d-2-5a-runs/heihe_x4_sanitizer/run.stdout.log` (+ `sanitizer_report.txt`, `sanitizer_attestation.txt`).
+
+Race avoidance note: PR #197 review verifier flagged that initial array job 8575 array tasks _2/_3 (heihe_x4 bitwise + sanitizer) both wrote to the same `SHUD/Basins/heihe_x4/output/heihe_x4.out` directory concurrently. Tasks 8575_2/_3 were cancelled (`scancel`) and re-run as a single serial sbatch (`run_heihe_x4_serial.sbatch`) job 8585 which executes bitwise then sanitizer sequentially in one process. CLAUDE.md (local) rule: "NEVER spawn concurrent shud processes against the same case output dir" — extended here to the server side.
 
 Pre-existing UB latent bug surfaced + fixed in this PR: `FreeData()`
 called `delete[] io_lake` unconditionally despite `io_lake` being
@@ -449,12 +508,18 @@ $ python3 tools/check_manifest/check_hot_fields.py
 PASS: 32 hot fields declared in MD_layout.hpp
 PASS: RHS 3 files have 0 Ele[..].<hot-field> hits
 $ python3 tools/check_manifest/check_no_bare_flat_index.py
-PASS: 3 RHS files have 0 bare QeleSurf_flat[...] / QeleSub_flat[...] indexing
+PASS: 4 hot-path files have 0 bare QeleSurf_flat[...] / QeleSub_flat[...] indexing
 $ grep -rnE 'double \*\*\s*(QeleSurf|QeleSub)\b' SHUD/src/ | wc -l
 0
+$ grep -rn '\.InitIJ\|::InitIJ\|->InitIJ' SHUD/src/ | grep -c 'double \*\*'
+0   # PR #197 review A-S1: legacy double** overloads deleted
 $ python3 -c "..." # malloc_EleRiv nested-alloc gate
 PASS: 0 nested `new double*[...]` hits; 8 contiguous `new double[NumEle * 3]` allocs in malloc_EleRiv
 ```
+
+### Verified against SHUD HEAD
+Verified against SHUD HEAD = `2c70358` on `openmp-baseline` (PR #197
+review B-B7).
 
 ### Scope NOT touched
 - `Ele[].iupdGW[3]` / `Ele[].iupdSF[3]` — deferred to #180 S5d.2-5b.
