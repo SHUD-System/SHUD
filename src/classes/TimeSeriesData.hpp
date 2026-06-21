@@ -22,8 +22,10 @@ public:
     void    readDimensions();
     void    read_csv();
     void    tsd_interpolation(double t);
+    // S5a (#176): thread-safe read-only after movePointer; zero-order hold; no shared write
     double  getX(double t, int column);
     void    applyCalib(double prcp, double temp);
+    // S5a (#176): single-thread mutate; MUST be called outside any RHS parallel region
     void    movePointer(double t);
     void    initialize(int n);
     void    checkValue(int icol, double xmin, double xmax, const char *varname);
