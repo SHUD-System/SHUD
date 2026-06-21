@@ -83,8 +83,18 @@ void Model_Data::malloc_Y(){
 void Model_Data::malloc_EleRiv(){
     
     /* allocate memory storage to flux terms */
-    QeleSurf    = new double *[NumEle];
-    QeleSub     = new double *[NumEle];
+    /* S5d.2-5a (#179) — jagged QeleSurf/QeleSub flattened to one
+     * contiguous row-major `double[NumEle*3]` block per array. The
+     * historical nested-allocation pattern
+     *   QeleSurf = new double *[NumEle];
+     *   for(i=0;i<NumEle;++i) QeleSurf[i] = new double[3];
+     * (NumEle+1 separate allocations, one indirection on every access,
+     *  unpredictable cache layout on the inner row) is replaced by ONE
+     * `new double[NumEle*3]` per array. Access is via QeleSurfAt(i,j) /
+     * QeleSubAt(i,j) inline accessors (Model_Data.hpp). Symmetric
+     * single delete[] in MD_readin.cpp Model_Data::FreeData(). */
+    QeleSurf_flat = new double[NumEle * 3];
+    QeleSub_flat  = new double[NumEle * 3];
     QeleSurfTot = new double[NumEle];
     QeleSubTot  = new double[NumEle];
     QoutSurf    = new double[NumEle]; // 5
@@ -158,11 +168,12 @@ void Model_Data::malloc_EleRiv(){
         uYriv = new double[NumRiv];  // 35.1
     }
     
-    for (int i = 0; i < NumEle; i++) {
-        QeleSurf[i] = new double[3];
-        QeleSub[i] = new double[3];
-    }
-    
+    /* S5d.2-5a (#179) — old nested `new double[3]` loop deleted; the
+     * single contiguous `new double[NumEle*3]` for QeleSurf_flat /
+     * QeleSub_flat (above) replaces it. Future S5d.3 first-touch will
+     * insert a parallel zero-init loop here. */
+
+
     t_prcp  = new double[NumEle];  //
     t_temp  = new double[NumEle];  //
     t_rh    = new double[NumEle];  //

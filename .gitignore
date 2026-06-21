@@ -32,6 +32,10 @@ cvode-6.0.0/
 shud_omp
 shud_omp.dSYM/
 
+# S5d.2-5a (#179) ASan + UBSan build artifacts.
+shud_asan
+shud_asan.dSYM/
+
 # S1d.1 smoke test build artifacts (openMP #47) — binary + debug bundle.
 # Source file tests/s1d_strictomp_assert_smoke.cpp is checked in.
 tests/s1d_strictomp_smoke

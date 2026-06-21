@@ -118,11 +118,14 @@ void Model_Data::f_applyDY(double *DY, double t){
         area = hot.area[i];
         QeleSurfTot[i] = Qe2r_Surf[i];
         QeleSubTot[i] = Qe2r_Sub[i];
+        /* S5d.2-5a (#179) — flat read via accessor; bitwise equivalent
+         * to former `QeleSurf[i][j]` because the underlying storage is
+         * one contiguous double[NumEle*3] with at(i,j) ↔ `_flat[3*i + j]`. */
         for (int j = 0; j < 3; j++) {
-            QeleSurfTot[i] += QeleSurf[i][j];
-            QeleSubTot[i] += QeleSub[i][j];
-            CheckNANij(QeleSurf[i][j], i, "QeleSurf[i][j]");
-            CheckNANij(QeleSub[i][j], i, "QeleSub[i][j]");
+            QeleSurfTot[i] += QeleSurfAt(i, j);
+            QeleSubTot[i] += QeleSubAt(i, j);
+            CheckNANij(QeleSurfAt(i, j), i, "QeleSurfAt(i, j)");
+            CheckNANij(QeleSubAt(i, j), i, "QeleSubAt(i, j)");
         }
         DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEs[i];
         DY[ius] = qEleInfil[i] - qEleRecharge[i] - qEu[i] - qTu[i];

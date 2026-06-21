@@ -87,7 +87,18 @@ public:
     int NumMeltF = 0;        /* Number of Melt Factor Time series */
     int NumRivType = 0;        /* Number of River Shape */
     int NumRivNode = 0;
-    int *io_ele, *io_riv, *io_lake; /* Wether Export the data of these elements */
+    /* S5d.2-5a (#179) — io_riv / io_lake are allocated conditionally
+     * in MD_readin.cpp read_cfgout() (NumRiv>0 / NumLake>0). Initialize
+     * to nullptr so FreeData()'s unconditional `delete[]` is a defined
+     * no-op when the case has no river or no lake. The pre-S5d.2-5a
+     * code relied on undefined behavior (delete[] on an uninitialized
+     * pointer) which ASan flags as SEGV at process exit; this NSDMI
+     * defuses the ASan-visible failure mode while preserving the
+     * source-of-truth allocation site in read_cfgout(). io_ele is
+     * always allocated, but initialize for symmetry. */
+    int *io_ele = nullptr;
+    int *io_riv = nullptr;
+    int *io_lake = nullptr; /* Wether Export the data of these elements */
     
     _TimeSeriesData *tsd_weather;
     _TimeSeriesData tsd_LAI;
@@ -148,8 +159,18 @@ public:
     int NumLake = 0;
     double *QoutSurf;
     
-    double **QeleSurf;    /* Overland Flux */
-    double **QeleSub;        /* Subsurface Flux */
+    /* S5d.2-5a (#179) — jagged QeleSurf/QeleSub flattened to one
+     * contiguous row-major `double[NumEle*3]` block per array. Index
+     * convention matches MD_layout.hpp flat-3 idiom: at(i,j) ↔
+     * `_flat[3*i + j]`. Access via inline `QeleSurfAt(i,j)` /
+     * `QeleSubAt(i,j)` accessors below; tools/check_manifest/
+     * check_no_bare_flat_index.py enforces hot-path call sites use the
+     * accessor (no bare `_flat[3*i + j]` indices). PrintCtrl IO path
+     * uses the new flat-overload InitIJ(...double *x_flat, int j, ...)
+     * — the per-column file slices are still 1 column out of 3 with
+     * stride 3 across rows; see Model_Control.cpp. */
+    double *QeleSurf_flat; /* Overland Flux — flat NumEle*3 */
+    double *QeleSub_flat;  /* Subsurface Flux — flat NumEle*3 */
     //double ** FluxRiv;    /* River Segment Flux */
     double *QrivSurf;        /* surface Flux between river and element */
     double *QrivSub;        /* gw Flux between river and element */
@@ -268,6 +289,32 @@ public:
         hot.u_qex[i]   = Ele[i].u_qex;
         hot.u_effKH[i] = Ele[i].u_effKH;
         hot.u_satn[i]  = Ele[i].u_satn;
+    }
+    /* S5d.2-5a (#179) — inline accessors for the flattened
+     * QeleSurf_flat / QeleSub_flat arrays. Index convention is
+     * row-major: at(i,j) ↔ `_flat[3*i + j]`, matching the
+     * MD_layout.hpp flat-3 idiom. The CI grep gate
+     * tools/check_manifest/check_no_bare_flat_index.py forbids bare
+     * `*_flat[3*i + j]` indexing in the three RHS hot-path TUs
+     * (MD_ElementFlux.cpp / MD_f.cpp / MD_ET.cpp) — every read/write
+     * MUST go through these accessors. Rationale (design D3):
+     * (a) one source for the index expression — index-flip bugs
+     * (3*j+i vs 3*i+j) are caught by a single review of the accessor,
+     * not 20 call sites; (b) future SIMD / NUMA tuning lands in one
+     * place; (c) DEBUG bounds-check insertion point. The accessors
+     * return references so they are usable on both LHS and RHS of
+     * assignment without overhead in release builds. */
+    inline double &QeleSurfAt(int i, int j) {
+        return QeleSurf_flat[3*i + j];
+    }
+    inline double &QeleSubAt(int i, int j) {
+        return QeleSub_flat[3*i + j];
+    }
+    inline double  QeleSurfAt(int i, int j) const {
+        return QeleSurf_flat[3*i + j];
+    }
+    inline double  QeleSubAt(int i, int j) const {
+        return QeleSub_flat[3*i + j];
     }
     void initializeLake();
     void initialize_output();

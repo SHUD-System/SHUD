@@ -289,3 +289,179 @@ PASS: RHS 3 files have 0 Ele[..].<hot-field> hits
 - `run_omp.sh` / NUMA manifest fields deferred to S5d.4.
 - `_Element` AoS struct is unmodified — only its hot subset is shadowed
   in the SoA.
+
+## S5d.2-5a — jagged QeleSurf/QeleSub flatten + ASan/UBSan CI axis (#179)
+
+### Scope
+Convert the two-dimensional jagged arrays `QeleSurf` / `QeleSub` (declared
+as `double **` in `Model_Data.hpp`) into single contiguous row-major
+`double *QeleSurf_flat` / `double *QeleSub_flat` blocks sized `NumEle*3`.
+Introduce inline accessors `QeleSurfAt(i, j)` / `QeleSubAt(i, j)` and
+route ALL RHS hot-path access through them; bare `_flat[3*i + j]`
+indexing in the three RHS hot-path TUs (`MD_ElementFlux.cpp` / `MD_f.cpp`
+/ `MD_ET.cpp`) is forbidden by a new CI grep gate
+`tools/check_manifest/check_no_bare_flat_index.py`.
+
+Out of scope (per #179 + spec):
+- `Ele[].iupdGW[3]` / `iupdSF[3]` SoA decision — deferred to #180
+- `Riv[]` / `RivSeg[]` internal arrays — deferred to #180
+- `RiverHotData` SoA container — deferred to #180
+- parallel first-touch — deferred to #181 (S5d.3)
+
+### Files changed (SHUD submodule, on `openmp-baseline`)
+- `src/ModelData/Model_Data.hpp` — flip `double **QeleSurf / QeleSub` to
+  `double *QeleSurf_flat / QeleSub_flat`; add 4 inline accessors
+  (read+write overloads of `QeleSurfAt(i, j)` / `QeleSubAt(i, j)`);
+  initialize `io_ele` / `io_riv` / `io_lake` to `nullptr` (NSDMI) so
+  `FreeData()`'s unconditional `delete[]` becomes a defined no-op for
+  cases without a river or lake (a pre-existing UB latent bug that ASan
+  surfaced on keliya at process exit).
+- `src/ModelData/Model_Data.cpp` (`malloc_EleRiv`) — replace the
+  `new double*[NumEle]` outer + `for(...) new double[3]` inner nested
+  allocation with ONE `new double[NumEle * 3]` per array; preserves
+  initialization timing.
+- `src/ModelData/MD_readin.cpp` (`FreeData`) — symmetric single
+  `delete[] QeleSurf_flat` / `delete[] QeleSub_flat`; nested per-row
+  loop removed.
+- `src/classes/Model_Control.hpp` + `Model_Control.cpp` — add flat-array
+  `InitIJ(...double *x_flat, int j, ...)` overloads (2 overloads:
+  unconditional + flag-IO). Bitwise equivalent to the existing `double**`
+  overload — both store the SAME memory address `&(x[i][j])` (jagged) =
+  `&(x_flat[3*i + j])` (flat) into the PrintCtrl slot; dat output is
+  byte-identical at every print step.
+- `src/ModelData/MD_initialize.cpp` — switch the 6 PCtrl call sites that
+  emit `ele_Q_sub{0,1,2}` / `ele_Q_surf{0,1,2}` from `QeleSub` /
+  `QeleSurf` (the old jagged `double**`) to `QeleSub_flat` /
+  `QeleSurf_flat` (the new flat). Overload resolution picks the new
+  flat-array overload.
+- `src/ModelData/MD_ElementFlux.cpp` — 3 hot-path sites
+  (fun_Ele_lakeHorizon zero-init, fun_Ele_surface write, fun_Ele_sub
+  write) flipped to `QeleSurfAt(i, j)` / `QeleSubAt(i, j)` accessors.
+- `src/ModelData/MD_f.cpp` — 4 hot-path sites (`f_update` zero-loop,
+  `f_applyDYi` total sum) flipped to accessors.
+- `src/Model/MD_rhs_core.cpp` — 6 hot-path sites (`rhs_update` zero-loop,
+  `rhs_apply` total sum) flipped to accessors.
+- `src/ModelData/MD_update.cpp` — 2 sites (`f_update` zero-loop) flipped
+  to accessors.
+- `src/ModelData/MD_f_uncouple.cpp` — 2 sites (`f_applyDY_gw` /
+  `f_applyDYi` total sum) flipped to accessors.
+- `Makefile` — new `shud_asan` target wrapping the standard `shud` build
+  recipe with `-fsanitize=address,undefined -fno-omit-frame-pointer`
+  (compile + link), via a dedicated `SHUD_ASAN_FLAGS` variable that
+  stays OUT of the DISALLOWED_FLAGS scan (sanitizers are
+  instrumentation, not IEEE-754-affecting optimization). `make clean`
+  removes the new binary.
+
+### Files changed (outer repo, on `feat/issue-179-b1b-s5d-2-5a`)
+- `tools/check_manifest/check_no_bare_flat_index.py` — new grep gate
+  asserting the 3 RHS hot-path TUs use accessors only; 0 bare
+  `QeleSurf_flat[...]` / `QeleSub_flat[...]` indexing. Pure stdlib
+  (no PyYAML dep), invoked via `python3 ...` directly per CI exception
+  comment.
+- `.github/workflows/serial-baseline.yml` —
+  (a) wire the new accessor grep gate at Step 4 alongside
+      `check_hot_fields.py`;
+  (b) add a `double **QeleSurf/QeleSub` retirement grep gate (must
+      report 0 hits tree-wide);
+  (c) add a `malloc_EleRiv` nested-alloc retirement grep gate (asserts
+      0 `new double*[...]` jagged + ≥2 `new double[NumEle * 3]`
+      contiguous);
+  (d) new top-level Job 3 `asan-ubsan` (S5d.2-5a temporary axis,
+      removable post-S6c) — builds `shud_asan` and runs keliya (PR
+      default) + qhh (full-bitwise label or nightly cron) under
+      `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1` +
+      `UBSAN_OPTIONS=halt_on_error=1`; asserts 0 ASan ERROR + 0 UBSan
+      ERROR + 0 sanitizer WARNING via grep counts on stderr; uploads
+      `sanitizer_run_<case>.stderr.log` artifact on failure.
+
+### Sizes (per-case bytes)
+The jagged form for `QeleSurf` alone allocated `(NumEle + 1)` separate
+blocks: one outer `double*[NumEle]` (8 bytes per pointer) + `NumEle`
+inner `double[3]` blocks (24 bytes each, plus per-malloc metadata
+≈16 bytes on glibc 2.35 amd64 / mac libsystem_malloc.dylib). Bytes
+excluding allocator metadata:
+
+| Case | NumEle | Jagged QeleSurf bytes | Flat QeleSurf_flat bytes | Δ allocations |
+|---|---|---|---|---|
+| keliya | 484 | 8·484 + 24·484 = 15,488 | 24·484 = 11,616 | 485 → 1 |
+| xinanjiang | 801 | 8·801 + 24·801 = 25,632 | 24·801 = 19,224 | 802 → 1 |
+| qinyijiang | 3,155 | 8·3,155 + 24·3,155 = 100,960 | 24·3,155 = 75,720 | 3,156 → 1 |
+| qhh | 4,773 | 8·4,773 + 24·4,773 = 152,736 | 24·4,773 = 114,552 | 4,774 → 1 |
+
+Same totals apply to `QeleSub`. Net per-case allocation count drops
+~2× from `2(NumEle + 1)` to `2`, and per-element memory cost drops
+~33% (8-byte outer pointer eliminated). Cache layout becomes one
+contiguous span, eliminating the indirection-per-access on inner-row
+load.
+
+### Verification (Mac local 4-case 90-day NUM_OPENMP=1 vs B1a-tag worktree golden)
+- `keliya/keliya.rivqdown.dat` =
+  `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc`
+  PASS
+- `xinanjiang_upstream/xinanjiang.eleygw.dat` =
+  `f6e86f013f4f92d1c99429eafb27ec38cc7fc417e6d7d9aeef1725f8fa0a46a1`
+  PASS
+- `xinanjiang_upstream/xinanjiang.rivqdown.dat` =
+  `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020`
+  PASS
+- `qinyijiang/nanlin.rivqdown.dat` =
+  `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57`
+  PASS
+- `qhh/qhh.rivqdown.dat` PASS (90d truncated)
+- `qhh/qhh.lakqrivin.dat` PASS
+- `qhh/qhh.lakqrivout.dat` PASS
+- `qhh/qhh.lakystage.dat` PASS
+
+Total: 8/8 PASS across 4 cases (keliya / xinanjiang_upstream /
+qinyijiang / qhh). Server `heihe` + `heihe_x4` verification deferred
+to capstone #188 (server reachability not validated in this PR loop).
+
+### ASan + UBSan (Mac local 2-case 90-day NUM_OPENMP=1)
+Run via `make shud_asan && ASAN_OPTIONS='detect_leaks=0:halt_on_error=1:print_stacktrace=1' UBSAN_OPTIONS='print_stacktrace=1:halt_on_error=1' ../../shud_asan <case>`.
+
+| Case | ASan ERROR | UBSan ERROR | Sanitizer WARNING | Run exit | Note |
+|---|---|---|---|---|---|
+| keliya | 0 | 0 | 0 | 0 | 484 elements, 0 lakes; full 90-day run completes |
+| qhh    | 0 | 0 | 0 | 0 | 4,773 elements + lake; full 90-day run completes |
+
+Pre-existing UB latent bug surfaced + fixed in this PR: `FreeData()`
+called `delete[] io_lake` unconditionally despite `io_lake` being
+allocated only when `NumLake > 0` (`MD_readin.cpp:31`). For keliya
+(NumLake=0) `io_lake` was an uninitialized pointer; ASan flagged a
+SEGV in `MD_readin.cpp:535` at process exit. Fix: NSDMI initialize
+`io_ele` / `io_riv` / `io_lake` to `nullptr` in `Model_Data.hpp` so
+`delete[]` on the unset pointer is a defined no-op (C++ standard).
+This change is bitwise-neutral (no init logic relies on these being
+non-null) and re-verified against all 4 cases above.
+
+ASan on macOS does not support leak detection (`detect_leaks=1` is
+silently ignored or reports "detect_leaks is not supported on this
+platform"); we run with `detect_leaks=0` to keep stderr clean. The
+spec gate targets OOB / UAF / UB detection on the flatten path, not
+leaks — full Linux CI runner (`asan-ubsan` job in
+`serial-baseline.yml`) preserves the same `detect_leaks=0` setting
+for consistency (the GH ubuntu-22.04 runner does support leak
+detection but the gate target is not memory leaks).
+
+### Grep gate outputs (local pre-push)
+```
+$ python3 tools/check_manifest/check_hot_fields.py
+PASS: 32 hot fields declared in MD_layout.hpp
+PASS: RHS 3 files have 0 Ele[..].<hot-field> hits
+$ python3 tools/check_manifest/check_no_bare_flat_index.py
+PASS: 3 RHS files have 0 bare QeleSurf_flat[...] / QeleSub_flat[...] indexing
+$ grep -rnE 'double \*\*\s*(QeleSurf|QeleSub)\b' SHUD/src/ | wc -l
+0
+$ python3 -c "..." # malloc_EleRiv nested-alloc gate
+PASS: 0 nested `new double*[...]` hits; 8 contiguous `new double[NumEle * 3]` allocs in malloc_EleRiv
+```
+
+### Scope NOT touched
+- `Ele[].iupdGW[3]` / `Ele[].iupdSF[3]` — deferred to #180 S5d.2-5b.
+- `Riv[]` / `RivSeg[]` internal arrays + `RiverHotData` SoA — deferred
+  to #180.
+- parallel first-touch initialization in `malloc_EleRiv` — deferred to
+  #181 S5d.3.
+- `tools/run_omp.sh` / NUMA manifest fields — deferred to S5d.4.
+- nFCall / cvode_stats channels untouched.
+- `_Element` AoS struct unmodified.

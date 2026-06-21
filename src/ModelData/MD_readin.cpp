@@ -524,18 +524,18 @@ void Model_Data::read_bcLake2(const char *fn){
     tsd_lqBC.read_csv();
 }
 void Model_Data::FreeData(){
-    
-    for (int i = 0; i < NumEle; i++) {
-        delete[] QeleSurf[i] ;
-        delete[] QeleSub[i] ;
-    }
-    
+
+    /* S5d.2-5a (#179) — symmetric single-block free for the flattened
+     * QeleSurf_flat / QeleSub_flat. Old per-row `delete[] QeleSurf[i]`
+     * nested loop deleted; one `delete[] QeleSurf_flat` releases all
+     * NumEle*3 doubles in a single call. */
+
     delete[]    io_ele;
     delete[]    io_riv;
     delete[]    io_lake;
-    
-    delete[]    QeleSurf;
-    delete[]    QeleSub;
+
+    delete[]    QeleSurf_flat;
+    delete[]    QeleSub_flat;
     delete[]    QeleSurfTot;
     delete[]    QeleSubTot;
     delete[]    QoutSurf; //5

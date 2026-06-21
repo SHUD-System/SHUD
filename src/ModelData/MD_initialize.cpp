@@ -290,17 +290,24 @@ void Model_Data:: initialize_output (){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_subTot, CS.dt_Qe_sub, QeleSubTot, 1, io_ele);
     }
     if (CS.dt_Qe_subx > 0){
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub0, CS.dt_Qe_sub, QeleSub, 0, 1, io_ele);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub1, CS.dt_Qe_sub, QeleSub, 1, 1, io_ele);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub2, CS.dt_Qe_sub, QeleSub, 2, 1, io_ele);
+        /* S5d.2-5a (#179) — InitIJ now takes the flat-array `double *`
+         * overload; PrintCtrl stores `&(QeleSub_flat[3*i + j])` for j
+         * picking the column. Bitwise equivalent to the prior nested
+         * `&(QeleSub[i][j])` because both expressions resolve to the
+         * SAME memory address (per row-major flatten); see comment in
+         * Model_Control.cpp InitIJ flat-overload. */
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub0, CS.dt_Qe_sub, QeleSub_flat, 0, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub1, CS.dt_Qe_sub, QeleSub_flat, 1, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub2, CS.dt_Qe_sub, QeleSub_flat, 2, 1, io_ele);
     }
     if (CS.dt_Qe_surf > 0){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_surfTot, CS.dt_Qe_surf, QeleSurfTot, 1, io_ele);
     }
     if (CS.dt_Qe_surfx > 0){
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf0, CS.dt_Qe_surf, QeleSurf, 0, 1, io_ele);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf1, CS.dt_Qe_surf, QeleSurf, 1, 1, io_ele);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf2, CS.dt_Qe_surf, QeleSurf, 2, 1, io_ele);
+        /* S5d.2-5a (#179) — flat-overload as for ele_Q_sub above. */
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf0, CS.dt_Qe_surf, QeleSurf_flat, 0, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf1, CS.dt_Qe_surf, QeleSurf_flat, 1, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf2, CS.dt_Qe_surf, QeleSurf_flat, 2, 1, io_ele);
     }
     if (CS.dt_Qe_rsub > 0){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_rsub, CS.dt_Qe_rsub, Qe2r_Sub, 1, io_ele);

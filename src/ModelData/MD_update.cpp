@@ -64,9 +64,10 @@ void Model_Data::f_update(double  *Y, double *DY, double t){
     for (int i = 0; i < NumEle; i++) {
 //        uYsf[i] = (Y[iSF] >= 0.) ? Y[iSF] : 0.;
 //        uYus[i] = (Y[iUS] >= 0.) ? Y[iUS] : 0.;
+        /* S5d.2-5a (#179) — flat zero via accessor. */
         for(int j = 0; j < 3; j++){
-            QeleSub[i][j] = 0.;
-            QeleSurf[i][j] = 0.;
+            QeleSubAt(i, j) = 0.;
+            QeleSurfAt(i, j) = 0.;
             QeleSubTot[i] = 0.;
             QeleSurfTot[i] = 0.;
         }

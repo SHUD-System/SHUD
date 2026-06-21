@@ -56,9 +56,10 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
     for (int i = 0; i < NumEle; i++) {
 //        uYsf[i] = (Y[iSF] >= 0.) ? Y[iSF] : 0.;
 //        uYus[i] = (Y[iUS] >= 0.) ? Y[iUS] : 0.;
+        /* S5d.2-5a (#179) — flat zero via accessor. */
         for(int j = 0; j < 3; j++){
-            QeleSub[i][j] = 0.;
-            QeleSurf[i][j] = 0.;
+            QeleSubAt(i, j) = 0.;
+            QeleSurfAt(i, j) = 0.;
             QeleSubTot[i] = 0.;
             QeleSurfTot[i] = 0.;
         }
@@ -454,11 +455,12 @@ void Model_Data::rhs_apply(double *DY, double t){
         area = Ele[i].area;
         QeleSurfTot[i] = Qe2r_Surf[i];
         QeleSubTot[i] = Qe2r_Sub[i];
+        /* S5d.2-5a (#179) — flat read via accessor. */
         for (int j = 0; j < 3; j++) {
-            QeleSurfTot[i] += QeleSurf[i][j];
-            QeleSubTot[i] += QeleSub[i][j];
-            CheckNANij(QeleSurf[i][j], i, "QeleSurf[i][j]");
-            CheckNANij(QeleSub[i][j], i, "QeleSub[i][j]");
+            QeleSurfTot[i] += QeleSurfAt(i, j);
+            QeleSubTot[i] += QeleSubAt(i, j);
+            CheckNANij(QeleSurfAt(i, j), i, "QeleSurfAt(i, j)");
+            CheckNANij(QeleSubAt(i, j), i, "QeleSubAt(i, j)");
         }
         DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area - qEs[i];
         DY[ius] = qEleInfil[i] - qEleRecharge[i] - qEu[i] - qTu[i];

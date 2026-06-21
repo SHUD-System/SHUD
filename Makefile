@@ -205,6 +205,36 @@ endif
 EXTRA_CXXFLAGS ?=
 
 # -----------------------------------------------------------------
+# S5d.2-5a (#179) — ASan + UBSan build variant `shud_asan`
+# -----------------------------------------------------------------
+# Adds `-fsanitize=address,undefined -fno-omit-frame-pointer` on top
+# of the locked CXX_BASE_FLAGS. Used to gate the S5d.2 jagged → flat
+# refactor: any out-of-bounds write into QeleSurf_flat / QeleSub_flat
+# or signed-overflow in the row-major index expression `3*i + j`
+# surfaces under runtime sanitizer instead of silently corrupting
+# memory. The sanitizer flags are NOT IEEE-754-relevant (they add
+# instrumentation, not optimization) so they are kept OUT of the
+# DISALLOWED_FLAGS scan; the `shud_asan` target uses them via a
+# separate variable so the Layer-1/2 guards keep their original
+# vigilance over `-Ofast`/`-ffast-math`.
+#
+# Wall-clock impact: ASan/UBSan-instrumented runs are 2-5x slower than
+# default builds; keep test cases to keliya + qhh under 90-day
+# truncation in CI. Use `make shud_asan` then run the binary normally
+# (../../shud <case>); ASan output goes to stderr — redirect to
+# sanitizer_report.txt for archival.
+SHUD_ASAN_FLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer
+.PHONY: shud_asan
+shud_asan: check_sundials $(MAIN_shud) $(SRC) $(SRC_H)
+	@echo '...Compiling shud_asan (ASan + UBSan instrumented; S5d.2-5a #179) ...'
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(BUILDDIR)/shud_asan $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_NVEC_OMP_LK)
+	@echo
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(BUILDDIR)/shud_asan $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_NVEC_OMP_LK)
+	@echo
+	@echo " $(BUILDDIR)/shud_asan is compiled successfully (ASan+UBSan)"
+	@echo
+
+# -----------------------------------------------------------------
 # Optional profile timer instrumentation (openmp issue #10 / S0-8a)
 # -----------------------------------------------------------------
 # Off by default. Set `SHUD_ENABLE_PROFILE=1` on the make CLI to:
@@ -425,6 +455,7 @@ help:
 	@echo "       make shud SHUD_ENABLE_OPENMP_RHS=1  - compile in StrictOMP/ProductionOMP std::abort stubs (smoke only; openMP #47)"
 	@echo "       make shud SHUD_USE_OPENMP_NVECTOR=1 - serial build with OpenMP N_Vector backend (Config D dim; openMP #48)"
 	@echo "       make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS - serial build with S5c CVODE diagnostic keys (hlast/qlast) added to cvode_stats.txt (S5c-A #173)"
+	@echo "       make shud_asan    - serial build with -fsanitize=address,undefined (S5d.2-5a #179)"
 	@echo "       make smoke_strictomp                - build + run StrictOMP SIGABRT regression smoke test (openMP #47)"
 	@echo "       make smoke_configd                  - build + run Config D OpenMP NVector runtime probe (openMP #49)"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
@@ -574,5 +605,7 @@ clean:
 	@rm -f $(TARGET_OMP)
 	@echo "  rm -f $(TARGET_DEBUG)"
 	@rm -f $(TARGET_DEBUG)
+	@echo "  rm -f $(BUILDDIR)/shud_asan"
+	@rm -f $(BUILDDIR)/shud_asan
 	@echo "Done. (InstallSundials/ preserved)"
 	@echo

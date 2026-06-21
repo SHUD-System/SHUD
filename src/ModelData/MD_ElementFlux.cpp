@@ -17,9 +17,12 @@ void Model_Data::fun_Ele_lakeVertical(int i, double t){
     qEleETA[i] = qEleE_IC[i] + qEleEvapo[i] + qEleTrans[i];
 }
 void Model_Data::fun_Ele_lakeHorizon(int i, double t){
+    /* S5d.2-5a (#179) — write via QeleSurfAt / QeleSubAt accessors;
+     * jagged 2-D `QeleSurf[i][j]` retired. Row-major flat: at(i,j)
+     * ↔ `_flat[3*i + j]`. */
     for (int j = 0; j < 3; j++) {
-        QeleSurf[i][j] = 0.;
-        QeleSub[i][j] = 0.;
+        QeleSurfAt(i, j) = 0.;
+        QeleSubAt(i, j) = 0.;
     }
 }
 void Model_Data::fun_Ele_Recharge(int i, double t){
@@ -113,8 +116,9 @@ void Model_Data::fun_Ele_surface(int i, double t){
                 }
             }
         } // end of if
-        QeleSurf[i][j] = Q;
-//        CheckNANi(QeleSurf[i][j], i, "QeleSurf[i][j]");
+        /* S5d.2-5a (#179) — flat write via accessor. */
+        QeleSurfAt(i, j) = Q;
+//        CheckNANi(QeleSurfAt(i, j), i, "QeleSurfAt(i, j)");
     } // end of for loop
 }// end of functions
 
@@ -180,7 +184,8 @@ void Model_Data::fun_Ele_sub(int i, double t){
 //                CheckNANi(Q, i, "Q in Model_Data::fun_Ele_sub");
             }
         } // end of if
-        QeleSub[i][j] = Q * fu_Sub[i];
-//        CheckNANi(QeleSub[i][j], i, "Q in Model_Data::fun_Ele_sub");
+        /* S5d.2-5a (#179) — flat write via accessor. */
+        QeleSubAt(i, j) = Q * fu_Sub[i];
+//        CheckNANi(QeleSubAt(i, j), i, "Q in Model_Data::fun_Ele_sub");
     } // end of for loop
 }// end of functions
