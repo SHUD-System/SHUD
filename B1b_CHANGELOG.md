@@ -1700,6 +1700,7 @@ analysis.
 ## S6b.2 — lake formula (#186) — evidence pack only (PI sign-off pending #185)
 
 **Status**: **EVIDENCE PACK PUBLISHED — NO VERDICT ISSUED IN THIS PR.** Per spec.md L23, the E1/E2 sign-off is reserved for the SHUD-upstream PI (Lele Shu) or a PI-designated delegate. The Phase-1 audit author is NOT a PI delegate; design.md Open Q1 (delegate qualification governance) remains open.
+**S6b.2.1 SKIP-implementation row landed in #186 — B1b ships with current formula CONDITIONALLY (per master plan §S6b L1497 + C8 forward-compatibility); D9 fast-path trigger #2 remains BLOCKED on PI sign-off; any later PI E1 directive stacks as a follow-up `B1c-tag` per D11 lock + C8.**
 **Audit issue**: [#185](https://github.com/DankerMu/SHUD-OpenMP/issues/185)
 **Blocks**: [#186](https://github.com/DankerMu/SHUD-OpenMP/issues/186) (S6b.2 conditional code change OR skip)
 **Audit document**: [`docs/s217_lake_formula_audit.md`](../docs/s217_lake_formula_audit.md) (outer repo)
@@ -1756,6 +1757,18 @@ design.md D9 trigger #2 requires `S6b.2 = "审查为'无修改'" 跳过 fix` wit
 - No benchmark runs of "if-we-changed-the-formula" (audit explored alternatives via reasoning + reading only per orchestrator spec)
 - Issue #185 left **OPEN** pending external PI sign-off
 - Issue #205 (SoA drift) tracked separately as P-strict / P-prod pre-req
+
+### S6b.2.1 SKIP-implementation row (issue #186, this PR)
+
+`docs/diff_reports/B1a_vs_B1b_diff_s6b_2.md` generated this PR per spec.md L61-63 Scenario "S6b.2 跳过时 diff report 仍存在"; content = "S2.17 reviewed as evidence-pack only; no PI sign-off received before this PR; B1b ships with current formula UNCHANGED per master plan §S6b L1497 + C8 forward-compatibility — CONDITIONAL ship, NOT a signed-off E2." No `SHUD/src/` change is introduced. Issue #185 stays **OPEN** (no PI sign-off received). Issue #186 will be closed by the orchestrator per the usual PR base != main protocol once this PR merges.
+
+| Fix ID | Commit SHA | Scope | Zero-impact | Diff report |
+|---|---|---|---|---|
+| S6b.2.1 | `024f01e` (this PR — SKIP-implementation row on `openmp-baseline`) | SKIP — no `SHUD/src/ModelData/MD_ElementFlux.cpp` change; lake-branch `Kmean = 0.5 * (hot.u_effKH[i] + hot.u_effKH[inabr])` at L147 left byte-for-byte unchanged; CHANGELOG status line + S6b.2.1 row + outer-repo diff report only | **YES** (no code change → bitwise SHA256 identical to `B1a-tag` on `qhh.lakqrivin / .lakqrivout / .lakystage / .rivqdown` + server `heihe.rivqdown` + `heihe_x4.rivqdown` + `heihe_x4.eleygw`; no re-run required since source code unchanged) | `docs/diff_reports/B1a_vs_B1b_diff_s6b_2.md` (outer repo) |
+
+**Cross-refs**: issue [#185](https://github.com/DankerMu/SHUD-OpenMP/issues/185) (PI review, OPEN), issue [#186](https://github.com/DankerMu/SHUD-OpenMP/issues/186) (SKIP implementation, this PR), issue [#205](https://github.com/DankerMu/SHUD-OpenMP/issues/205) (SoA drift, separate P-strict scope), evidence pack `docs/s217_lake_formula_audit.md` (PR #204), companion S6b.3.1 NOT-A-BUG precedent `docs/diff_reports/B1a_vs_B1b_diff_s6b_3_1.md` (#187 / PR #203).
+
+**Forward-compatibility (C8 + D11)**: any later PI directive on #185 = E1 ("formula needs fix") triggers a follow-up `B1c-tag` per master plan C8 ("永不 break userspace"); `B1b-tag` lock (design.md D11) is **NOT** force-updated. The successor patch would land as a new `S6b.2.2` row (here or in `B1c_CHANGELOG.md` per phasing policy at that time) plus a successor diff report (e.g. `B1b_vs_B1c_diff_s6b_2_2.md`) describing the bitwise delta on `qhh / heihe / heihe_x4`.
 
 ## S6b.3 — S2 follow-up bug audit (#187)
 
