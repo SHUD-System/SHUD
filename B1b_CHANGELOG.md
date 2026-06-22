@@ -1925,3 +1925,80 @@ in the repo. Other matches are either upstream SUNDIALS
   (S6b.1 zero-impact + S6b.3 zero-impact already satisfied, per
   design.md D9 triggers #1 and #3)
 
+
+
+---
+
+## S6b.4 — rhs_flux lake pass-1 SoA/AoS sync drift fix (#205, post-B1b cleanup before P1)
+
+**Phase positioning**: post-B1b-tag, pre-P1. **NOT retroactively part of B1b** (B1b-tag `18a0c908` / SHUD `71b3a1ae` 一次锁死 per design D11). Forward-flow on `openmp-baseline`; outer commit lands on `main` as post-B1b cleanup PR (B1b-tag remains immutable).
+
+### Background
+
+#205 (filed during PR-14 #204 / #185 S2.17 PI audit Phase-4 review V1): `MD_rhs_core.cpp::rhs_flux` pass-1 split at L194-216:
+
+```cpp
+for (i = 0; i < NumEle; i++) {
+    if(lakeon && Ele[i].iLake > 0){
+        Ele[i].updateLakeElement();     // ← mutates AoS Ele[i].u_effKH = KsatH
+        // missing: sync_hot_dynamic(i)
+        fun_Ele_lakeVertical(i, t);     // ← reads hot.u_effKH[i] (SoA, stale)
+        ...
+    } else {
+        Ele[i].updateElement(uYsf[i], uYus[i], uYgw[i]);  // ← mutates AoS
+        // missing: sync_hot_dynamic(i)
+        fun_Ele_Infiltraion(i, t);      // ← reads hot.u_effkInfi[i] (SoA, stale)
+        ...
+    }
+}
+```
+
+Compare dead-code legacy `MD_f.cpp::f_loop` L24-44:
+```cpp
+Ele[i].updateLakeElement();
+sync_hot_dynamic(i);    // ← present
+fun_Ele_lakeVertical(i, t);
+...
+Ele[i].updateElement(...);
+sync_hot_dynamic(i);    // ← present
+fun_Ele_Infiltraion(i, t);
+```
+
+The active `rhs_flux` was inconsistent with the dead-code reference. SoA mirror held the stale value from prior `updateforcing()` depth-weighted blend; downstream consumers read `hot.u_effKH[i]` instead of post-update `Ele[i].u_effKH`.
+
+### Fix
+
+SHUD commit `de75743` (openmp-baseline): `MD_rhs_core.cpp` 13 lines added (2 × `sync_hot_dynamic(i)` calls + 11 lines of explanatory comments mirroring the dead-code legacy pattern).
+
+### Why bitwise-stable on serial B1b (matches issue #205 audit predication)
+
+The drift was **deterministic**: same forcing sequence → same blend → same stale SoA value → same downstream computation, **byte-identical run after run**. The 3-run identity verification at B1b capstone (PR-16 #207) never exposed it because serial execution doesn't introduce ordering non-determinism.
+
+### Why MUST fix before P-strict (P1+)
+
+Under multi-thread RHS (`#pragma omp parallel for` around the `for (i = ...; i < NumEle; i++)` loop), the consumer read of `hot.u_effKH[i]` for one element could race with another element's `updateLakeElement` mutation (assuming OMP parallel touches lake elements concurrently). Even if the bitwise drift stays invisible in serial, the SoA/AoS asymmetry **MUST** be closed to make the RHS truly thread-safe under P-strict A2/A3a verification.
+
+### Bitwise verification (Mac M4 Pro, NUM_OPENMP=1, 90-day truncated, post-fix SHUD `de75743`)
+
+| Case | summary SHA256 (2-run identical) | ≡ B1b-tag baseline canonical SHA |
+|---|---|---|
+| keliya | `a27e3fb51eb72e1955ff2f429889d009f20803a6e1135bfde866fe4706549e3d` | YES |
+| xinanjiang_upstream | `fe6dd4edc94c9581f382d1c732c28c7cc56dda857793b70ed8b989fea1fef394` | YES |
+| qinyijiang | `383e4099d6f71acfa31b8006fab946cf05c255c6dedae7de24273f90b322b174` | YES |
+| qhh (lake) | `3a86e24c1b6a3a0cf71300c1e32cd9013e69e9effd1c543c285ac714d2cf2c9e` | YES |
+
+All 4 Mac canonical summary SHAs ≡ `benchmarks/<case>/B0_output/repeatability.txt sha256_run1` (= B0-tag golden = B1b-tag baseline).
+
+### Verdict
+
+- **B1b ship not retroactively touched** — D11 lock honored; B1b-tag `18a0c908` immutable.
+- **#205 RESOLVED** — closes CONDITIONAL ship caveat #3 (P-strict pre-req).
+- **bitwise neutral on B1b** — confirms audit prediction that drift was bitwise-deterministic.
+- **P-strict ready** — RHS now SoA/AoS-consistent for multi-thread.
+
+### Commit SHAs
+
+| Layer | SHA | Notes |
+|---|---|---|
+| SHUD source | `de75743` | `openmp-baseline` (post-`71b3a1a` = B1b-tag SHUD pin) |
+| Outer PR | `<PR-18 head, filled at merge>` | base=main; bumps SHUD pointer + appends this row |
