@@ -136,7 +136,8 @@ void Model_Data::f_update(double  *Y, double *DY, double t){
         Qe2r_Surf[i] = 0.;
         Qe2r_Sub[i] = 0.;
     }
-    for (int i = 0; i < NumLake; i++) {
+#pragma omp parallel for schedule(static) default(none) shared(Y, t) private(i)
+    for (i = 0; i < NumLake; i++) {
         yLakeStg[i] = Y[iLAKE];
         lake[i].yStage = yLakeStg[i];
         lake[i].update();
