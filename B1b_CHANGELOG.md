@@ -1719,7 +1719,7 @@ per-candidate disposition follow.
 
 | Fix ID | Commit SHA | Scope | Zero-impact | Diff report |
 |---|---|---|---|---|
-| S6b.3.1 | (this section, CHANGELOG-only — no SHUD source patch) | Audit disposition of issue #159 (`f_update_omp` `uYgw` `iBC == 0` asymmetry); no `SHUD/src/` change | YES | `docs/diff_reports/B1a_vs_B1b_diff_s6b_3_1.md` |
+| S6b.3.1 | `fa37de3` (CHANGELOG-only — no SHUD source patch) | Audit disposition of issue #159 (`f_update_omp` `uYgw` `iBC == 0` asymmetry); no `SHUD/src/` change | YES | `docs/diff_reports/B1a_vs_B1b_diff_s6b_3_1.md` |
 
 ### S6b.3.1 — issue #159 (S2.6 follow-up: `f_update_omp` `uYgw` `iBC == 0` asymmetry)
 
@@ -1756,9 +1756,11 @@ audit started:
    returns empty — there is no longer a code site at which to apply
    the alignment that #159 proposed.
 
-2. **The two surviving serial sites that perform the
-   `iBC == 0` GW-update already use direct-alias** (the form #159
-   advocated):
+2. **The two serial sites on the coupled-RHS code path that perform
+   the `iBC == 0` GW-update already use direct-alias** (the form #159
+   advocated). NOTE: this enumeration is **scoped to the coupled RHS
+   path** that the B1b 90-day benchmark suite exercises; one out-of-scope
+   site is documented in §S6b.3.1 (c) below.
 
    - `SHUD/src/ModelData/MD_update.cpp:63-86` `Model_Data::f_update`:
 
@@ -1783,6 +1785,20 @@ audit started:
    The commented-out `max(0.0, Y[iGW])` line is preserved as a
    historical comment so future readers can trace the lineage. The
    active code path is the direct-alias form.
+
+3. **(c) Out-of-scope live `max(0.0, Y[i])` site — forward defense.**
+   PR #203 Phase-7 gap-sweep (`a8366f71ec430bad5`) surfaced one LIVE
+   site at `SHUD/src/ModelData/MD_update.cpp:22` inside
+   `Model_Data::f_updatei` case 3 (`iBC == 0` branch) still using
+   `uYgw[i] = max(0.0, Y[i]);`. The callback `f_gw` is registered to
+   `CVode(mem3, ...)` at `SHUD/src/Model/shud.cpp:336,389`, reachable
+   **only** when SHUD is built with `-DSHUD_uncouple` and run with CLI
+   `-g` (uncoupled groundwater-only mode). This site is **out of #159's
+   scope** — #159 explicitly names the dormant `_omp` variant in
+   `MD_f_omp.cpp`, not the uncoupled-mode `f_updatei` — and is **not
+   exercised by any B1b benchmark case** (all 7 cases run coupled,
+   never `-g`). Recording the residual here so a future audit touching
+   uncoupled mode catches it; not actionable for B1b.
 
 #### Disposition per spec L37 clause (d)
 
