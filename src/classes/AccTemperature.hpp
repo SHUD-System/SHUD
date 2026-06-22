@@ -58,12 +58,15 @@ public:
         }
     }
     double getACC(){
-        /* S6b.1 (#184): divide-zero guard. `push(x, tnow)` only enqueues
-         * after the first 1440-minute window elapses, so `que` is empty
-         * during the initial cryosphere spin-up; `ACC / 0` produced NaN
-         * that propagated through `fu_Surf` / `fu_Sub`. Return 0.0 on
-         * empty queue — no accumulated history means no frozen-fraction
-         * damping, matching master plan §4.12 / §S2.15. */
+        /* S6b.1 (#184): defensive divide-zero guard. In the current call
+         * graph (MD_ET.cpp:153-156, push() immediately precedes getACC()),
+         * Time_start = -9999. (L17 class init) guarantees the very first
+         * push(x, tnow) call enqueues — for any tnow >= -8559, the
+         * (tnow - Time_start) >= 1440 condition holds — so the empty-queue
+         * path is unreachable and this fix is bitwise-neutral on all
+         * current goldens (B1a-tag SHA256 PASS). Guards against future
+         * call-graph changes that might invoke getACC() before any push.
+         * 0.0 fallback per master plan §4.12 / §S2.15. */
         return que.empty() ? 0.0 : ACC / que.size();
     }
 };
