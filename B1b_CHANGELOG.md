@@ -2002,3 +2002,72 @@ All 4 Mac canonical summary SHAs ≡ `benchmarks/<case>/B0_output/repeatability.
 |---|---|---|
 | SHUD source | `de75743` | `openmp-baseline` (post-`71b3a1a` = B1b-tag SHUD pin) |
 | Outer PR | `<PR-18 head, filled at merge>` | base=main; bumps SHUD pointer + appends this row |
+
+---
+
+## S6b.5 — S2.17 lake formula PI sign-off (E2) + D9 fast-path trigger → B1-tag (post-B1b PI sign-off before P1)
+
+**Date**: 2026-06-22 (post-B1b, post-#205 RESOLVED)
+**Status**: PI delegate sign-off applied — **NOT retroactively part of B1b per D11 immutable-tag contract**. B1b-tag `18a0c908` (SHUD pin `71b3a1ae`) remains immutable. This addendum documents the post-tag PI E2 verdict and the D9 fast-path action (`B1-tag` creation aliasing main HEAD). See outer-repo PR-19 #210 + `docs/s217_lake_formula_audit.md` §E for full reasoning.
+**Issue**: [#185](https://github.com/DankerMu/SHUD-OpenMP/issues/185) — RESOLVED (E2 signed)
+**Outer-repo PR**: [#210](https://github.com/DankerMu/SHUD-OpenMP/pull/210)
+**Outer-repo doc**: `docs/s217_lake_formula_audit.md` §E.1 Verdict statement
+**Sign-off by**: DankerMu (GitHub organization owner of both `DankerMu/SHUD-OpenMP` and upstream `SHUD-System/SHUD` — closes design.md Open Q1 PI-delegate qualification question)
+
+### Verdict
+
+**`S2.17: formula correct, no change`** for `SHUD/src/ModelData/MD_ElementFlux.cpp:147` (lake branch `Kmean`) and `:169` (non-lake branch `Kmean`).
+
+The arithmetic-mean `Kmean = 0.5 * (hot.u_effKH[i] + hot.u_effKH[inabr])` is correct and SHALL NOT be modified for B1b ship.
+
+### Reasoning (cross-ref `docs/s217_lake_formula_audit.md`)
+
+1. **Physics standard** (§B.1 / §B.2): macroscopic Darcy + lake-stage-as-BC matches MODFLOW LAK7 (Merritt & Konikow 2000), ParFlow Lake, PIHM 2.x.
+2. **Averaging consistency** (§C): non-lake branch L169 uses byte-identical `0.5*(u_effKH[i]+u_effKH[inabr])`. The lake branch's choice is the same SHUD-wide convention, validated by 2+ years of B0 published-baseline cross-case work.
+3. **`u_effKH` semantics resolved post-#205** (§A.4 / §B.4 strict-reading): the post-`updateLakeElement` SoA mirror now correctly carries `KsatH` (via `sync_hot_dynamic(i)` added by S6b.4 / #205 in this same `openmp-baseline` chain), eliminating the strict-reading objection. The §B.4 "generous reading" is now the only consistent interpretation.
+4. **Defensive `assert(inabr >= 0)` already in place** (L137) — §4.18 R-1 closed pre-audit.
+5. **Cost-of-change high, magnitude bounded** (§D.2 / §D.3): any L147 alteration breaks B1a-tag bitwise on `qhh / heihe / heihe_x4` for a < 10% flux change under typical mesh-classification conventions; not warranted.
+
+### D9 fast-path trigger #2 — UNBLOCKED → TRIGGERED
+
+design.md D9 trigger #2 ("S6b.2 = '审查为无修改' with signed conclusion") is satisfied by this E2 verdict. The S6b.2 SKIP path (PR-15 #206) retroactively becomes "consistent with PI E2 directive". D9 fast-path executes in outer PR-19 #210:
+
+- `B1-tag` annotated tag created aliasing **main HEAD** (post-#205 fix, post-PI-E2-sign-off).
+- `B1a-tag` (`f7f992c…`) and `B1b-tag` (`18a0c908…`) remain immutable per D11 history — NOT force-updated.
+- Downstream P1+ SHOULD use `B1-tag` as canonical "B1 baseline signed" reference; `B1a-tag` / `B1b-tag` remain for historical archaeology.
+
+### B1b ship status — CONDITIONAL → UNCONDITIONAL
+
+Following this verdict (combined with #205 RESOLVED via S6b.4):
+
+| Caveat | Pre-E2 status | Post-E2 status |
+|---|---|---|
+| #185 PI sign-off | OPEN | RESOLVED (E2 signed) |
+| #205 SoA/AoS sync drift | OPEN | RESOLVED (S6b.4 / PR-18 #209) |
+| #186 S6b.2 SKIP | CLOSED-via-SKIP (FORECAST per C8) | CLOSED-via-PI-E2 (retroactively consistent) |
+| D9 fast-path trigger #2 | BLOCKED | TRIGGERED (`B1-tag` created) |
+| C8 forward-compat | reserved for E1-overrule | UNUSED (PI signed E2) |
+
+**B1b ship: PASS UNCONDITIONAL.**
+
+### design.md Open Q1 — closed by this sign-off
+
+Open Q1 asked: "审查者签字在 GitHub issue 评论是否够正式？" + (implicit) PI delegate qualification. **Resolved**:
+- PI delegate qualification = GitHub organization owner of upstream `SHUD-System/SHUD` (DankerMu holds this role).
+- Sign-off mechanism = three-surface pattern: GitHub issue [#185](https://github.com/DankerMu/SHUD-OpenMP/issues/185) comment + outer-repo audit doc `docs/s217_lake_formula_audit.md` §E + this SHUD CHANGELOG addendum.
+
+### Verdict (this section)
+
+- **B1b ship not retroactively touched** — D11 honoured; B1b-tag `18a0c908` immutable.
+- **#185 RESOLVED via E2** — closes the last CONDITIONAL ship caveat (PI sign-off).
+- **`B1-tag` created** — D9 fast-path executes aliasing main HEAD.
+- **B1 baseline signed & clean for P1** — P-strict pre-req (#205 SoA-sync) AND PI sign-off (#185 E2) both resolved.
+
+### Commit SHAs
+
+| Layer | SHA | Notes |
+|---|---|---|
+| SHUD source change | none | sign-off doc-only; no source code change |
+| SHUD changelog | `<this commit SHA, set at commit>` | `openmp-baseline` post-`9a376f7` (= S6b.4 CHANGELOG row commit) |
+| Outer PR | `<PR-19 #210 head, filled at merge>` | base=main; commits docs sign-off + bumps SHUD pointer to this commit |
+| `B1-tag` (annotated) | `<created post-merge>` | aliases main HEAD (post-PR-19 merge); push to origin |
