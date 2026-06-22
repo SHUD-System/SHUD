@@ -105,8 +105,9 @@ void Model_Data::f_update(double  *Y, double *DY, double t){
 //        Ele[i].dhBYdy = dhdy(Ele[i].surfX, Ele[i].surfY, Ele[i].surfH);
 //        Ele[i].Avg_Sf = sqpow2(Ele[i].dhBYdx, Ele[i].dhBYdy);
     }//end of for j=1:NumEle
-    
-    for (int i = 0; i < NumRiv; i++ ){
+
+#pragma omp parallel for schedule(static) default(none) shared(Y, t, uYriv) private(i)
+    for (i = 0; i < NumRiv; i++ ){
         uYriv[i] = Y[iRIV];
         /* qrivsurf and qrivsub are calculated in Element fluxes.
          qrivDown and qrivUp are calculated in River fluxes. */
