@@ -1697,57 +1697,65 @@ analysis.
   + first-1440-min sample is sufficient evidence per design.md D9
   trigger #1 (bitwise == B1a on 4 cases + NaN消除 on heihe)
 
-## S6b.2 — lake formula (#186) — pending S2.17 PI review (#185)
+## S6b.2 — lake formula (#186) — evidence pack only (PI sign-off pending #185)
 
-**Status**: **AUDIT COMPLETE — awaiting #186 implementation per S2.17 verdict**
+**Status**: **EVIDENCE PACK PUBLISHED — NO VERDICT ISSUED IN THIS PR.** Per spec.md L23, the E1/E2 sign-off is reserved for the SHUD-upstream PI (Lele Shu) or a PI-designated delegate. The Phase-1 audit author is NOT a PI delegate; design.md Open Q1 (delegate qualification governance) remains open.
 **Audit issue**: [#185](https://github.com/DankerMu/SHUD-OpenMP/issues/185)
 **Blocks**: [#186](https://github.com/DankerMu/SHUD-OpenMP/issues/186) (S6b.2 conditional code change OR skip)
 **Audit document**: [`docs/s217_lake_formula_audit.md`](../docs/s217_lake_formula_audit.md) (outer repo)
-**Audit verdict**: **E2 — `S2.17: formula correct, no change`** (PENDING external PI confirmation)
-**Signoff mechanism**: technical-reviewer delegate, per design.md Open Q1 alternate path (no external PI present in this session)
+**Default-skip path**: Per master plan §S6b L1497 ("S6b.2 lake 公式可能审查后不需要改"), absent PI directive `S2.17: formula needs fix` on #185 before S6c capstone, B1b ships with the current formula UNCHANGED (no code patch to `MD_ElementFlux.cpp:147`). This is the de-facto safe default — **NOT a signed-off E2**.
+**Follow-up issue**: [#205](https://github.com/DankerMu/SHUD-OpenMP/issues/205) tracks a SoA/AoS sync drift surfaced as a byproduct of this audit (`rhs_flux` lake pass-1 missing `sync_hot_dynamic` after `updateLakeElement`) — out of scope for B1b, queued for P-strict pre-req audit.
 
 ### Audit summary (per spec L21-32 Requirement S6b.2)
 
 | Field | Value |
 |---|---|
-| Audit date | 2026-06-21 |
-| Auditor | Phase-1 technical-reviewer delegate (issue #185) |
-| Live formula location | `SHUD/src/ModelData/MD_ElementFlux.cpp:147` (drifted from master plan L117 after S5d.1 #178 + S5d.2-5a #179 SoA rewrites; full lake branch L126–L191) |
+| Audit date | 2026-06-22 (rev. after PR #204 Phase-4 review V1/V2/V3) |
+| Auditor | Phase-1 audit author + evidence packager (NOT a PI delegate) |
+| Live formula location | `SHUD/src/ModelData/MD_ElementFlux.cpp:147` (191 lines total; drifted from master plan L117 after S5d.1 #178 + S5d.2-5a #179 SoA rewrites; full lake branch L126–L191) |
 | Lake-branch formula | `Kmean = 0.5 * (hot.u_effKH[i] + hot.u_effKH[inabr]); Q = Kmean * grad * Ymean * edge` |
 | Non-lake-branch formula (L169) | `Kmean = 0.5 * (hot.u_effKH[i] + hot.u_effKH[inabr]); Q = Kmean * grad * Ymean * edge` (byte-identical averaging) |
-| Affected cases if E1 | qhh + heihe + heihe_x4 (`lakeon==1`, has `.lake.*` inputs) |
-| Affected `.dat` files if E1 | `qhh.lakqrivin / lakqrivout / lakystage / rivqdown` + server `heihe.rivqdown` + `heihe_x4.rivqdown / eleygw` |
+| Affected cases if PI signs E1 | qhh + heihe + heihe_x4 (`lakeon==1`, has `.lake.*` inputs; heihe/heihe_x4 inferred indirectly per master plan §4.22) |
+| Affected `.dat` files if PI signs E1 | `qhh.lakqrivin / lakqrivout / lakystage / rivqdown` + server `heihe.rivqdown` + `heihe_x4.rivqdown / eleygw` |
 | §S2.17 R-1 (defensive assert) | **already in tree** at `MD_ElementFlux.cpp:137` (`assert(inabr >= 0)`); no additional code change needed for this recommendation |
-| §S2.17 R-2 (lake-element K provenance) | **closed**: `_Element::updateLakeElement()` (`Element.cpp:246-256`) sets `u_effKH = KsatH` from soil-layer table — definite physical value (lake-bed sediment K) |
-| §S2.17 R-3 (alternative formula) | **NOT recommended** per audit §B.5 + §E.5; alternatives (harmonic mean / bank-only K / new lake-bed K param) either break B1a-tag bitwise without proportionate physical-improvement justification, or require new input parameters out of B1b scope |
+| §S2.17 R-2 (lake-element K provenance) | **runtime-semantically subtle**: AoS `_Element::updateLakeElement()` (`Element.cpp:246-256`) sets `u_effKH = KsatH`, but SoA mirror `hot.u_effKH[lake]` is set by outer `updateforcing` general-element loop to `effKH(Ygw_lake, ...)` blend — see audit §A.4 + §B.4 + issue #205 |
+| §S2.17 R-3 (alternative formula) | Evidence pack documents 3 alternatives (harmonic mean / new explicit lake-bed K / bank-only K) — PI judgment requested on whether any of these warrants the bitwise cost on qhh/heihe/heihe_x4 |
 
 ### Single-row CHANGELOG summary (per spec L67-77 — provisional pending #186)
 
 | Fix ID | Commit SHA | Scope | Zero-impact | Diff report |
 |---|---|---|---|---|
-| S6b.2 (audit) | this PR (CHANGELOG + audit doc only — no `SHUD/src/` change at audit stage) | Audit verdict E2 on `MD_ElementFlux.cpp:147` lake-branch `Kmean` | YES (audit-only, no code change) | `docs/s217_lake_formula_audit.md` + `docs/diff_reports/B1a_vs_B1b_diff_s6b_2.md` (the diff report is generated by #186 — SKIP path per spec L62-63 if E2 holds; FIX path per spec L57-59 if PI overrules to E1) |
+| S6b.2 (evidence pack) | `f2cb6f8` (initial) + addendum (this commit) — CHANGELOG + audit doc only — no `SHUD/src/` change at audit stage | Evidence pack on `MD_ElementFlux.cpp:147` lake-branch `Kmean` — no verdict issued | YES (audit-only, no code change; no benchmark output delta) | `docs/s217_lake_formula_audit.md` + `docs/diff_reports/B1a_vs_B1b_diff_s6b_2.md` (the diff report is generated by #186 — SKIP-default-path stub if PI does not respond before S6c; FIX path per spec L57-59 if PI signs E1) |
 
-### Verdict rationale (full text in audit doc §E)
+### Evidence summary for the PI (full text in audit doc §E)
 
-1. **Physics is standard** — lake-stage-as-aquifer-BC Darcy form matches MODFLOW LAK7 / ParFlow Lake / PIHM 2.x conventions; `dh`, `grad`, `Ymean`, `A` all dimensionally + sign-correct.
-2. **`Ele[inabr].u_effKH` on a lake element has a definite physical value** — `updateLakeElement()` (`Element.cpp:247`) sets `u_effKH = KsatH` from soil-layer table; the master plan §4.18 "meaningless lake-side K" concern does NOT hold against live code.
+1. **Physics is standard at macroscopic level** — lake-stage-as-aquifer-BC Darcy form matches MODFLOW LAK7 / ParFlow Lake / PIHM 2.x conventions; `dh`, `grad`, `Ymean`, `A` all dimensionally + sign-correct.
+2. **`Ele[inabr].u_effKH` on a lake element — runtime semantics requires judgment**: AoS `updateLakeElement()` writes `u_effKH = KsatH` but `rhs_flux` pass-1 omits `sync_hot_dynamic` (compare `MD_f.cpp:25-28` dead-code path which has the sync). The SoA mirror that `fun_Ele_sub` reads holds the depth-weighted `effKH(Ygw_lake, ...)` blend set by outer `updateforcing`. Two readings (audit §B.4): generous (depth-weighted blend captures lake-bed macropore stratification; arguably better than bare `KsatH`) vs strict (does not strictly match textbook lake-bed seepage face K). #205 tracks the underlying sync drift for P-strict.
 3. **Averaging-formula consistency** — the same arithmetic mean `0.5*(K1+K2)` is used in the non-lake GW lateral branch (L169) byte-for-byte; lake branch is NOT a one-off oddity.
 4. **Out-of-bounds risk already mitigated** — `assert(inabr >= 0)` at L137 closes the §S2.17 R-1 recommendation.
-5. **Cost/benefit unfavourable** — code-change S6b.2 would break B1a-tag bitwise on qhh/heihe/heihe_x4 for a < 10% numerical refinement whose physical-improvement claim is contestable without paired field-measurement evidence.
-6. **D9 fast-path trigger #2 alignment** — verdict E2 satisfies "S2.17 审查为 'no change'"; combined with S6b.1 zero-impact + S6b.3 zero-impact (already PASS), this verdict (once PI-confirmed) unlocks B1a/B1b merge into single `B1-tag`.
+5. **Cost of any code-change S6b.2 is high** — would break B1a-tag bitwise on qhh/heihe/heihe_x4; requires A4 `residual_deferred` + new diff reports + likely re-baselined goldens.
 
-### External PI confirmation — what's needed
+### D9 fast-path eligibility — BLOCKED on PI sign-off
 
-This delegate verdict is **conditional on external SHUD-upstream PI (Lele Shu) confirmation**. The audit document (§E "External PI question") frames the specific four-option ask `(a) arithmetic / (b) harmonic / (c) explicit K_lakebed / (d) bank-only`; PI sign-off as `(a)` finalizes E2 and triggers #186 SKIP path; PI sign-off as `(b)`–`(d)` triggers #186 FIX path with downstream re-baselining cost.
+design.md D9 trigger #2 requires `S6b.2 = "审查为'无修改'" 跳过 fix` with a SIGNED conclusion. This trigger is **NOT satisfied by an unsigned evidence pack**. D9 fast-path (B1a / B1b merge into `B1-tag`) is **gated** until PI sign-off arrives. S6c (#188-#190) can proceed with separate B1a-tag and B1b-tag per design D11.
 
-If no PI confirmation arrives before S6c capstone, B1b ships with current formula per this delegate verdict; revisitable at P-strict / P-prod transition.
+### External PI question (cc-able when channel established)
+
+> Should the lake-edge GW lateral flux in `fun_Ele_sub()` use:
+>   (a) the current arithmetic mean (audit recommendation: defensible per §C consistency),
+>   (b) a harmonic mean to match series-resistor interface physics,
+>   (c) a new explicit `K_lakebed` parameter independent of bank-soil class,
+>   (d) bank-only `K_bank` ignoring the lake side?
+>
+> Separately on issue #205: should the SoA/AoS sync drift be treated as "intentional generalization" or "missed sync" bug?
 
 ### Scope NOT touched at audit stage (per spec L21-32 audit-only contract)
 
-- No `SHUD/src/ModelData/MD_ElementFlux.cpp` code change (verdict E2 = no code change)
-- No `docs/diff_reports/B1a_vs_B1b_diff_s6b_2.md` generated (deferred to #186 SKIP or FIX path)
+- No `SHUD/src/ModelData/MD_ElementFlux.cpp` code change
+- No `docs/diff_reports/B1a_vs_B1b_diff_s6b_2.md` generated (deferred to #186 SKIP / FIX path)
 - No benchmark runs of "if-we-changed-the-formula" (audit explored alternatives via reasoning + reading only per orchestrator spec)
-- Issue #185 left **OPEN** pending external PI confirmation per orchestrator instruction (closeable manually by orchestrator with delegate-verdict citation)
+- Issue #185 left **OPEN** pending external PI sign-off
+- Issue #205 (SoA drift) tracked separately as P-strict / P-prod pre-req
 
 ## S6b.3 — S2 follow-up bug audit (#187)
 
