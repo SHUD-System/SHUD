@@ -61,7 +61,9 @@ void Model_Data::f_updatei(double  *Y, double *DY, double t, int flag){
     }
 }
 void Model_Data::f_update(double  *Y, double *DY, double t){
-    for (int i = 0; i < NumEle; i++) {
+    int i;
+#pragma omp parallel for schedule(static) default(none) shared(Y, t, uYsf, uYus, uYgw, qEleExfil, qEleInfil, QeleSurfTot, QeleSubTot) private(i)
+    for (i = 0; i < NumEle; i++) {
 //        uYsf[i] = (Y[iSF] >= 0.) ? Y[iSF] : 0.;
 //        uYus[i] = (Y[iUS] >= 0.) ? Y[iUS] : 0.;
         /* S5d.2-5a (#179) — flat zero via accessor. */
