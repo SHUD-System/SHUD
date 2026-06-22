@@ -195,6 +195,14 @@ void Model_Data:: rhs_flux(double t){
         if(lakeon && Ele[i].iLake > 0){
             /* Lake elements */
             Ele[i].updateLakeElement();
+            /* S6b.4 (#205): SoA/AoS sync drift fix. updateLakeElement()
+             * mutates AoS hot fields (Ele[i].u_effKH = KsatH, etc.) but
+             * does NOT refresh hot.<field>[i]; sync_hot_dynamic(i) is
+             * required so subsequent consumers reading hot.u_effKH[i]
+             * see the post-update value rather than the stale forcing
+             * blend left by updateforcing(). Pattern mirrors the
+             * dead-code legacy MD_f.cpp::f_loop L27-28. */
+            sync_hot_dynamic(i);
             fun_Ele_lakeVertical(i, t);
             /* S3b.4 (PR-9): shared writes
              *   qLakeEvap[Ele[i].iLake-1] += qEleEvapo[i] / NumEleLake
@@ -210,6 +218,11 @@ void Model_Data:: rhs_flux(double t){
             /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
             /*========infiltration/Recharge Function==============*/
             Ele[i].updateElement(uYsf[i] , uYus[i] , uYgw[i] ); // step 1 update the kinf, kh, etc. for elements.
+            /* S6b.4 (#205): same SoA refresh pattern after updateElement
+             * mutation. Mirrors MD_f.cpp::f_loop L40-41 dead-code
+             * pattern; Flux_Infiltration / Flux_Recharge consumers read
+             * hot.u_effkInfi[i] etc. and must see post-update value. */
+            sync_hot_dynamic(i);
             fun_Ele_Infiltraion(i, t); // step 2 calculate the infiltration.
             fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
         }
