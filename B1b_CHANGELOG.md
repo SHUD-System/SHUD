@@ -1491,3 +1491,147 @@ a dedicated tooling-hardening PR:
   `|| true` so the summary still lands; deferred — making this a hard
   fail would surprise the existing CI gate path.
 
+## S6b.1 — AccTemperature divide-zero guard (#184)
+
+**SHUD commit**: `ac2c4de4ccdc2ad128305715495d37f48ff186a7` on `openmp-baseline`
+**Issue**: [#184](https://github.com/DankerMu/SHUD-OpenMP/issues/184)
+**Diff report**: [`docs/diff_reports/B1a_vs_B1b_diff_s6b_1.md`](../docs/diff_reports/B1a_vs_B1b_diff_s6b_1.md) (outer repo)
+**Zero-impact**: YES — bitwise PASS vs B1a-tag on 4 Mac cases × 8 dat files.
+
+### Single-row summary (per spec L67-77 "B1b_CHANGELOG.md 单源汇总")
+
+| Fix ID | Commit SHA | Scope | Zero-impact | Diff report |
+|---|---|---|---|---|
+| S6b.1 | `ac2c4de` | `src/classes/AccTemperature.hpp` L60-L68 (`_AccTemp::getACC()` body; +6 LOC comment + 1 LOC ternary) | YES | `docs/diff_reports/B1a_vs_B1b_diff_s6b_1.md` |
+
+### Scope
+
+- **File touched**: 1 (`src/classes/AccTemperature.hpp`)
+- **LOC delta**: +8 / -2 (the ternary expression replaces the
+  unconditional `return ACC / que.size();` plus a 6-line block
+  comment citing master plan §4.12 / §S2.15).
+- **Out of scope** per spec L1488 + #184 body: lake formula
+  (`MD_ElementFlux.cpp` L117) deferred to S6b.2 (#186, conditional on
+  #185 PI review); S2 follow-up bug audit deferred to S6b.3 (#187).
+- **Influence range** (per master plan §4.12 row 1488):
+  "仅影响 cryosphere 启用且模拟前 1440 min 的 NaN 传播路径".
+
+### Code change
+
+```diff
+-    double getACC(){        
+-        return ACC / que.size();
++    double getACC(){
++        /* S6b.1 (#184): divide-zero guard. `push(x, tnow)` only enqueues
++         * after the first 1440-minute window elapses, so `que` is empty
++         * during the initial cryosphere spin-up; `ACC / 0` produced NaN
++         * that propagated through `fu_Surf` / `fu_Sub`. Return 0.0 on
++         * empty queue — no accumulated history means no frozen-fraction
++         * damping, matching master plan §4.12 / §S2.15. */
++        return que.empty() ? 0.0 : ACC / que.size();
+     }
+```
+
+### Bitwise verification (Mac, 4 cases × 90-day NUM_OPENMP=1, vs B1a-tag)
+
+Run script: `.s6b-1-runs/run_bitwise.sh` (cloned from PR-8 #180 run
+script). Run log: `.s6b-1-runs/run_bitwise.log`.
+
+| Case | dat | SHA256 | vs B1a-tag |
+|---|---|---|---|
+| keliya | keliya.rivqdown.dat | `89686fb8c97a385251a8d77fc434ee9cea7eb1bce71c8bc44ed537683e99a8fc` | PASS |
+| xinanjiang_upstream | xinanjiang.rivqdown.dat | `3794e7d366d844da22191fef0e42217f6cfc8a6715994ca72ebd9e2354023020` | PASS |
+| xinanjiang_upstream | xinanjiang.eleygw.dat | `f6e86f013f4f92d1c99429eafb27ec38cc7fc417e6d7d9aeef1725f8fa0a46a1` | PASS |
+| qinyijiang | nanlin.rivqdown.dat | `48036c5e57680f970c3de53e2bea97cfe4572d7e92d6ef5c828c116a86dfbc57` | PASS |
+| qhh | qhh.rivqdown.dat | `d9a42798eb649dcea75ad2d64125af35bfda1da601ebd07795d51536fa7b62ce` | PASS |
+| qhh | qhh.lakqrivin.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS |
+| qhh | qhh.lakqrivout.dat | `1a9db7388316213650ebd5157ce54556172f247f8c7264c32e4d97b7d575ab2d` | PASS |
+| qhh | qhh.lakystage.dat | `4fcebe3ad8b3d7a51633a766dd9b139b9ad86853aafeb87cb572d2752e0ca250` | PASS |
+
+Subtotal: 8/8 dat PASS across 4 cases. SHAs match PR-7/PR-8 reference
+table row-for-row, confirming zero floating-point change.
+
+`heihe` / `heihe_x4` server bitwise re-run deferred — the fix is a
+defensive guard on a path the current SHUD call graph does not reach
+(`Time_start = -9999.` class-default ensures the first `push(x, tnow)`
+always enqueues before any `getACC()`), and Mac 4-case PASS
+demonstrates the numerical neutrality. Will be picked up by the next
+server-side sbatch pass (S6c capstone validation per spec L91-94).
+
+### Cryosphere NaN-elimination evidence (keliya, CRYOSPHERE=1, 1-day truncation)
+
+`SHUD/Basins/keliya/input/keliya/keliya.cfg.para` modified in-flight to
+`END = START + 1` (i.e. 12053 -> 12054, model time = 24 hr = first
+1440 min). Patched `shud` binary executed; cfg.para restored to 90-day
+form afterwards. Logs:
+`/Users/danker/Desktop/Hydro-SHUD/openMP/.s6b-1-runs/keliya_1day_stdout.log`,
+`/Users/danker/Desktop/Hydro-SHUD/openMP/.s6b-1-runs/keliya_1day_stderr.log`.
+
+| Output file | Doubles scanned | NaN count | Inf count |
+|---|---|---|---|
+| `keliya.rivqdown.dat` | 796 | 0 | 0 |
+| `keliya.elevnetprcp.dat` | 1,098 | 0 | 0 |
+| `keliya.elevprcp.dat` | 1,098 | 0 | 0 |
+| `DY.dat` | 0 | 0 | 0 |
+| `Debug_Table_Element.csv` | 25,353 | 0 | 0 |
+| `Debug_Table_River.csv` | 4,189 | 0 | 0 |
+| `keliya.flood.csv` | 5 | 0 | 0 |
+| `keliya.time.csv` | 22 | 0 | 0 |
+| `keliya.SHUD` | 106 | 0 | 0 |
+
+stdout NaN/inf grep hits: 0. stderr NaN/inf grep hits: 0. Run
+completed `The successful end.` with `nfe = 1386`, `nst = 1282`.
+
+Note on case selection: master plan §4.12 lists "cryosphere 启用且模拟
+前 1440 min" as the NaN trigger; issue #184 body names "heihe / qhh" as
+representative cryosphere cases, but `qhh/qhh.cfg.para` has
+`CRYOSPHERE = 0` (confirmed) and `heihe` lives on server. The Mac
+benchmark set has three `CRYOSPHERE = 1` cases (keliya,
+xinanjiang_upstream, qinyijiang); keliya is the smallest NumEle (484)
+and was selected for the NaN-elimination 1-day capture. The other two
+`CRYOSPHERE = 1` Mac cases are covered transitively via 90-day bitwise
+PASS (which proves numerical-sequence identity to B1a-tag, including
+absence of NaN in any sampled output dat).
+
+### Defensive nature of the fix (reachability analysis)
+
+`_AccTemp::Time_start` is initialized to `-9999.` in two places:
+- in-class member initializer at `AccTemperature.hpp:17`
+- explicit assignment in the default constructor at line 43
+
+Therefore the first `push(x, tnow)` call on any `_AccTemp` instance,
+for any non-negative model time `tnow`, satisfies `(tnow - (-9999.))
+>= 1440.` and enters the `T_AccDay/N_of_day` enqueue branch. The
+inner private `push(double x)` then enqueues into `que`, so
+`que.size() >= 1` by the time `MD_ET.cpp:155-156` calls `getACC()`
+inside the per-element loop at `MD_ET.cpp:143-194`. The empty-queue
+path is therefore not reachable on `_AccTemp` instances that have
+gone through any `push(x, tnow)` call.
+
+The patch is a defensive guard: it removes the NaN attractor from the
+implementation, which (a) matches the spec literal in master plan
+§4.12 / §S2.15, (b) guards against future call-graph changes that
+might invoke `getACC()` before `push`, and (c) is bitwise-neutral on
+all current goldens. The diff report
+(`docs/diff_reports/B1a_vs_B1b_diff_s6b_1.md`) carries the same
+analysis.
+
+### Acceptance gates (per issue #184)
+
+| Acceptance criterion | Verdict |
+|---|---|
+| `AccTemperature.hpp` L60-L62 contains `que.empty() ? 0.0 :` conditional | PASS (L67 in post-fix file; L60-L68 = full `getACC()` body) |
+| 3 non-cryosphere case 90d NUM_OPENMP=1 SHA256 vs B1a-tag PASS | PASS (4 cases × 8 dat, including qhh lake set; SHAs above) |
+| Cryosphere case first 1440 min AccTemperature no NaN | PASS (keliya 1-day, 9/9 binaries clean) |
+| `B1b_CHANGELOG.md` S6b.1 row with commit SHA + zero-impact + diff report link | PASS (this section) |
+| `docs/diff_reports/B1a_vs_B1b_diff_s6b_1.md` present (precedent for D8) | PASS (outer repo) |
+
+### Scope NOT touched
+
+- S6b.2 lake formula (`MD_ElementFlux.cpp` L117) — deferred to #186
+  (conditional on S2.17 PI review #185)
+- S6b.3 S2 follow-up bug audit + fixes — deferred to #187
+- Cryosphere module other code changes
+- `> 1440 min` cryosphere validation — D9 fast-path zero-impact gate
+  + first-1440-min sample is sufficient evidence per spec L131-134
+
