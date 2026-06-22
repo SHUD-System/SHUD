@@ -57,8 +57,14 @@ public:
             
         }
     }
-    double getACC(){        
-        return ACC / que.size();
+    double getACC(){
+        /* S6b.1 (#184): divide-zero guard. `push(x, tnow)` only enqueues
+         * after the first 1440-minute window elapses, so `que` is empty
+         * during the initial cryosphere spin-up; `ACC / 0` produced NaN
+         * that propagated through `fu_Surf` / `fu_Sub`. Return 0.0 on
+         * empty queue — no accumulated history means no frozen-fraction
+         * damping, matching master plan §4.12 / §S2.15. */
+        return que.empty() ? 0.0 : ACC / que.size();
     }
 };
 #endif /* AccTemperature_hpp */
