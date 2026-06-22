@@ -1697,3 +1697,142 @@ analysis.
   + first-1440-min sample is sufficient evidence per design.md D9
   trigger #1 (bitwise == B1a on 4 cases + NaN消除 on heihe)
 
+## S6b.3 — S2 follow-up bug audit (#187)
+
+**Empty-fallback eligibility** (per spec.md L47-49 Scenario "S6b.3
+候选清单为空时不留悬空"): the audit yielded **1 candidate** (not 0),
+so the empty-fallback literal line is NOT triggered. Audit roster +
+per-candidate disposition follow.
+
+### Audit summary (per spec.md L43-46 Scenario)
+
+| Field | Value |
+|---|---|
+| Audit date | 2026-06-21 |
+| Auditor | Phase-1 implementer agent (issue #187) |
+| Audit roster source | `docs/s6b3_candidates.md` (outer repo) |
+| Candidate count | 1 |
+| Code-change candidates | 0 (the single candidate auto-resolved) |
+| Single-row CHANGELOG summary | see table below |
+
+### Single-row summary (per spec L67-77 "B1b_CHANGELOG.md 单源汇总")
+
+| Fix ID | Commit SHA | Scope | Zero-impact | Diff report |
+|---|---|---|---|---|
+| S6b.3.1 | (this section, CHANGELOG-only — no SHUD source patch) | Audit disposition of issue #159 (`f_update_omp` `uYgw` `iBC == 0` asymmetry); no `SHUD/src/` change | YES | `docs/diff_reports/B1a_vs_B1b_diff_s6b_3_1.md` |
+
+### S6b.3.1 — issue #159 (S2.6 follow-up: `f_update_omp` `uYgw` `iBC == 0` asymmetry)
+
+**Disposition: NOT A BUG — auto-resolved by S2 capstone PR-8 #152.**
+
+#### Background
+
+Issue #159 was filed from PR-2 #145 Pack 4 cross-review (Phase 4.5
+verifier verdict PLAUSIBLE; "merge can proceed; not a merge blocker").
+The asymmetry: dormant TU `MD_f_omp.cpp::f_update_omp` aligned three of
+four state-variable update sites (`uYsf` / `uYus` / `uYriv` at L120,
+L121, L158) with serial `f_update` direct-alias, but the fourth site
+`uYgw[i] = max(0.0, Y[iGW]);` at L124 (in the `iBC == 0` branch) was
+explicitly carved out per the PR-2 spec amendment as "dormant-path
+historical quirk", to be aligned with serial direct-alias whenever
+P1+ OMP RHS re-activation began. spec carve-out: spec.md S2.6
+amended Scenario L109 + design.md L290.
+
+#### Why this is no longer a bug
+
+Two structural conditions, both already in place before this S6b.3
+audit started:
+
+1. **The target TU has been physically deleted.** S2 capstone PR-8
+   #152 deleted `SHUD/src/ModelData/MD_f_omp.cpp` outright:
+
+   ```text
+   $ cd SHUD && git log openmp-baseline --diff-filter=D --name-only --oneline | grep -B1 "MD_f_omp"
+   22777e5 S2 capstone: delete MD_f_omp.cpp + retire LEGACY_RHS + SHUD_LEGACY_OMP_RHS (PR-8 #152)
+   src/ModelData/MD_f_omp.cpp
+   ```
+
+   `find SHUD -name "MD_f_omp*"` on the current `openmp-baseline` HEAD
+   returns empty — there is no longer a code site at which to apply
+   the alignment that #159 proposed.
+
+2. **The two surviving serial sites that perform the
+   `iBC == 0` GW-update already use direct-alias** (the form #159
+   advocated):
+
+   - `SHUD/src/ModelData/MD_update.cpp:63-86` `Model_Data::f_update`:
+
+     ```cpp
+     if(Ele[i].iBC == 0){ // NO BC
+     //   uYgw[i] = max(0.0, Y[iGW]);
+         uYgw[i] = Y[iGW];
+         Ele[i].QBC = 0.;
+     }
+     ```
+
+   - `SHUD/src/Model/MD_rhs_core.cpp:55-86` `Model_Data::rhs_update`:
+
+     ```cpp
+     if(Ele[i].iBC == 0){ // NO BC
+     //   uYgw[i] = max(0.0, Y[iGW]);
+         uYgw[i] = Y[iGW];
+         Ele[i].QBC = 0.;
+     }
+     ```
+
+   The commented-out `max(0.0, Y[iGW])` line is preserved as a
+   historical comment so future readers can trace the lineage. The
+   active code path is the direct-alias form.
+
+#### Disposition per spec L37 clause (d)
+
+Spec.md L37 mandates: "若评估结论为'非 bug' 或'延后到 P1+ 处理'，仍
+SHALL 写入 changelog 解释". This row records the "NOT A BUG" verdict
+plus the structural-deletion + serial-already-aligned reasoning. The
+disposition is mirrored to:
+
+- `docs/s6b3_candidates.md` (outer repo) — audit roster source
+- `docs/diff_reports/B1a_vs_B1b_diff_s6b_3_1.md` (outer repo) —
+  zero-impact diff report stub per spec L53-55 Requirement
+- GitHub issue #159 — closing comment with link to this CHANGELOG row
+
+#### Influence range
+
+- Impacted benchmark cases: **0**
+- Impacted `.dat` outputs: **0**
+- Bitwise outcome vs B1a-tag: **identical** (no code change)
+- Output-dat float regression risk: **none**
+
+#### Grep-gate `B1.*CHANGELOG`
+
+Per spec L75-77 Scenario "无重复 changelog" — repo-wide grep
+verification at this PR:
+
+```text
+$ find /Users/danker/Desktop/Hydro-SHUD/openMP -name "*CHANGELOG*" -type f
+/Users/danker/Desktop/Hydro-SHUD/openMP/SHUD/B1b_CHANGELOG.md
+/Users/danker/Desktop/Hydro-SHUD/openMP/SHUD/cvode-6.0.0/CHANGELOG.md  # SUNDIALS upstream, out of scope
+
+$ grep -l "B1a_CHANGELOG\|B0_CHANGELOG\|B1b_CHANGELOG_v" /Users/danker/Desktop/Hydro-SHUD/openMP -r
+/Users/danker/Desktop/Hydro-SHUD/openMP/openspec/changes/b1b-baseline-completion/specs/s6b-bugfix-application/spec.md   # spec text only — not a CHANGELOG file
+```
+
+Result: **only `SHUD/B1b_CHANGELOG.md` is a real B1*-CHANGELOG file**
+in the repo. Other matches are either upstream SUNDIALS
+(`cvode-6.0.0/CHANGELOG.md`, outside our scope), the spec.md itself
+(spec text mentioning the file), or doc references in
+`docs/b1b_summary.md` / `docs/review-loop-log.jsonl` / openspec docs
+(narrative citations, not changelogs). No competing
+`B1a_CHANGELOG.md` / `B1b_CHANGELOG_v2.md` exists.
+
+#### Scope NOT touched
+
+- No `SHUD/src/` change (the audit verdict is "NOT A BUG"; no source
+  patch is the correct artefact)
+- S6b.2 lake formula — separate issue #186 (gated on PI review #185)
+- S6b.1 AccTemperature divide-zero guard — separate issue #184
+  (already merged PR-12 #202 above)
+- D9 fast-path final eligibility — to be determined by S6b.2 outcome
+  (S6b.1 zero-impact + S6b.3 zero-impact already satisfied, per
+  design.md D9 triggers #1 and #3)
+
