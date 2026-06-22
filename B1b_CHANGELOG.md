@@ -1510,10 +1510,11 @@ a dedicated tooling-hardening PR:
 - **LOC delta**: +8 / -2 (the ternary expression replaces the
   unconditional `return ACC / que.size();` plus a 6-line block
   comment citing master plan §4.12 / §S2.15).
-- **Out of scope** per spec L1488 + #184 body: lake formula
-  (`MD_ElementFlux.cpp` L117) deferred to S6b.2 (#186, conditional on
-  #185 PI review); S2 follow-up bug audit deferred to S6b.3 (#187).
-- **Influence range** (per master plan §4.12 row 1488):
+- **Out of scope** per spec.md L21-32 (S6b.2 requirement) + #184 body:
+  lake formula (`MD_ElementFlux.cpp` L117) deferred to S6b.2 (#186,
+  conditional on #185 PI review); S2 follow-up bug audit deferred to
+  S6b.3 (#187).
+- **Influence range** (per master plan §4.12 row at master plan L1488):
   "仅影响 cryosphere 启用且模拟前 1440 min 的 NaN 传播路径".
 
 ### Code change
@@ -1551,47 +1552,107 @@ script). Run log: `.s6b-1-runs/run_bitwise.log`.
 Subtotal: 8/8 dat PASS across 4 cases. SHAs match PR-7/PR-8 reference
 table row-for-row, confirming zero floating-point change.
 
-`heihe` / `heihe_x4` server bitwise re-run deferred — the fix is a
-defensive guard on a path the current SHUD call graph does not reach
-(`Time_start = -9999.` class-default ensures the first `push(x, tnow)`
-always enqueues before any `getACC()`), and Mac 4-case PASS
-demonstrates the numerical neutrality. Will be picked up by the next
-server-side sbatch pass (S6c capstone validation per spec L91-94).
+`heihe_x4` server bitwise re-run remains deferred to S6c capstone —
+the fix is a defensive guard on a path the current SHUD call graph
+does not reach (`Time_start = -9999.` class-default ensures the first
+`push(x, tnow)` always enqueues before any `getACC()`), and Mac
+4-case PASS demonstrates the numerical neutrality. `heihe` itself is
+covered below by a dedicated first-1440-min server sbatch evidence
+pass (per **design.md D9 trigger #1**, "cryosphere case heihe NaN
+消除"; tasks.md task 9.3).
 
-### Cryosphere NaN-elimination evidence (keliya, CRYOSPHERE=1, 1-day truncation)
+### Cryosphere NaN-elimination evidence
+
+The first-1440-min NaN-elimination Scenario (spec.md L15-17) is
+witnessed on **heihe (server, primary witness per issue #184 "Runs On"
++ design.md D9 trigger #1)** and corroborated on **keliya (Mac,
+auxiliary)**. Both are `CRYOSPHERE=1` and use a `END = START + 1`
+truncation (model time = 24 hr = first 1440 min). The scan
+methodology is preserved as the reproducible script pair
+`.s6b-1-runs/scan_nan.py` (numpy `float64` reader + token-regex CSV
+scanner) and `.s6b-1-runs/scan_nan.sh` (uv-then-system fallback
+wrapper); exit code 0 iff all binaries report `NaN=0` and `Inf=0`.
+Token counts shown in the tables below are the script's reproducible
+output (numeric-token regex for text files, `float64`-count for
+`.dat`); see `.s6b-1-runs/scan_nan.py` docstring for the exact
+counting rule.
+
+#### Server heihe (primary, Slurm)
+
+Slurm job: ID `8627`, partition `CPU`, node `cn07`, state
+`COMPLETED`, ExitCode `0:0`, elapsed `00:06:04` (363 s wall, dominated
+by 1709 forcing CSV reads + `Initializing data structure`; the
+solver itself produced `nfe = 79`, `nst = 74`). Slurm 三铁律 honored:
+sbatch submitted from `/scratch/frd_muziyao/SHUD-OpenMP/.s6b-1-runs/server/`,
+`--output` / `--error` in the same `/scratch` directory, run.sh
+(`run_heihe_s6b1.sbatch`) on `/scratch`. `heihe.cfg.para` modified
+in-flight to `END = START + 1` (14245 -> 14246, model time = 1440
+min); cfg.para restored from `.pre_s6b_1_runs` backup after run.
+Logs mirrored to `.s6b-1-runs/server/`:
+`heihe_1day_8627.out`, `heihe_1day_8627.err`,
+`heihe_1day_8627_scan.log`, `run_heihe_s6b1.sbatch`.
+
+Scan command: `bash .s6b-1-runs/scan_nan.sh
+SHUD/Basins/heihe/output/heihe.out`.
+
+| Output file | Doubles scanned | NaN count | Inf count | Kind |
+|---|---|---|---|---|
+| `DY.dat` | 0 | 0 | 0 | dat |
+| `Debug_Table_Element.csv` | 405,464 | 0 | 0 | txt |
+| `Debug_Table_River.csv` | 42,336 | 0 | 0 | txt |
+| `heihe.SHUD` | 12 | 0 | 0 | txt |
+| `heihe.flood.csv` | 1 | 0 | 0 | txt |
+| `heihe.rivqdown.dat` | 4,835 | 0 | 0 | dat |
+| `heihe.time.csv` | 12 | 0 | 0 | txt |
+
+`scan_nan.sh` exit code: 0 (TOTAL NaN=0, Inf=0). Slurm stdout
+NaN/inf token grep: 0 hits. Slurm stderr NaN/inf token grep: 0 hits
+(stderr's only content is the pre-existing `Aqd of Node(...) =
+0.000000` startup warnings and `Radiation(t=...) out of range`
+forcing-range warnings, neither containing NaN). Run completed
+`The successful end.` per stdout.
+
+#### Mac keliya (auxiliary)
 
 `SHUD/Basins/keliya/input/keliya/keliya.cfg.para` modified in-flight to
 `END = START + 1` (i.e. 12053 -> 12054, model time = 24 hr = first
 1440 min). Patched `shud` binary executed; cfg.para restored to 90-day
 form afterwards. Logs:
-`/Users/danker/Desktop/Hydro-SHUD/openMP/.s6b-1-runs/keliya_1day_stdout.log`,
-`/Users/danker/Desktop/Hydro-SHUD/openMP/.s6b-1-runs/keliya_1day_stderr.log`.
+`.s6b-1-runs/keliya_1day_stdout.log`,
+`.s6b-1-runs/keliya_1day_stderr.log`,
+`.s6b-1-runs/keliya_1day_scan.log`.
 
-| Output file | Doubles scanned | NaN count | Inf count |
-|---|---|---|---|
-| `keliya.rivqdown.dat` | 796 | 0 | 0 |
-| `keliya.elevnetprcp.dat` | 1,098 | 0 | 0 |
-| `keliya.elevprcp.dat` | 1,098 | 0 | 0 |
-| `DY.dat` | 0 | 0 | 0 |
-| `Debug_Table_Element.csv` | 25,353 | 0 | 0 |
-| `Debug_Table_River.csv` | 4,189 | 0 | 0 |
-| `keliya.flood.csv` | 5 | 0 | 0 |
-| `keliya.time.csv` | 22 | 0 | 0 |
-| `keliya.SHUD` | 106 | 0 | 0 |
+Scan command: `bash .s6b-1-runs/scan_nan.sh
+SHUD/Basins/keliya/output/keliya.out`.
 
-stdout NaN/inf grep hits: 0. stderr NaN/inf grep hits: 0. Run
-completed `The successful end.` with `nfe = 1386`, `nst = 1282`.
+| Output file | Doubles scanned | NaN count | Inf count | Kind |
+|---|---|---|---|---|
+| `DY.dat` | 0 | 0 | 0 | dat |
+| `Debug_Table_Element.csv` | 31,000 | 0 | 0 | txt |
+| `Debug_Table_River.csv` | 5,994 | 0 | 0 | txt |
+| `keliya.SHUD` | 12 | 0 | 0 | txt |
+| `keliya.elevnetprcp.dat` | 1,099 | 0 | 0 | dat |
+| `keliya.elevprcp.dat` | 1,099 | 0 | 0 | dat |
+| `keliya.flood.csv` | 1 | 0 | 0 | txt |
+| `keliya.rivqdown.dat` | 797 | 0 | 0 | dat |
+| `keliya.time.csv` | 12 | 0 | 0 | txt |
+
+`scan_nan.sh` exit code: 0 (TOTAL NaN=0, Inf=0). stdout/stderr
+NaN/inf token grep: 0 hits each.
 
 Note on case selection: master plan §4.12 lists "cryosphere 启用且模拟
-前 1440 min" as the NaN trigger; issue #184 body names "heihe / qhh" as
-representative cryosphere cases, but `qhh/qhh.cfg.para` has
-`CRYOSPHERE = 0` (confirmed) and `heihe` lives on server. The Mac
+前 1440 min" as the NaN trigger; issue #184 body names "heihe / qhh"
+as representative cryosphere cases, but `qhh/qhh.cfg.para` has
+`CRYOSPHERE = 0` (confirmed) and is therefore covered by the 90-day
+bitwise PASS (AccTemperature path entirely bypassed). The Mac
 benchmark set has three `CRYOSPHERE = 1` cases (keliya,
 xinanjiang_upstream, qinyijiang); keliya is the smallest NumEle (484)
-and was selected for the NaN-elimination 1-day capture. The other two
+and was selected as the Mac-side 1-day capture. The other two
 `CRYOSPHERE = 1` Mac cases are covered transitively via 90-day bitwise
 PASS (which proves numerical-sequence identity to B1a-tag, including
-absence of NaN in any sampled output dat).
+absence of NaN in any sampled output dat). heihe is the in-scope
+server primary witness (issue #184 "Runs On" + design.md D9 trigger
+#1) and is covered above.
 
 ### Defensive nature of the fix (reachability analysis)
 
@@ -1621,8 +1682,8 @@ analysis.
 | Acceptance criterion | Verdict |
 |---|---|
 | `AccTemperature.hpp` L60-L62 contains `que.empty() ? 0.0 :` conditional | PASS (L67 in post-fix file; L60-L68 = full `getACC()` body) |
-| 3 non-cryosphere case 90d NUM_OPENMP=1 SHA256 vs B1a-tag PASS | PASS (4 cases × 8 dat, including qhh lake set; SHAs above) |
-| Cryosphere case first 1440 min AccTemperature no NaN | PASS (keliya 1-day, 9/9 binaries clean) |
+| 4 bitwise-validation case (3 × `CRYOSPHERE=1` 90 天窗不命中 + qhh `CRYOSPHERE=0`) 90d NUM_OPENMP=1 SHA256 vs B1a-tag PASS | PASS (4 cases × 8 dat, including qhh lake set; SHAs above) |
+| Cryosphere case (heihe primary, keliya auxiliary) first 1440 min AccTemperature no NaN | PASS (heihe 1-day server Slurm job 8627 cn07 ExitCode 0:0, 7/7 binaries clean; keliya 1-day Mac, 9/9 binaries clean) |
 | `B1b_CHANGELOG.md` S6b.1 row with commit SHA + zero-impact + diff report link | PASS (this section) |
 | `docs/diff_reports/B1a_vs_B1b_diff_s6b_1.md` present (precedent for D8) | PASS (outer repo) |
 
@@ -1633,5 +1694,6 @@ analysis.
 - S6b.3 S2 follow-up bug audit + fixes — deferred to #187
 - Cryosphere module other code changes
 - `> 1440 min` cryosphere validation — D9 fast-path zero-impact gate
-  + first-1440-min sample is sufficient evidence per spec L131-134
+  + first-1440-min sample is sufficient evidence per design.md D9
+  trigger #1 (bitwise == B1a on 4 cases + NaN消除 on heihe)
 
