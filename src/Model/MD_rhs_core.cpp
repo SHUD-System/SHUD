@@ -178,6 +178,33 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
  * No sub-function split (rhs_element_vertical / rhs_segment_compute
  * etc. belong to S3, not S1b — per spec Scenario "No sub-function
  * split inside rhs_flux"). */
+
+/* P1c PR-B (#245): Fixed-shape pairwise tree reduction over an index
+ * list, B0 serial traversal order preserved. Tree shape depends only on
+ * the list length, NOT on NUM_OPENMP — used at per-owner accumulation
+ * sites to obtain a thread-count-independent canonical sum. Spec
+ * p1c-deterministic-reduction "fixed-shape pairwise canonical reduction".
+ *
+ * Empty list returns 0.0 (preserves prior explicit zero-init semantics);
+ * single element returns src[idx[0]]. Range-pointer variant avoids
+ * per-call vector copies (O(n log n) work, O(log n) stack). Stack depth
+ * = ceil(log2(n)); n is bounded by NumEle so recursion is safe. */
+static inline double fixed_pairwise_sum_range(
+        const int* idx, std::size_t n, const double* src) {
+    if (n == 0) return 0.0;
+    if (n == 1) return src[idx[0]];
+    if (n == 2) return src[idx[0]] + src[idx[1]];
+    const std::size_t mid = n / 2;
+    const double lo = fixed_pairwise_sum_range(idx, mid, src);
+    const double hi = fixed_pairwise_sum_range(idx + mid, n - mid, src);
+    return lo + hi;
+}
+
+static inline double fixed_pairwise_sum_indexed(
+        const std::vector<int>& idx, const double* src) {
+    return fixed_pairwise_sum_range(idx.data(), idx.size(), src);
+}
+
 void Model_Data:: rhs_flux(double t){
     int i;
     /* S5c-B (#174): 5 inner buckets (ET / lateral / segment / river /
@@ -266,18 +293,24 @@ void Model_Data:: rhs_flux(double t){
      * Must run BEFORE the lake clamp below (clamp reads qLakeEvap /
      * qLakePrcp). Cannot live in PassValue_legacy because PassValue_legacy() is
      * called AFTER the clamp. Will be replaced by
-     * rhs_deterministic_gather() in S3c (PR-11). */
+     * rhs_deterministic_gather() in S3c (PR-11).
+     *
+     * P1c PR-B (#245): L278/L279 inline serial += replaced with per-lake
+     * fixed-shape pairwise tree reduction over `ele_by_lake[ilake]`
+     * (S4.5; populated in MD_adjacency.cpp by the same
+     * `for (i = 0; i < NumEle; i++) if Ele[i].iLake > 0` traversal so the
+     * list is already in B0 canonical order — do NOT re-sort). Tree
+     * shape determined by list length only, NOT NUM_OPENMP. Prior
+     * explicit zero-init is removed because fixed_pairwise_sum_indexed
+     * returns 0.0 on empty lists, preserving the empty-lake semantics.
+     * Fork-join structure unchanged; no schedule / atomic / reduction
+     * pragmas added (P9 owns parallel attribution). */
     if(lakeon){
         for (i = 0; i < NumLake; i++) {
-            qLakeEvap[i] = 0.;
-            qLakePrcp[i] = 0.;
-        }
-        for (i = 0; i < NumEle; i++) {
-            if(Ele[i].iLake > 0){
-                int ilake = Ele[i].iLake - 1;
-                qLakeEvap[ilake] += qEleEvapo_lake[i];
-                qLakePrcp[ilake] += qElePrep_lake[i];
-            }
+            qLakeEvap[i] = fixed_pairwise_sum_indexed(
+                    ele_by_lake[i], qEleEvapo_lake);
+            qLakePrcp[i] = fixed_pairwise_sum_indexed(
+                    ele_by_lake[i], qElePrep_lake);
         }
     }
     for (i = 0; i < NumLake; i++) {
