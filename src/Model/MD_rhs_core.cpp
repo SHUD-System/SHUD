@@ -440,13 +440,14 @@ void Model_Data::rhs_deterministic_gather(){
         Qe2r_Sub[ie]  = -fixed_leftfold_sum_indexed(seg_by_ele[ie], QsegSub);
     }
 
-    /* -------- S3c.2: downstream river -> upstream gather (S4.3) --------
-     * upstream_by_down[ir] was built with both the `iDownStrm>=0` and
-     * `Riv[i].toLake<=0` predicates already baked in. */
+    /* -------- S3c.2: downstream river -> upstream gather (S4.3,
+     * leftfold + post-negate; `-leftfold(...)` is IEEE-754
+     * bitwise-equivalent to left-to-right `acc += -src[up]` since
+     * negation is exact sign-bit flip). upstream_by_down[ir] was
+     * built with both the `iDownStrm>=0` and `Riv[i].toLake<=0`
+     * predicates already baked in. -------- */
     for (int ir = 0; ir < NumRiv; ir++) {
-        for (int up : upstream_by_down[ir]) {
-            QrivUp[ir] += -QrivDown[up];
-        }
+        QrivUp[ir] = -fixed_leftfold_sum_indexed(upstream_by_down[ir], QrivDown);
     }
 
     /* -------- lake-side gathers (lakeon-gated) -------- */
