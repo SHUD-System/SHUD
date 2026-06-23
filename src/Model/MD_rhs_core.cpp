@@ -205,6 +205,24 @@ static inline double fixed_pairwise_sum_indexed(
     return fixed_pairwise_sum_range(idx.data(), idx.size(), src);
 }
 
+/* P1c PR-C (#246): Fixed-shape leftfold canonical reduction over an
+ * index list (B0 traversal order preserved). For each src element
+ * src[idx[k]] in list order, accumulator runs
+ *   `acc = 0; acc += src[idx[0]]; acc += src[idx[1]]; ...`.
+ * Result is bitwise-identical to legacy serial `for x in list: dst +=
+ * src[x]` accumulation (assuming dst starts at 0.0) since the operation
+ * order is identical to a left-fold pattern. Use this for sites 3-7
+ * (segment -> river / element gathers, upstream river gather) where
+ * keliya N=1 bitwise vs B0 must be preserved. Sites 1-2 (lake
+ * aggregation) use the tree variant `fixed_pairwise_sum_indexed`
+ * instead (different shape trade-off documented in PR-B). */
+static inline double fixed_leftfold_sum_indexed(
+        const std::vector<int>& idx, const double* src) {
+    double acc = 0.0;
+    for (int i : idx) acc += src[i];
+    return acc;
+}
+
 void Model_Data:: rhs_flux(double t){
     int i;
     /* S5c-B (#174): 5 inner buckets (ET / lateral / segment / river /
@@ -401,20 +419,25 @@ void Model_Data::rhs_deterministic_gather(){
         Qe2r_Sub[i] = 0.;
     }
 
-    /* -------- S3c.1: segment -> river gather (S4.1) -------- */
+    /* -------- S3c.1: segment -> river gather (S4.1, fixed-shape leftfold
+     * canonical reduction over seg_by_riv, B0 traversal order preserved).
+     * P1c PR-C (#246): sites 3-4 wrapped with fixed_leftfold_sum_indexed
+     * (byte-equivalent to original `acc += src[iseg]` since the operation
+     * order is identical). Pre-zero loop at function head kept for
+     * explicitness; helper assignment overwrites (zero-cost behavior). */
     for (int ir = 0; ir < NumRiv; ir++) {
-        for (int iseg : seg_by_riv[ir]) {
-            QrivSurf[ir] += QsegSurf[iseg]; // Positive from River to Element
-            QrivSub[ir]  += QsegSub[iseg];
-        }
+        QrivSurf[ir] = fixed_leftfold_sum_indexed(seg_by_riv[ir], QsegSurf);
+        QrivSub[ir]  = fixed_leftfold_sum_indexed(seg_by_riv[ir], QsegSub);
     }
 
-    /* -------- S3c.1: segment -> element gather (S4.2) -------- */
+    /* -------- S3c.1: segment -> element gather (S4.2, leftfold +
+     * post-negate; `-leftfold(...)` is IEEE-754 bitwise-equivalent to
+     * original left-to-right `acc += -src[iseg]` since negation is exact
+     * sign-bit flip). P1c PR-C (#246): sites 5-6. Pre-zero kept for
+     * explicitness; helper assignment overwrites. */
     for (int ie = 0; ie < NumEle; ie++) {
-        for (int iseg : seg_by_ele[ie]) {
-            Qe2r_Surf[ie] += -QsegSurf[iseg]; // Positive from Element to River
-            Qe2r_Sub[ie]  += -QsegSub[iseg];
-        }
+        Qe2r_Surf[ie] = -fixed_leftfold_sum_indexed(seg_by_ele[ie], QsegSurf);
+        Qe2r_Sub[ie]  = -fixed_leftfold_sum_indexed(seg_by_ele[ie], QsegSub);
     }
 
     /* -------- S3c.2: downstream river -> upstream gather (S4.3) --------
