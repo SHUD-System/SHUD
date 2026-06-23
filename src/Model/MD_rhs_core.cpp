@@ -223,6 +223,24 @@ static inline double fixed_leftfold_sum_indexed(
     return acc;
 }
 
+/* Fixed-shape leftfold canonical reduction over an index-pair list
+ * (B0 traversal order preserved). For each (ie, j) pair in B0
+ * traversal order, accumulator runs `acc += src[ie * stride + j]`.
+ * Bitwise-identical to legacy `for (auto& ej : list) acc += src[ej.first
+ * * stride + ej.second]`. Used for site 8 (lake_bank_edge_by_lake,
+ * S4.6) where adjacency list contains (ie, j) pairs; lookup is the
+ * standard stride=3 element-edge convention. Constant-stride keeps the
+ * helper trivially inlinable.
+ */
+static inline double fixed_leftfold_sum_pair_indexed(
+        const std::vector<std::pair<int,int>>& pairs,
+        const double* src,
+        int stride) {
+    double acc = 0.0;
+    for (const auto& ej : pairs) acc += src[ej.first * stride + ej.second];
+    return acc;
+}
+
 void Model_Data:: rhs_flux(double t){
     int i;
     /* S5c-B (#174): 5 inner buckets (ET / lateral / segment / river /
@@ -452,30 +470,26 @@ void Model_Data::rhs_deterministic_gather(){
 
     /* -------- lake-side gathers (lakeon-gated) -------- */
     if (lakeon) {
-        /* S3b.1: per-river-down -> per-lake (S4.4 riv_in_by_lake).
-         * Replaces the previous transitional NumRiv loop. List elements
-         * are B0 ascending iriv order. */
+        /* S3b.1: per-river-down -> per-lake (S4.4 riv_in_by_lake,
+         * fixed-shape leftfold canonical reduction over B0 ascending
+         * iriv order). */
         for (int ilake = 0; ilake < NumLake; ilake++) {
             QLakeRivIn[ilake] = 0.;
         }
         for (int ilake = 0; ilake < NumLake; ilake++) {
-            for (int iriv : riv_in_by_lake[ilake]) {
-                QLakeRivIn[ilake] += QrivDown[iriv];
-            }
+            QLakeRivIn[ilake] = fixed_leftfold_sum_indexed(
+                    riv_in_by_lake[ilake], QrivDown);
         }
 
         /* S3b.2: per-element-edge surface -> per-lake (S4.6
-         * lake_bank_edge_by_lake). Outer loop is B0 ascending iele,
-         * inner j ascending 0,1,2. */
+         * lake_bank_edge_by_lake, fixed-shape leftfold over B0 ascending
+         * (iele, j) pairs; stride=3 element-edge convention). */
         for (int ilake = 0; ilake < NumLake; ilake++) {
             QLakeSurf[ilake] = 0.;
         }
         for (int ilake = 0; ilake < NumLake; ilake++) {
-            for (const auto& ej : lake_bank_edge_by_lake[ilake]) {
-                int ie = ej.first;
-                int j  = ej.second;
-                QLakeSurf[ilake] += QeleSurf_lake[ie * 3 + j];
-            }
+            QLakeSurf[ilake] = fixed_leftfold_sum_pair_indexed(
+                    lake_bank_edge_by_lake[ilake], QeleSurf_lake, 3);
         }
 
         /* S3b.3: per-element-edge subsurface -> per-lake (same S4.6
@@ -484,11 +498,8 @@ void Model_Data::rhs_deterministic_gather(){
             QLakeSub[ilake] = 0.;
         }
         for (int ilake = 0; ilake < NumLake; ilake++) {
-            for (const auto& ej : lake_bank_edge_by_lake[ilake]) {
-                int ie = ej.first;
-                int j  = ej.second;
-                QLakeSub[ilake] += QeleSub_lake[ie * 3 + j];
-            }
+            QLakeSub[ilake] = fixed_leftfold_sum_pair_indexed(
+                    lake_bank_edge_by_lake[ilake], QeleSub_lake, 3);
         }
     }
 }
