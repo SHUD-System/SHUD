@@ -35,6 +35,9 @@
                               * "MD_rhs_core.cpp 文件顶部 SHALL 包含
                               * #include MD_adjacency.hpp". */
 #include <cstdlib>   /* std::abort -- S1d.1 OMP stub regression guard */
+#include <cmath>     /* P1c §4.7 conditional Kahan injection: std::fabs used
+                      * by Neumaier compensation branch in fixed_*_sum helpers
+                      * below. Explicit include avoids transitive dependency. */
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
 #endif
@@ -188,7 +191,14 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
  * Empty list returns 0.0 (preserves prior explicit zero-init semantics);
  * single element returns src[idx[0]]. Range-pointer variant avoids
  * per-call vector copies (O(n log n) work, O(log n) stack). Stack depth
- * = ceil(log2(n)); n is bounded by NumEle so recursion is safe. */
+ * = ceil(log2(n)); n is bounded by NumEle so recursion is safe.
+ *
+ * P1c §4.7 Kahan injection (Neumaier 1974, conditional): every recursive
+ * pair-join uses compensated addition. The pairwise tree already minimizes
+ * round-off magnitude growth at intermediate nodes, but the top-level join
+ * `lo + hi` can lose low bits when |lo| != |hi|. Neumaier compensation
+ * captures the round-off explicitly. Recursion still bounds stack at
+ * ceil(log2(n)); compensation `c` is per-frame stack-local, no heap. */
 static inline double fixed_pairwise_sum_range(
         const int* idx, std::size_t n, const double* src) {
     if (n == 0) return 0.0;
@@ -197,7 +207,14 @@ static inline double fixed_pairwise_sum_range(
     const std::size_t mid = n / 2;
     const double lo = fixed_pairwise_sum_range(idx, mid, src);
     const double hi = fixed_pairwise_sum_range(idx + mid, n - mid, src);
-    return lo + hi;
+    /* P1c §4.7 Neumaier-compensated pair-join. Branch on magnitude to
+     * capture lost low-order bits regardless of |lo| vs |hi| ordering;
+     * classical Kahan would only handle the |sum| >= |x| half correctly. */
+    const double t = lo + hi;
+    const double c = (std::fabs(lo) >= std::fabs(hi))
+                       ? (lo - t) + hi
+                       : (hi - t) + lo;
+    return t + c;
 }
 
 static inline double fixed_pairwise_sum_indexed(
@@ -215,12 +232,24 @@ static inline double fixed_pairwise_sum_indexed(
  * (segment -> river / element gathers, upstream river gather) where
  * keliya N=1 bitwise vs B0 must be preserved. Sites 1-2 (lake
  * aggregation) use the tree variant `fixed_pairwise_sum_indexed`
- * instead (different shape trade-off documented in PR-B). */
+ * instead (different shape trade-off documented in PR-B).
+ *
+ * P1c §4.7 Kahan injection: leftfold accumulator switched from naive
+ * `acc += src[i]` to Neumaier-compensated form. Running compensation `c`
+ * accumulates per-step round-off; final `acc + c` returns the
+ * full-precision sum. Per-element overhead: 1 magnitude compare + 3 FP
+ * ops (vs 1 op naive). */
 static inline double fixed_leftfold_sum_indexed(
         const std::vector<int>& idx, const double* src) {
     double acc = 0.0;
-    for (int i : idx) acc += src[i];
-    return acc;
+    double c   = 0.0;
+    for (int i : idx) {
+        const double x = src[i];
+        const double t = acc + x;
+        c += (std::fabs(acc) >= std::fabs(x)) ? (acc - t) + x : (x - t) + acc;
+        acc = t;
+    }
+    return acc + c;
 }
 
 /* Fixed-shape leftfold canonical reduction over an index-pair list
@@ -231,14 +260,25 @@ static inline double fixed_leftfold_sum_indexed(
  * S4.6) where adjacency list contains (ie, j) pairs; lookup is the
  * standard stride=3 element-edge convention. Constant-stride keeps the
  * helper trivially inlinable.
+ *
+ * P1c §4.7 Kahan injection: same Neumaier compensation as the indexed
+ * leftfold above, applied to the (ie, j) pair-list overload. Site 8
+ * (lake_bank_edge_by_lake, anchors 8b/8c) inherits the same accumulator
+ * semantics; constant stride=3 keeps the per-+= overhead bounded.
  */
 static inline double fixed_leftfold_sum_pair_indexed(
         const std::vector<std::pair<int,int>>& pairs,
         const double* src,
         int stride) {
     double acc = 0.0;
-    for (const auto& ej : pairs) acc += src[ej.first * stride + ej.second];
-    return acc;
+    double c   = 0.0;
+    for (const auto& ej : pairs) {
+        const double x = src[ej.first * stride + ej.second];
+        const double t = acc + x;
+        c += (std::fabs(acc) >= std::fabs(x)) ? (acc - t) + x : (x - t) + acc;
+        acc = t;
+    }
+    return acc + c;
 }
 
 void Model_Data:: rhs_flux(double t){
