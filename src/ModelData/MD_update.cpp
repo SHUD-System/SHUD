@@ -60,102 +60,12 @@ void Model_Data::f_updatei(double  *Y, double *DY, double t, int flag){
             break;
     }
 }
-void Model_Data::f_update(double  *Y, double *DY, double t){
-    int i;
-#pragma omp parallel for schedule(static) default(none) shared(Y, t, uYsf, uYus, uYgw, qEleExfil, qEleInfil, QeleSurfTot, QeleSubTot) private(i)
-    for (i = 0; i < NumEle; i++) {
-//        uYsf[i] = (Y[iSF] >= 0.) ? Y[iSF] : 0.;
-//        uYus[i] = (Y[iUS] >= 0.) ? Y[iUS] : 0.;
-        /* S5d.2-5a (#179) — flat zero via accessor. */
-        for(int j = 0; j < 3; j++){
-            QeleSubAt(i, j) = 0.;
-            QeleSurfAt(i, j) = 0.;
-            QeleSubTot[i] = 0.;
-            QeleSurfTot[i] = 0.;
-        }
-        uYsf[i] = Y[iSF];
-        uYus[i] = Y[iUS];
-        if(Ele[i].iBC == 0){ // NO BC
-//            uYgw[i] = max(0.0, Y[iGW]);
-            uYgw[i] = Y[iGW];
-            Ele[i].QBC = 0.;
-        }else if(Ele[i].iBC > 0){ // BC fix head
-            Ele[i].yBC = tsd_eyBC.getX(t, Ele[i].iBC);
-            uYgw[i] = Ele[i].yBC;
-            Ele[i].QBC = 0.;
-        }else{ // BC fix flux to GW
-            Ele[i].QBC = tsd_eqBC.getX(t, -Ele[i].iBC);
-        }
-        qEleExfil[i] = 0.;
-        qEleInfil[i] = 0.;
-        /***** SS and BC *****/
-//        for(int j = 0; j<3;j++){
-//            Ele[i].iupdSF[j] = 0;
-//            Ele[i].iupdGW[j] = 0;
-//        }
-/********* Below are remove because the bass-balance issue. **********/
-//        for (int j = 0; j < 3; j++) {
-//            if(Ele[i].nabr[j] > 0){
-//                Ele[i].surfH[j] = (Ele[Ele[i].nabr[j] - 1].zmax + uYsf[Ele[i].nabr[j] - 1]);
-//            }else{
-//                Ele[i].surfH[j] = (Ele[i].zmax + uYsf[i]);
-//            }
-//        }
-//        Ele[i].dhBYdx = dhdx(Ele[i].surfX, Ele[i].surfY, Ele[i].surfH);
-//        Ele[i].dhBYdy = dhdy(Ele[i].surfX, Ele[i].surfY, Ele[i].surfH);
-//        Ele[i].Avg_Sf = sqpow2(Ele[i].dhBYdx, Ele[i].dhBYdy);
-    }//end of for j=1:NumEle
-
-#pragma omp parallel for schedule(static) default(none) shared(Y, t, uYriv) private(i)
-    for (i = 0; i < NumRiv; i++ ){
-        uYriv[i] = Y[iRIV];
-        /* qrivsurf and qrivsub are calculated in Element fluxes.
-         qrivDown and qrivUp are calculated in River fluxes. */
-        Riv[i].updateRiver(uYriv[i]);
-        /***** SS and BC *****/
-        Riv[i].qBC = 0.0;
-        if(Riv[i].BC == 0){
-            /* Void */
-        }else if(Riv[i].BC < 0){ // Fixed Flux INTO river Reaches.
-            Riv[i].qBC = tsd_rqBC.getX(t, -Riv[i].BC);
-        }else if (Riv[i].BC > 0){ // Fixed Stage of river reach.
-            Riv[i].yBC = tsd_ryBC.getX(t, Riv[i].BC);
-            uYriv[i] = Riv[i].yBC;
-        }
-#ifdef DEBUG
-        CheckNANi(uYriv[i], i, "uYriv in f_update.");
-#endif
-    }
-    
-    for (int i = 0; i < NumRiv; i++) {
-        QrivSurf[i] = 0.;
-        QrivSub[i] = 0.;
-        QrivUp[i] = 0.;
-    }
-    for (int i = 0; i < NumEle; i++) {
-        Qe2r_Surf[i] = 0.;
-        Qe2r_Sub[i] = 0.;
-    }
-#pragma omp parallel for schedule(static) default(none) shared(Y, t) private(i)
-    for (i = 0; i < NumLake; i++) {
-        yLakeStg[i] = Y[iLAKE];
-        lake[i].yStage = yLakeStg[i];
-        lake[i].update();
-        y2LakeArea[i] = lake[i].u_toparea;
-        QLakeSub[i] = 0.;
-        QLakeSurf[i] = 0.;
-        qLakeEvap[i] = 0.;
-        qLakePrcp[i] = 0.;
-        QLakeRivIn[i] = 0.;
-        QLakeRivOut[i] = 0.;
-    }
-    for (int i = 0; i < NumY; i++){
-        DY[i] = 0.;
-    }
-#ifdef SHUD_DUMP_RHS
-    shud_rhs_dump_point("f_update", t, DY, NumY);
-#endif
-}
+/* P1d.2.0 PR-C0 (#291): Model_Data f_update legacy carry-over deleted.
+ * Live counterpart is Model_Data::rhs_update in MD_rhs_core.cpp
+ * (~L58-149), which CVODE invokes via f.cpp:54 -> MD->rhs_core(...).
+ * The "f_update" SHUD_DUMP_RHS tag string at MD_rhs_core.cpp:147 +
+ * MD_rhs_dump.{h,cpp} default site name are preserved as the
+ * golden-file dump contract. */
 void Model_Data::summary (N_Vector udata){
     double  *Y;
     /* S1d.2 (openMP #48) — generic N_Vector data accessor (see f.cpp

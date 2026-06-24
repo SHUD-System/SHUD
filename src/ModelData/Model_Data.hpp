@@ -331,21 +331,24 @@ public:
     int ScreenPrint(double t, unsigned long it);
     int ScreenPrintu(double t, unsigned long it);
     /* methods in f function */
-    void f_loop(double t);
+    /* P1d.2.0 PR-C0 (#291): f_loop / f_applyDY / f_update declarations
+     * deleted alongside their bodies in MD_f.cpp / MD_update.cpp.
+     * Live counterparts are rhs_flux / rhs_apply / rhs_update declared
+     * below. Uncouple-path siblings (f_loopET, f_loop1..5, f_applyDY_*,
+     * f_applyDYi, f_updatei) survive — still called from f.cpp's
+     * f_surf/f_unsat/f_gw/f_river/f_lake receivers. */
     void f_loopET(double t);
     void f_loop1(double t);
     void f_loop2(double t);
     void f_loop3(double t);
     void f_loop4(double t);
     void f_loop5(double t);
-    
-    void f_applyDY(double * DY, double t);
+
     void f_applyDY_surf(double * DY, double t);
     void f_applyDY_unsat(double * DY, double t);
     void f_applyDY_gw(double * DY, double t);
     void f_applyDY_river(double * DY, double t);
     void f_applyDYi(double * DY, double t, int flag);
-    void f_update(double * Y, double * DY, double t);
     void f_updatei(double * Y, double * DY, double t, int flag);
 
     /* S1a (openMP #44) — pure carry-over of f_update + S1a dispatch
