@@ -324,6 +324,39 @@ static inline double fixed_leftfold_sum_pair_indexed(
 
 void Model_Data:: rhs_flux(double t){
     int i;
+    /* P1d.2.2 (#278) — steady-state river first-touch warm-up.
+     * Mirrors allocation-time first-touch in Model_Data.cpp::malloc_EleRiv
+     * + PR-C rhs_update element first-touch (MD_rhs_core.cpp L65-98);
+     * complements (does NOT replace) the allocation-time zero-write by
+     * re-touching the river-owned hot flux arrays on each CVODE RHS
+     * evaluation so each owner thread page-faults its own NUMA-local
+     * pages every step. Pure zero-write, no reduction / accumulation /
+     * non-zero write (design D2 + R1). Every field below is re-zeroed
+     * and then overwritten LATER in this same rhs_flux body (via the
+     * rhs_deterministic_gather() call at L502) before any read:
+     *   QrivSurf[i] -> re-zeroed L545 (`QrivSurf[i] = 0.` in gather pre-zero)
+     *                  -> overwritten L561 (`QrivSurf[ir] = fixed_leftfold_sum_indexed(...)`)
+     *   QrivSub[i]  -> re-zeroed L546 (`QrivSub[i] = 0.`)
+     *                  -> overwritten L562 (`QrivSub[ir]  = fixed_leftfold_sum_indexed(...)`)
+     *   QrivUp[i]   -> re-zeroed L547 (`QrivUp[i] = 0.`)
+     *                  -> overwritten L582 (`QrivUp[ir]  = -fixed_leftfold_sum_indexed(...)`)
+     * All 3 fields are first READ in rhs_apply L719
+     * (`DY[iRIV] = (- QrivUp[i] - QrivSurf[i] - QrivSub[i] - QrivDown[i] + ...)`),
+     * which runs AFTER rhs_flux returns. Field set = river-owned subset
+     * only (no element / lake fields) per OQ1 doc
+     * docs/p1d/p1d_first_touch_design.md §"RIVER-owned 子集". Gated by
+     * g_numa_first_touch_enabled to match allocation-time + PR-C gate
+     * (preserves deterministic-vs-serial behavior when OMP_PROC_BIND is
+     * unset; see shud.cpp L41-L77). */
+    if (g_numa_first_touch_enabled) {
+#pragma omp parallel for schedule(static) default(none) shared(QrivSurf, QrivSub, QrivUp) private(i)
+        for (i = 0; i < NumRiv; i++) {
+            QrivSurf[i] = 0.0;
+            QrivSub[i]  = 0.0;
+            QrivUp[i]   = 0.0;
+        }
+    }
+
     /* S5c-B (#174): 5 inner buckets (ET / lateral / segment / river /
      * gather) are scoped via `shud_diag::ScopeTimer`. The block braces
      * are pre-existing in some loops (none here) so we add explicit
