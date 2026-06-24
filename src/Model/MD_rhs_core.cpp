@@ -55,7 +55,48 @@ long long g_rhs_timer_ns[RHS_BUCKET_COUNT] = {0, 0, 0, 0, 0, 0, 0};
 }  // namespace shud_diag
 #endif
 
+/* P1d.2.1 (#277) — NUMA first-touch gate, defined in shud.cpp L49 and
+ * set once by emit_numa_token() at SHUD() entry (L70-91). Read here to
+ * gate the steady-state element first-touch warm-up below (mirrors the
+ * extern usage in Model_Data.cpp L10 / MD_initialize.cpp L27). */
+extern int g_numa_first_touch_enabled;
+
 void Model_Data::rhs_update(double *Y, double *DY, double t){
+    /* P1d.2.1 (#277) — steady-state element first-touch warm-up.
+     * Mirrors allocation-time flat3 zero-write in Model_Data.cpp::
+     * malloc_EleRiv L302-317; complements (does NOT replace) it by
+     * re-touching the element-owned hot flux/scratch arrays on each
+     * CVODE RHS evaluation so each owner thread page-faults its own
+     * NUMA-local pages every step. Pure zero-write, no reduction /
+     * accumulation / non-zero write (design D2 + R1). Every field
+     * below is re-zeroed or fully overwritten LATER in this same
+     * rhs_update body before any read:
+     *   QeleSubAt(i,j)  -> re-zeroed L70   (`QeleSubAt(i,j)  = 0.`)
+     *   QeleSurfAt(i,j) -> re-zeroed L71   (`QeleSurfAt(i,j) = 0.`)
+     *   QeleSubTot[i]   -> re-zeroed L72   (`QeleSubTot[i]   = 0.`)
+     *   QeleSurfTot[i]  -> re-zeroed L73   (`QeleSurfTot[i]  = 0.`)
+     *   Qe2r_Surf[i]    -> re-zeroed L134  (`Qe2r_Surf[i]    = 0.`)
+     *   Qe2r_Sub[i]     -> re-zeroed L135  (`Qe2r_Sub[i]     = 0.`)
+     * Field set = element-owned subset only (no river / lake fields)
+     * per OQ1 doc docs/p1d/p1d_first_touch_design.md. Gated by
+     * g_numa_first_touch_enabled to match allocation-time gate
+     * (preserves deterministic-vs-serial behavior when OMP_PROC_BIND
+     * is unset; see shud.cpp L41-L77). */
+    if (g_numa_first_touch_enabled) {
+        int i;
+#pragma omp parallel for schedule(static) default(none) shared(QeleSurfTot, QeleSubTot, Qe2r_Surf, Qe2r_Sub) private(i)
+        for (i = 0; i < NumEle; i++) {
+            for (int j = 0; j < 3; j++) {
+                QeleSurfAt(i, j) = 0.0;
+                QeleSubAt(i, j)  = 0.0;
+            }
+            QeleSurfTot[i] = 0.0;
+            QeleSubTot[i]  = 0.0;
+            Qe2r_Surf[i]   = 0.0;
+            Qe2r_Sub[i]    = 0.0;
+        }
+    }
+
     for (int i = 0; i < NumEle; i++) {
 //        uYsf[i] = (Y[iSF] >= 0.) ? Y[iSF] : 0.;
 //        uYus[i] = (Y[iUS] >= 0.) ? Y[iUS] : 0.;
