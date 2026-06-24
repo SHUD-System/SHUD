@@ -169,6 +169,43 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
         Qe2r_Surf[i] = 0.;
         Qe2r_Sub[i] = 0.;
     }
+    /* P1d.2.3 (#279) — steady-state lake first-touch warm-up.
+     * Mirrors allocation-time first-touch + PR-C rhs_update element
+     * first-touch (L65-98) + PR-D rhs_flux river first-touch (L327-358);
+     * complements (does NOT replace) the allocation-time zero-write by
+     * re-touching the lake-owned hot flux/scratch arrays on each CVODE
+     * RHS evaluation so each owner thread page-faults its own NUMA-local
+     * pages every step. Pure zero-write, no reduction / accumulation /
+     * non-zero write (design D2 + R1). Every field below is re-zeroed
+     * LATER in this same rhs_update lake block (the for-i NumLake loop
+     * just below) before any read in rhs_flux / rhs_apply:
+     *   QLakeSub[i]    -> re-zeroed L214 (`QLakeSub[i]    = 0.`)
+     *   QLakeSurf[i]   -> re-zeroed L215 (`QLakeSurf[i]   = 0.`)
+     *   qLakeEvap[i]   -> re-zeroed L216 (`qLakeEvap[i]   = 0.`)
+     *   qLakePrcp[i]   -> re-zeroed L217 (`qLakePrcp[i]   = 0.`)
+     *   QLakeRivIn[i]  -> re-zeroed L218 (`QLakeRivIn[i]  = 0.`)
+     *   QLakeRivOut[i] -> re-zeroed L219 (`QLakeRivOut[i] = 0.`)
+     * Field set = lake-owned subset only (no element / river fields),
+     * per OQ1 doc docs/p1d/p1d_first_touch_design.md §"LAKE-owned 子集".
+     * Excluded: yLakeStg[i] (written = Y[iLAKE] non-zero at L210) and
+     * y2LakeArea[i] (written = lake[i].u_toparea non-zero at L213) —
+     * both are persistent state writers, not pure-zero candidates.
+     * Gated by g_numa_first_touch_enabled to match allocation-time +
+     * PR-C + PR-D gate (preserves deterministic-vs-serial behavior when
+     * OMP_PROC_BIND is unset; see shud.cpp L41-L77). */
+    if (g_numa_first_touch_enabled) {
+        int i;
+#pragma omp parallel for schedule(static) default(none) shared(QLakeSub, QLakeSurf, qLakeEvap, qLakePrcp, QLakeRivIn, QLakeRivOut) private(i)
+        for (i = 0; i < NumLake; i++) {
+            QLakeSub[i]    = 0.0;
+            QLakeSurf[i]   = 0.0;
+            qLakeEvap[i]   = 0.0;
+            qLakePrcp[i]   = 0.0;
+            QLakeRivIn[i]  = 0.0;
+            QLakeRivOut[i] = 0.0;
+        }
+    }
+
     for (int i = 0; i < NumLake; i++) {
         yLakeStg[i] = Y[iLAKE];
         lake[i].yStage = yLakeStg[i];
