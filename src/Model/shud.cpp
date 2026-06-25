@@ -194,6 +194,33 @@ double SHUD(FileIn *fin, FileOut *fout){
             }
             //            CVODEstatus(mem, udata, t);
             MD->summary(udata);
+            /* P1e PR-B (#310): SHUD_DUMP_CV_Y=1 env gates per-tout CV_Y state
+             * vector dump. Used by tools/p1e_cv_y_hash to verify cross-build
+             * (mode A/B/C/D) solver-state byte-equality at tout boundary.
+             * Gated by env var (runtime-toggleable, no recompile required).
+             * Disabled by default → no behavior change for normal builds. */
+            if (getenv("SHUD_DUMP_CV_Y") != NULL) {
+                double *cv_y_dump = N_VGetArrayPointer(udata);
+                char cv_y_path[MAXLEN];
+                snprintf(cv_y_path, sizeof(cv_y_path),
+                         "%s/cv_y_%015.6f.bin", fout->outpath, t);
+                FILE *cv_y_fp = fopen(cv_y_path, "wb");
+                if (cv_y_fp != NULL) {
+                    size_t nwritten = fwrite(cv_y_dump, sizeof(double),
+                                             (size_t)NY, cv_y_fp);
+                    fclose(cv_y_fp);
+                    if (nwritten != (size_t)NY) {
+                        fprintf(stderr,
+                                "[CV_Y_DUMP] WARNING: short write %zu/%d "
+                                "at t=%f for %s\n",
+                                nwritten, NY, t, cv_y_path);
+                    }
+                } else {
+                    fprintf(stderr,
+                            "[CV_Y_DUMP] WARNING: cannot open %s for write "
+                            "(errno preserved by fopen)\n", cv_y_path);
+                }
+            }
             /* P1e PR-B0 (#323): recompute river/lake/element flux caches
              * from Y(tout) before ExportResults fires PrintData. Fixes
              * non-determinism caused by PCtrl reading the side-effect
