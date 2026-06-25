@@ -799,11 +799,76 @@ void Model_Data::rhs_core(double *Y, double *DY, double t, ExecPolicy policy){
             }
             break;
 #ifdef SHUD_ENABLE_OPENMP_RHS
-        case ExecPolicy::StrictOMP:
-            /* S2+ scope. S1 stub: abort to prevent silent fall-through.
-             * NOT assert(false) — -DNDEBUG strips it. */
-            std::abort();
+        case ExecPolicy::StrictOMP: {
+            /* P1e PR-F (#314) — replaces S1d.1 std::abort() stub with the
+             * design D2 single-region OpenMP impl. Three sequential phases
+             * (rhs_update -> rhs_flux -> rhs_apply) share a single outer
+             * `#pragma omp parallel`, with implicit barriers between phases
+             * supplied by `omp single` (each `single` ends with a barrier
+             * because no `nowait` is requested). Phase ordering and data
+             * dependencies are identical to the Serial branch above.
+             *
+             * Scope contract per p1e-strict-omp-rhs tasks.md §3 + design D2:
+             *   - Single outer parallel region (master plan C7 fork-join
+             *     minimization)
+             *   - 3 phases with implicit barriers between (Phase 1 update
+             *     -> Phase 2 flux -> Phase 3 apply)
+             *   - `default(none) shared(Y, DY, t) private()` — explicit
+             *     data-sharing (Y/DY/t are the only crossing scalars; all
+             *     entity state is reached through `this->` member access
+             *     which is implicit-shared via the enclosing method)
+             *   - `schedule(static)` is reserved for the `omp for`
+             *     decomposition introduced in PR-G/I (per task 3.4 the
+             *     PR-F-stage Makefile does not yet add -fopenmp, so
+             *     pragmas compile to serial code; cross-N parallel
+             *     verification is deferred to PR-G after the -fopenmp
+             *     wiring in tasks 3.5/3.6)
+             *   - PR-F structural minimum: phase boundary expressed at
+             *     function-call granularity via `omp single` (only one
+             *     thread runs the call; other threads stall at the
+             *     implicit barrier). PR-G/I will progressively convert
+             *     these `single` blocks into per-entity `omp for` loops
+             *     once the steady-state first-touch loops (design D4)
+             *     have been removed in PR-G — avoiding nested `omp
+             *     parallel` regions that the existing inner first-touch
+             *     directives would create from inside an outer parallel.
+             *
+             * Bitwise contract: with -fopenmp ON or OFF, the work executes
+             * sequentially in the calling thread (without -fopenmp the
+             * directives are no-ops; with -fopenmp the `single` clause
+             * serializes the call). N=1 mode C output therefore equals
+             * mode A bit-for-bit.
+             */
+            #pragma omp parallel default(none) shared(Y, DY, t)
+            {
+                /* Phase 1: rhs_update — element / river / lake owner-local
+                 * update + DY zero-init. Implicit barrier at end of
+                 * `single` (no nowait) ensures Phase 2 sees fully updated
+                 * uYsf/uYus/uYgw/uYriv/yLakeStg + zero-initialized DY. */
+                #pragma omp single
+                {
+                    rhs_update(Y, DY, t);
+                }
+
+                /* Phase 2: rhs_flux — element/river/lake flux computation
+                 * + deterministic gather. Implicit barrier ensures Phase 3
+                 * sees finalized Qe2r_Surf/Sub, QrivSurf/Sub/Up/Down, and
+                 * lake gather buffers. */
+                #pragma omp single
+                {
+                    rhs_flux(t);
+                }
+
+                /* Phase 3: rhs_apply — DY accumulation over NumY. */
+                #pragma omp single
+                {
+                    rhs_apply(DY, t);
+                }
+            } /* end parallel region */
+            break;
+        }
         case ExecPolicy::ProductionOMP:
+            /* ProductionOMP backend remains a P2+ scope stub. */
             std::abort();
 #endif
         default:

@@ -46,12 +46,24 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
         shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
 #endif
-        /* S2 capstone (PR-8): f() always routes to rhs_core (Serial); the
-         * legacy `_omp` RHS receivers (MD_f_omp.cpp) and the legacy/rhs_core
-         * fork have been retired. PURE CARRY-OVER `rhs_update/rhs_flux/
-         * rhs_apply` are byte-for-byte copies of `f_update/f_loop/
-         * f_applyDY`. */
+        /* S2 capstone (PR-8): f() routes to rhs_core; the legacy `_omp`
+         * RHS receivers (MD_f_omp.cpp) and the legacy/rhs_core fork have
+         * been retired. PURE CARRY-OVER `rhs_update/rhs_flux/rhs_apply`
+         * are byte-for-byte copies of `f_update/f_loop/f_applyDY`.
+         *
+         * P1e PR-F (#314): policy selection is now build-flag gated.
+         *   - SHUD_ENABLE_OPENMP_RHS=0 (default, mode A/B): ExecPolicy::Serial
+         *     keeps the post-S2 behavior unchanged
+         *   - SHUD_ENABLE_OPENMP_RHS=1 (mode C/D): ExecPolicy::StrictOMP
+         *     dispatches to the design D2 single-region OpenMP impl in
+         *     MD_rhs_core.cpp (3 phases with implicit barriers; cross-N
+         *     parallel activation depends on PR-G's -fopenmp wiring per
+         *     tasks 3.5/3.6) */
+#ifdef SHUD_ENABLE_OPENMP_RHS
+        MD->rhs_core(Y, DY, t, ExecPolicy::StrictOMP);
+#else
         MD->rhs_core(Y, DY, t, ExecPolicy::Serial);
+#endif
     }
     /* S5c-C (#175): nFCall is SHUD's RHS kernel entry counter (Model_Data.hpp L58,
      * NOT L60-64 alt counters). Free-running; emitted to nfcall.txt separately from
