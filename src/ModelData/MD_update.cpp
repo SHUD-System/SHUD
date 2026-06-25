@@ -106,7 +106,7 @@ void Model_Data::summary (N_Vector udata){
  * Mechanics: re-run the full RHS chain `rhs_update -> rhs_flux ->
  * rhs_apply` exactly once at (Y, t)=(udata, t) using a local scratch
  * DY buffer. rhs_apply IS idempotent at fixed (Y, t) (verified by
- * Phase 4.5 verifier — MD_rhs_core.cpp L647-649 leading `=` resets +
+ * Phase 4.5 verifier — MD_rhs_core.cpp L648-649 leading `=` resets +
  * inner j∈[0,3) `+=` accumulates per-i), so calling it is safe; the
  * DY_scratch mutation is harmless because the scratch buffer is
  * discarded on return.
