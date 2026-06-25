@@ -203,7 +203,7 @@ double SHUD(FileIn *fin, FileOut *fout){
                 double *cv_y_dump = N_VGetArrayPointer(udata);
                 char cv_y_path[MAXLEN];
                 snprintf(cv_y_path, sizeof(cv_y_path),
-                         "%s/cv_y_%015.6f.bin", fout->outpath, t);
+                         "%s/cv_y_%020.6f.bin", fout->outpath, t);
                 FILE *cv_y_fp = fopen(cv_y_path, "wb");
                 if (cv_y_fp != NULL) {
                     size_t nwritten = fwrite(cv_y_dump, sizeof(double),
