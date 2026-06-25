@@ -22,19 +22,23 @@
  * N_VGetArrayPointer dispatches via the ops table and works for any
  * registered backend.
  *
- * `omp.h` is pulled in when EITHER:
+ * `omp.h` is pulled in when ANY of:
  *   - `_OPENMP` is set (compiler invoked with `-fopenmp`; OpenMP
  *     runtime queries like `omp_get_wtime` in Model_Data.cpp need
  *     symbol declarations).
  *   - `SHUD_USE_OPENMP_NVECTOR` is set (shud.cpp calls
  *     `omp_set_num_threads` before N_VNew_OpenMP).
+ *   - `SHUD_ENABLE_OPENMP_RHS` is set (P1e PR-G #315 — Config C
+ *     binary calls `omp_set_num_threads` + `omp_get_max_threads` at
+ *     startup to honour `SHUD_RHS_THREADS`, even when the NVector
+ *     backend stays Serial).
  * The `omp.h` include and the SHUD_USE_OPENMP_NVECTOR backend are
  * otherwise independent. */
 #include "nvector/nvector_serial.h"
 #ifdef SHUD_USE_OPENMP_NVECTOR
 #include "nvector/nvector_openmp.h"
 #endif
-#if defined(_OPENMP) || defined(SHUD_USE_OPENMP_NVECTOR)
+#if defined(_OPENMP) || defined(SHUD_USE_OPENMP_NVECTOR) || defined(SHUD_ENABLE_OPENMP_RHS)
 #include "omp.h"
 #endif
 

@@ -838,8 +838,21 @@ void Model_Data::rhs_core(double *Y, double *DY, double t, ExecPolicy policy){
              * directives are no-ops; with -fopenmp the `single` clause
              * serializes the call). N=1 mode C output therefore equals
              * mode A bit-for-bit.
+             *
+             * P1e PR-G (#315 / design D3) — `num_threads(omp_get_max_threads())`
+             * pins the team size to the value `omp_set_num_threads()` left
+             * in the OpenMP ICVs at startup (driven by `SHUD_RHS_THREADS`,
+             * defaulting to `omp_get_max_threads()` itself). The explicit
+             * clause is defense against accidental nesting (e.g. a future
+             * caller wrapping rhs_core in its own outer parallel region):
+             * without the clause the inner team could inherit the outer
+             * team size and over-subscribe. The PR-G design forbids
+             * `omp_set_num_threads` inside this hot path (it has been
+             * called exactly once at shud.cpp startup); grep guard
+             * `grep -nE 'omp_set_num_threads' MD_rhs_core.cpp == 0`.
              */
-            #pragma omp parallel default(none) shared(Y, DY, t)
+            #pragma omp parallel default(none) shared(Y, DY, t) \
+                num_threads(omp_get_max_threads())
             {
                 /* Phase 1: rhs_update — element / river / lake owner-local
                  * update + DY zero-init. Implicit barrier at end of

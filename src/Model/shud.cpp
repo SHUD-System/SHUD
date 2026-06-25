@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <iostream>
 //#include "f_element.hpp"
 //#include "f_River.hpp"
@@ -137,6 +138,35 @@ double SHUD(FileIn *fin, FileOut *fout){
     screeninfo("\nopenMP NVector: OFF (Serial backend)\n");
     udata = N_VNew_Serial(NY, sunctx);
     du = N_VNew_Serial(NY, sunctx);
+#endif
+    /* P1e PR-G (#315 / design D3) — StrictOMP RHS startup single-point
+     * thread-count setup. Independent of SHUD_USE_OPENMP_NVECTOR (Config
+     * B's `omp_set_num_threads(MD->CS.num_threads)` above stays untouched
+     * to preserve mode B/D historical NVector parity). Config C (Serial
+     * NVec + StrictOMP RHS) has no other omp_set_num_threads call site
+     * — without this block, `#pragma omp parallel` in MD_rhs_core.cpp
+     * StrictOMP case would default to `omp_get_max_threads()` (TE-1
+     * defect class). `SHUD_RHS_THREADS` env wins; if unset, fall back
+     * to whatever `omp_get_max_threads()` reports (which is itself
+     * driven by `OMP_NUM_THREADS` when set, else the OpenMP runtime
+     * default). In Config D this re-set overrides the Config-B-style
+     * MD->CS.num_threads set above, which is the intended behaviour:
+     * the user wants `SHUD_RHS_THREADS` to be the canonical knob across
+     * Config C/D, while NVector allocation in Config D has already
+     * fixed the NVector-backend thread count at `N_VNew_OpenMP` time. */
+#if defined(SHUD_ENABLE_OPENMP_RHS)
+    {
+        const char* shud_rhs_threads_env = getenv("SHUD_RHS_THREADS");
+        int rhs_threads = shud_rhs_threads_env ? atoi(shud_rhs_threads_env) : 0;
+        if (rhs_threads <= 0) {
+            rhs_threads = omp_get_max_threads();
+        }
+        omp_set_num_threads(rhs_threads);
+        fprintf(stdout, "P1e startup: SHUD_RHS_THREADS=%s -> omp_set_num_threads(%d); omp_get_max_threads=%d\n",
+                shud_rhs_threads_env ? shud_rhs_threads_env : "(unset)",
+                rhs_threads,
+                omp_get_max_threads());
+    }
 #endif
     screeninfo("\nGlobal Implicit Mode: ON\n");
     MD->LoadIC();

@@ -140,8 +140,25 @@ endif
 SHUD_ENABLE_OPENMP_RHS ?= 0
 ifeq ($(SHUD_ENABLE_OPENMP_RHS),0)
   SHUD_OMP_RHS_DEFINE :=
+  SHUD_OMP_RHS_CK     :=
+  SHUD_OMP_RHS_LK     :=
 else ifeq ($(SHUD_ENABLE_OPENMP_RHS),1)
   SHUD_OMP_RHS_DEFINE := -DSHUD_ENABLE_OPENMP_RHS=1
+  # P1e PR-G (#315 / design D3 + D6) — StrictOMP path needs the OpenMP
+  # runtime so the outer `#pragma omp parallel` in
+  # MD_rhs_core.cpp::ExecPolicy::StrictOMP actually spawns threads
+  # (without -fopenmp the `_OPENMP` macro is undefined and the directive
+  # collapses to serial code). Mirrors the SHUD_USE_OPENMP_NVECTOR=1
+  # pattern: `=` (recursive expansion) is required because
+  # CXX_OPENMP_CFLAGS / CXX_OPENMP_LFLAGS are defined later in the
+  # Makefile (Platform-conditional OpenMP flags block); using `:=` here
+  # would capture an empty value and silently drop -fopenmp / -lomp /
+  # -lgomp from the link line, producing link errors at build time.
+  # Wires Config C (`make shud SHUD_ENABLE_OPENMP_RHS=1`) into a real
+  # multi-threaded binary; Config D (`make shud_omp SHUD_ENABLE_OPENMP_RHS=1`)
+  # already inherits -fopenmp from the shud_omp recipe.
+  SHUD_OMP_RHS_CK      = $(CXX_OPENMP_CFLAGS)
+  SHUD_OMP_RHS_LK      = $(CXX_OPENMP_LFLAGS)
 else
 $(error SHUD_ENABLE_OPENMP_RHS must be 0 or 1, got '$(SHUD_ENABLE_OPENMP_RHS)')
 endif
@@ -288,9 +305,13 @@ ifeq ($(UNAME_S),Darwin)
   # SHUD_USE_OPENMP_NVECTOR on the make CLI by hardcoding the flag
   # in the recipe). Serial `make shud` (Configs A/B/C) is fine without
   # libomp installed.
-  ifneq (,$(filter shud_omp smoke_configd,$(MAKECMDGOALS))$(filter 1,$(SHUD_USE_OPENMP_NVECTOR)))
+  # P1e PR-G (#315) — `SHUD_ENABLE_OPENMP_RHS=1` also brings in the
+  # libomp runtime dependency (Config C/D need -fopenmp + -lomp at link
+  # time; see SHUD_OMP_RHS_CK / SHUD_OMP_RHS_LK above), so extend the
+  # libomp guard to fire for Config C builds as well.
+  ifneq (,$(filter shud_omp smoke_configd,$(MAKECMDGOALS))$(filter 1,$(SHUD_USE_OPENMP_NVECTOR))$(filter 1,$(SHUD_ENABLE_OPENMP_RHS)))
     ifeq ($(LIBOMP_PREFIX),)
-$(error libomp not found via 'brew --prefix libomp'; run 'brew install libomp' before make shud_omp, `make shud SHUD_USE_OPENMP_NVECTOR=1`, or make smoke_configd)
+$(error libomp not found via 'brew --prefix libomp'; run 'brew install libomp' before make shud_omp, `make shud SHUD_USE_OPENMP_NVECTOR=1`, `make shud SHUD_ENABLE_OPENMP_RHS=1`, or make smoke_configd)
     endif
   endif
   INC_OMP           ?= $(LIBOMP_PREFIX)/include
@@ -484,9 +505,9 @@ else
 endif
 shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo '...Compiling shud (B0 serial / Config A by default) ...'
-	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK)
+	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_OMP_RHS_CK) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(SHUD_OMP_RHS_LK)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_OMP_RHS_CK) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(SHUD_OMP_RHS_LK)
 	@echo
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
