@@ -1,4 +1,5 @@
 #include "Model_Data.hpp"
+#include <vector>  /* P1e PR-B0 (#323): recompute_for_output scratch DY */
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
 #endif
@@ -91,6 +92,50 @@ void Model_Data::summary (N_Vector udata){
             yRivStg[i] = Y[iRIV];
         }
     }
+}
+/* P1e PR-B0 (#323): recompute flux/gather caches from Y(tout) before
+ * ExportResults so PCtrl-aliased output buffers (QrivDown, QrivUp,
+ * QrivSurf, QrivSub, QLakeRivIn, QLakeRivOut, QLakeSurf, QLakeSub,
+ * qLakeEvap, qLakePrcp, Qe2r_Surf, Qe2r_Sub, qEle*, etc.) reflect
+ * deterministic Y(tout)-derived state, NOT the side-effect cache left
+ * by the last internal-step f() at t_internal != tout under
+ * CV_NORMAL mode (per docs/p1e/p1e_rivqdown_cache_audit.md conclusion
+ * + spec p1e-strict-omp-rhs L260-285 + design D5 option 1).
+ *
+ * Mechanics: re-run the RHS chain `rhs_update -> rhs_flux` exactly
+ * once at (Y, t)=(udata, t) using a local scratch DY buffer. `rhs_apply`
+ * is intentionally skipped — it assembles DY[] (state derivatives) for
+ * the solver and writes nothing to PCtrl-aliased output caches; skipping
+ * it avoids unnecessary work + reduces side effects.
+ *
+ * Sibling-cache coverage: rhs_update + rhs_flux is the ground-truth
+ * RHS chain that originally populates every river / lake / element
+ * cache exposed via PCtrl::Init() (MD_initialize.cpp L307-391) +
+ * flood->InitPointer alias (Model_Data.cpp:427). Reusing the existing
+ * chain (instead of a hand-rolled per-channel recompute) guarantees all
+ * sibling caches are recomputed in the same pass, with byte-equivalent
+ * iteration / floating-point operation order.
+ *
+ * Counter discipline: `nFCall` is NOT incremented. This call is a
+ * tout-boundary cache refresh for output, not a CVODE-driven RHS
+ * evaluation; nFCall semantics (per Model_Data.hpp L58 + S5c-C #175)
+ * remain the count of solver-internal f() invocations.
+ *
+ * Profile / diagnostics: deliberately not wrapped in shud_profile or
+ * shud_diag timers — recompute time is attributed to t_other (not
+ * t_RHS_total) so existing profile decomposition stays interpretable.
+ *
+ * Determinism: `rhs_update + rhs_flux` are deterministic functions of
+ * (Y, t, time-series state, model config). Same (Y, t) -> same caches.
+ */
+void Model_Data::recompute_for_output(N_Vector udata, double t){
+    double *Y = N_VGetArrayPointer(udata);
+    /* Scratch DY consumed only by rhs_update (zeroes it L218-220)
+     * + ignored on rhs_flux input. NumY = 3*NumEle + NumRiv + NumLake,
+     * matches the solver state vector layout. */
+    std::vector<double> DY_scratch(NumY, 0.0);
+    rhs_update(Y, DY_scratch.data(), t);
+    rhs_flux(t);
 }
 void Model_Data::summary (N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_Vector u5){
 

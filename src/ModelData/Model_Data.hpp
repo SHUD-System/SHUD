@@ -328,6 +328,14 @@ public:
     
     void summary(N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_Vector u5);
     void summary(N_Vector u);
+    /* P1e PR-B0 (#323): tout-boundary cache refresh — re-run
+     * rhs_update + rhs_flux from Y(udata) so PCtrl-aliased output
+     * buffers (QrivDown + siblings) reflect Y(tout) state, not the
+     * RHS side-effect cache left by CV_NORMAL internal step at
+     * t_internal != tout. Called from shud.cpp MainLoop between
+     * summary(udata) and CS.ExportResults(t). See
+     * docs/p1e/p1e_rivqdown_cache_audit.md + design D5. */
+    void recompute_for_output(N_Vector udata, double t);
     int ScreenPrint(double t, unsigned long it);
     int ScreenPrintu(double t, unsigned long it);
     /* methods in f function */

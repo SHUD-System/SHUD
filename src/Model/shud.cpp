@@ -194,6 +194,13 @@ double SHUD(FileIn *fin, FileOut *fout){
             }
             //            CVODEstatus(mem, udata, t);
             MD->summary(udata);
+            /* P1e PR-B0 (#323): recompute river/lake/element flux caches
+             * from Y(tout) before ExportResults fires PrintData. Fixes
+             * non-determinism caused by PCtrl reading the side-effect
+             * cache left by CVODE's last internal-step f() at
+             * t_internal != tout (per docs/p1e/p1e_rivqdown_cache_audit.md
+             * + spec p1e-strict-omp-rhs L260-285 + design D5 option 1). */
+            MD->recompute_for_output(udata, t);
             MD->CS.ExportResults(t);
             MD->flood->FloodWarning(t);
         }
