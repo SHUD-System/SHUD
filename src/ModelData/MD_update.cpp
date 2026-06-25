@@ -96,25 +96,51 @@ void Model_Data::summary (N_Vector udata){
 /* P1e PR-B0 (#323): recompute flux/gather caches from Y(tout) before
  * ExportResults so PCtrl-aliased output buffers (QrivDown, QrivUp,
  * QrivSurf, QrivSub, QLakeRivIn, QLakeRivOut, QLakeSurf, QLakeSub,
- * qLakeEvap, qLakePrcp, Qe2r_Surf, Qe2r_Sub, qEle*, etc.) reflect
- * deterministic Y(tout)-derived state, NOT the side-effect cache left
- * by the last internal-step f() at t_internal != tout under
- * CV_NORMAL mode (per docs/p1e/p1e_rivqdown_cache_audit.md conclusion
- * + spec p1e-strict-omp-rhs L260-285 + design D5 option 1).
+ * qLakeEvap, qLakePrcp, Qe2r_Surf, Qe2r_Sub, qEle*, QeleSubTot,
+ * QeleSurfTot, etc.) reflect deterministic Y(tout)-derived state, NOT
+ * the side-effect cache left by the last internal-step f() at
+ * t_internal != tout under CV_NORMAL mode (per
+ * docs/p1e/p1e_rivqdown_cache_audit.md conclusion + spec
+ * p1e-strict-omp-rhs L260-285 + design D5 option 1).
  *
- * Mechanics: re-run the RHS chain `rhs_update -> rhs_flux` exactly
- * once at (Y, t)=(udata, t) using a local scratch DY buffer. `rhs_apply`
- * is intentionally skipped — it assembles DY[] (state derivatives) for
- * the solver and writes nothing to PCtrl-aliased output caches; skipping
- * it avoids unnecessary work + reduces side effects.
+ * Mechanics: re-run the full RHS chain `rhs_update -> rhs_flux ->
+ * rhs_apply` exactly once at (Y, t)=(udata, t) using a local scratch
+ * DY buffer. rhs_apply IS idempotent at fixed (Y, t) (verified by
+ * Phase 4.5 verifier — MD_rhs_core.cpp L647-649 leading `=` resets +
+ * inner j∈[0,3) `+=` accumulates per-i), so calling it is safe; the
+ * DY_scratch mutation is harmless because the scratch buffer is
+ * discarded on return.
  *
- * Sibling-cache coverage: rhs_update + rhs_flux is the ground-truth
- * RHS chain that originally populates every river / lake / element
- * cache exposed via PCtrl::Init() (MD_initialize.cpp L307-391) +
- * flood->InitPointer alias (Model_Data.cpp:427). Reusing the existing
- * chain (instead of a hand-rolled per-channel recompute) guarantees all
- * sibling caches are recomputed in the same pass, with byte-equivalent
- * iteration / floating-point operation order.
+ * Why rhs_apply MUST be called (Phase 6 fix per outer #323): without
+ * this call QeleSubTot[i] and QeleSurfTot[i] stay at the values
+ * written by rhs_update (set to zero at MD_rhs_core.cpp:91 / :104) —
+ * PrintData tau-averaging would then emit silent all-zero data into
+ * any PCtrl-aliased *.eleQsubTot.dat / *.eleQsurfTot.dat output when
+ * DT_QE_SUB > 0 or DT_QE_SURF > 0. The earlier "skip rhs_apply"
+ * rationale was based on a non-idempotent-+= misread; Phase 4.5
+ * verifier refuted that. See docs/p1e/p1e_pr_b0_rivqdown_recompute.md
+ * §"rhs_apply Phase 6 fix rationale".
+ *
+ * Sibling-cache coverage: rhs_update + rhs_flux + rhs_apply is the
+ * ground-truth RHS chain that originally populates every river / lake
+ * / element cache exposed via PCtrl::Init() (MD_initialize.cpp
+ * L307-391) + flood->InitPointer alias (Model_Data.cpp:427). Reusing
+ * the existing chain (instead of a hand-rolled per-channel recompute)
+ * guarantees all sibling caches are recomputed in the same pass, with
+ * byte-equivalent iteration / floating-point operation order.
+ *
+ * Side effects extend beyond PCtrl-aliased output buffers to all
+ * RHS-touched scratch state (Ele[i].{QBC, u_effKH, ...},
+ * Riv[i].{u_Ystage, u_CSarea, ...}, lake[i].{u_toparea, ...},
+ * hot.*[i]); these are deterministic functions of (Y, t) and are
+ * overwritten on the next f() call, so the leakage is benign.
+ *
+ * Under SHUD_ENABLE_DIAGNOSTICS builds, the 5 shud_diag::ScopeTimer
+ * instrumentations inside rhs_flux (MD_rhs_core.cpp L365 / L407 /
+ * L423 / L433 / L496) will see double-counted bucket entries on this
+ * extra call; subtract one outer-tick bucket per ScopeTimer in
+ * diagnostics post-processing if exact attribution is needed.
+ * Default builds (no DIAGNOSTICS macro) unaffected.
  *
  * Counter discipline: `nFCall` is NOT incremented. This call is a
  * tout-boundary cache refresh for output, not a CVODE-driven RHS
@@ -125,17 +151,35 @@ void Model_Data::summary (N_Vector udata){
  * shud_diag timers — recompute time is attributed to t_other (not
  * t_RHS_total) so existing profile decomposition stays interpretable.
  *
- * Determinism: `rhs_update + rhs_flux` are deterministic functions of
- * (Y, t, time-series state, model config). Same (Y, t) -> same caches.
+ * Determinism: `rhs_update + rhs_flux + rhs_apply` are deterministic
+ * functions of (Y, t, time-series state, model config). Same (Y, t)
+ * -> same caches.
+ *
+ * Scope: this call site is wired in only on the coupled-mode MainLoop
+ * (SHUD(), shud.cpp:203). Uncoupled mode (SHUD_uncouple(),
+ * shud.cpp:412-413 under `-g` CLI flag) runs 5 split CVode integrations
+ * each with its own internal-step cache and does NOT receive this
+ * helper call; that scope is deferred to a future issue. Workaround
+ * for uncoupled users: do not use `-g` for runs that require bitwise
+ * reproducibility — default coupled mode is unaffected.
  */
 void Model_Data::recompute_for_output(N_Vector udata, double t){
     double *Y = N_VGetArrayPointer(udata);
-    /* Scratch DY consumed only by rhs_update (zeroes it L218-220)
-     * + ignored on rhs_flux input. NumY = 3*NumEle + NumRiv + NumLake,
-     * matches the solver state vector layout. */
+    /* Scratch DY consumed by rhs_update (zeroes it L218-220) +
+     * rhs_apply (writes derivative components L657-659/etc.); ignored
+     * on rhs_flux input. NumY = 3*NumEle + NumRiv + NumLake, matches
+     * the solver state vector layout. */
     std::vector<double> DY_scratch(NumY, 0.0);
     rhs_update(Y, DY_scratch.data(), t);
     rhs_flux(t);
+    /* PR-B0 Phase 6 fix (cand-2): rhs_apply IS idempotent at fixed
+     * (Y, t). Without this call, QeleSubTot/QeleSurfTot stay at the
+     * rhs_update zero-out (MD_rhs_core.cpp:91 / :104) → PCtrl-aliased
+     * *.eleQsubTot.dat / *.eleQsurfTot.dat would silently emit
+     * all-zero data when DT_QE_SUB>0 or DT_QE_SURF>0. The DY_scratch
+     * mutation (rhs_apply writes derivative components) is harmless —
+     * scratch is discarded on return. */
+    rhs_apply(DY_scratch.data(), t);
 }
 void Model_Data::summary (N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_Vector u5){
 
