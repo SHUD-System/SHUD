@@ -205,9 +205,21 @@ double SHUD(FileIn *fin, FileOut *fout){
             /* inner loops to next output points with ET step size control */
             tnext += MD->CS.SolverStep;
             while (t < tnext) {
-                MD->updateforcing(t);
+                {
+#ifdef SHUD_ENABLE_PROFILE
+                    /* P2a: wrap forcing-file disk I/O + interp. */
+                    shud_profile::Timer _t_fr("t_forcing_io");
+#endif
+                    MD->updateforcing(t);
+                }
                 /* calculate Interception Storage */
-                MD->ET(t, tnext);
+                {
+#ifdef SHUD_ENABLE_PROFILE
+                    /* P2a: ET / canopy / snow physics bucket. */
+                    shud_profile::Timer _t_et("t_ET");
+#endif
+                    MD->ET(t, tnext);
+                }
                 if(dummy_mode){
                     t = tnext;  /* dummy mode only. */
                 }else{
@@ -223,7 +235,13 @@ double SHUD(FileIn *fin, FileOut *fout){
                 }
             }
             //            CVODEstatus(mem, udata, t);
-            MD->summary(udata);
+            {
+#ifdef SHUD_ENABLE_PROFILE
+                /* P2a: summary() flux post-proc to t_output bucket. */
+                shud_profile::Timer _t_out("t_output");
+#endif
+                MD->summary(udata);
+            }
             /* P1e PR-B (#310): SHUD_DUMP_CV_Y=1 env gates per-tout CV_Y state
              * vector dump. Used by tools/p1e_cv_y_hash to verify cross-build
              * (mode A/B/C/D) solver-state byte-equality at tout boundary.
@@ -258,7 +276,13 @@ double SHUD(FileIn *fin, FileOut *fout){
              * t_internal != tout (per docs/p1e/p1e_rivqdown_cache_audit.md
              * + spec p1e-strict-omp-rhs L260-285 + design D5 option 1). */
             MD->recompute_for_output(udata, t);
-            MD->CS.ExportResults(t);
+            {
+#ifdef SHUD_ENABLE_PROFILE
+                /* P2a: ExportResults disk-write to t_output (shared bucket). */
+                shud_profile::Timer _t_out2("t_output");
+#endif
+                MD->CS.ExportResults(t);
+            }
             MD->flood->FloodWarning(t);
         }
     }
