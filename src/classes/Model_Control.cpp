@@ -5,9 +5,9 @@
 //
 
 #include "Model_Control.hpp"
-#ifdef SHUD_ENABLE_PROFILE
-#include "timer.h"
-#endif
+/* P2a fix (2026-06-26): timer.h include removed alongside the nested
+ * t_output Timer in ExportResults() — the bucket is now driven solely
+ * by the outer Timer at shud.cpp:241/282. */
 void PrintOutDt::defaultmode(){
     int dt = 1440;
     /* Element storage */
@@ -78,14 +78,11 @@ Control_Data::~Control_Data(){
 //    delete Tout;
 }
 void Control_Data::ExportResults(double t){
-#ifdef SHUD_ENABLE_PROFILE
-    /* S0-10 / openMP #14 — t_output covers all NumPrint Print_Ctrl
-     * channels' PrintData calls per main-loop ExportResults invocation.
-     * PrintData performs the in-memory buffer accumulation and, on the
-     * tau-aligned tick, the fid_bin / fid_asc fwrite calls — i.e. the
-     * actual .dat file I/O. */
-    shud_profile::Timer _t_out("t_output");
-#endif
+    /* P2a fix (2026-06-26): inner Timer removed; outer Timers in
+     * shud.cpp:241 and shud.cpp:282 already cover the full
+     * ExportResults wall. Inner accumulation here doubled the
+     * t_output bucket. Same root cause as MD_ET.cpp updateforcing/ET
+     * fixes. */
     for (int i = 0; i < NumPrint; i++){
         PCtrl[i].PrintData(dt, t);
     }

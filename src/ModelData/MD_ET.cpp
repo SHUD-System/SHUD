@@ -7,18 +7,16 @@
 //
 
 #include "Model_Data.hpp"
-#ifdef SHUD_ENABLE_PROFILE
-#include "timer.h"
-#endif
+/* P2a fix (2026-06-26): inner-function Timer for `t_forcing_io` /
+ * `t_ET` removed. They were nested inside the RAII Timers wrapping
+ * `MD->updateforcing(t)` and `MD->ET(t, tnext)` at shud.cpp:211/219,
+ * so the bucket double-counted (outer Timer covers inner-call wall +
+ * inner Timer adds the same span again). Server heihe N=1 surfaced
+ * the bug as t_forcing_io=773s > wall=495s (physically impossible).
+ * Mac qhh N=1 had the same defect but ratio stayed <100% by luck.
+ * Profile coverage is unchanged: the shud.cpp main-loop call sites
+ * remain instrumented and span the full updateforcing/ET wall. */
 void Model_Data::updateforcing(double t){
-#ifdef SHUD_ENABLE_PROFILE
-    /* S0-10 / openMP #14 — t_forcing_io covers the time-series interp
-     * call inside the inner solver loop. Even though the read is from
-     * an in-memory tsd structure (forcing.csv is loaded at startup), it
-     * still scales O(NumForc) per CVODE substep and master plan §S0.12
-     * tracks it as a discrete bucket for the profile decision matrix. */
-    shud_profile::Timer _t_forcing("t_forcing_io");
-#endif
     int i;
     /* S2.10 (PR-1 #144) — isolated `#ifdef _OPENMP / #pragma omp for`
      * removed: the pragma was dormant (no enclosing `omp parallel`
@@ -125,12 +123,10 @@ void Model_Data::tReadForcing(double t, int i){
     qEleETP[i] = etp;
 }
 void Model_Data::ET(double t, double tnext){
-#ifdef SHUD_ENABLE_PROFILE
-    /* S0-10 / openMP #14 — t_ET wraps the canopy / soil-moisture / ETP
-     * kernel. RAII so an early-return in NumEle==0 corner case still
-     * accumulates the wall time. */
-    shud_profile::Timer _t_et("t_ET");
-#endif
+    /* P2a fix (2026-06-26): inner Timer removed; the outer Timer in
+     * shud.cpp:219 already covers the full ET wall, and accumulating
+     * here on top double-counted into the t_ET bucket. See
+     * updateforcing() comment above for the same root cause. */
     double  DT_min = tnext - t;
     /* S2.14 (PR-1 #144) — isolated `#ifdef _OPENMP / #pragma omp for`
      * removed (dormant outside an enclosing `omp parallel`; B1a stays
