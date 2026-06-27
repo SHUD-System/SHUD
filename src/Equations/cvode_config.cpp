@@ -4,6 +4,8 @@
  * Header is empty under default (SHUD_ENABLE_DIAGNOSTICS undefined). */
 #include "../Model/MD_diagnostics.hpp"
 
+#include <errno.h>   /* errno (SHUD_SPGMR_MAXL strtol parse, p8tune-spgmr-maxl PR-C) */
+
 int check_flag(void *flagvalue, const char *funcname, int opt)
 {
     int *errflag;
@@ -229,8 +231,71 @@ void CVODEstatus(void *cvode_mem, N_Vector u, realtype t){
 //}
 
 
+/* p8tune-spgmr-maxl PR-C (capability spgmr-maxl-env-hook, GitHub #366).
+ *
+ * Runtime env-var hook for the SPGMR Krylov subspace dimension `maxl`
+ * passed to SUNLinSol_SPGMR at L259. Default-unset / "" / "0" / "5" are
+ * bit-identical to the prior SHUD 37be0fe production behavior (SUNDIALS
+ * docs: maxl <= 0 collapses to the documented default 5; explicit 5 is
+ * the default). Opt-in values {10, 15, 20, 30} flow through to SUNDIALS
+ * unchanged + emit a stdout provenance line consumed by the PR-D 60-cell
+ * sweep aggregator. Any other value (e.g. "7", "50", "foo", "-1") aborts
+ * via myexit(ERRCVODE) BEFORE any SPGMR allocation so an invalid sbatch
+ * cell fails fast rather than silently overwriting a baseline artifact.
+ *
+ * See openspec/changes/p8tune-spgmr-maxl/specs/spgmr-maxl-env-hook/spec.md
+ * and design.md §D15 Invariant Matrix for the full contract. */
+static int get_spgmr_maxl_from_env(void)
+{
+    const char *env = getenv("SHUD_SPGMR_MAXL");
+    /* Unset or empty -> SUNDIALS default (silent; no provenance log). */
+    if (env == NULL || env[0] == '\0') {
+        return 0;
+    }
+
+    /* Strict whitelist parse: reject leading whitespace ("\t 5"), leading
+     * signs ("+5", "-1"), leading zeros ("05"), trailing whitespace ("5 "),
+     * non-numeric suffixes ("5x", "10.0"), and any value not in the
+     * allow-list. strtol(3) on its own accepts +/whitespace/leading-zeros
+     * so we pre-validate the raw string character-by-character. */
+    int valid_chars = 1;
+    for (const char *p = env; *p != '\0'; ++p) {
+        if (*p < '0' || *p > '9') { valid_chars = 0; break; }
+    }
+    /* Reject leading-zero forms like "05" while still permitting the
+     * single character "0". env[0] != '\0' is guaranteed above. */
+    int no_leading_zero = (env[0] != '0' || env[1] == '\0');
+    char *endptr = NULL;
+    errno = 0;
+    long val = strtol(env, &endptr, 10);
+    int parse_ok = (errno == 0 && endptr != NULL && *endptr == '\0' && endptr != env);
+    int value_ok = valid_chars && no_leading_zero && parse_ok &&
+                   (val == 0 || val == 5 || val == 10 ||
+                    val == 15 || val == 20 || val == 30);
+    if (!value_ok) {
+        fprintf(stderr,
+                "[CVODE] ERROR: SHUD_SPGMR_MAXL must be unset, 0, 5, 10, 15, 20, or 30 (got: %s)\n",
+                env);
+        myexit(ERRCVODE);
+    }
+
+    /* "0" is documented-equivalent to unset per SUNDIALS 6.0.0 (maxl <= 0
+     * -> default 5). Preserve silent-default bit-identical contract per
+     * design D15 Invariant Matrix regression rows: unset / "" / "0" all
+     * suppress the provenance log line. */
+    if (val == 0) {
+        return 0;
+    }
+
+    /* val in {5, 10, 15, 20, 30}: emit provenance line so the PR-D
+     * aggregator can attribute each cell to its maxl value. */
+    fprintf(stdout, "[CVODE] SPGMR maxl=%ld pretype=PREC_NONE\n", val);
+    fflush(stdout);
+    return (int)val;
+}
+
 void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS, SUNContext &sunctx){
-    
+
     int flag;
     
     /********* SUNDIALS 6.0+ ************/
@@ -256,7 +321,7 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     check_flag(&flag, "CVodeSStolerances", 1);
     
     //    LS = SUNSPGMR(udata, 0, 0); //v3.x
-    LS = SUNLinSol_SPGMR(udata, PREC_NONE, 0, sunctx);
+    LS = SUNLinSol_SPGMR(udata, PREC_NONE, get_spgmr_maxl_from_env(), sunctx);
     check_flag((void *)LS, "SUNLinSol_SPGMR", 0);
 
     flag = CVodeSetLinearSolver(cvode_mem, LS, NULL);
