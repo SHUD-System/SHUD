@@ -3,11 +3,6 @@
 /* S5c-B (#174): RHS 7-bucket + forcing I/O wall-clock timer dumps.
  * Header is empty under default (SHUD_ENABLE_DIAGNOSTICS undefined). */
 #include "../Model/MD_diagnostics.hpp"
-/* P8-precond-0 (#345): identity preconditioner stub used by
- * CVodeSetPreconditioner below. Wires CVLS PREC_LEFT call path
- * (nps/npe stat accumulation) while keeping P^{-1} = I so B1b
- * bitwise neutrality is preserved. */
-#include "MD_precond_identity.h"
 
 int check_flag(void *flagvalue, const char *funcname, int opt)
 {
@@ -261,27 +256,11 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     check_flag(&flag, "CVodeSStolerances", 1);
     
     //    LS = SUNSPGMR(udata, 0, 0); //v3.x
-    /* P8-precond-0 (#345): pretype PREC_NONE → PREC_LEFT so SPGMR
-     * invokes the preconditioner installed below (identity stub).
-     * Bitwise neutral vs B1b because P^{-1} = I, but the CVLS
-     * preconditioner call path (nps/npe stats, t_precond_setup
-     * timer) is now exercised. */
-    LS = SUNLinSol_SPGMR(udata, PREC_LEFT, 0, sunctx);
+    LS = SUNLinSol_SPGMR(udata, PREC_NONE, 0, sunctx);
     check_flag((void *)LS, "SUNLinSol_SPGMR", 0);
 
     flag = CVodeSetLinearSolver(cvode_mem, LS, NULL);
     check_flag(&flag, "CVSpilsSetLinearSolver", 1);
-
-    /* P8-precond-0 (#345): register identity preconditioner pair +
-     * setup-frequency cap. CVLS preconditioner registration requires
-     * the linear-solver memory to be attached first (above), per
-     * SUNDIALS 6.0.0 cvode_ls.h docs. LSetupFrequency=50 matches
-     * SUNDIALS default and provides explicit-knob evidence for the
-     * spike. */
-    flag = CVodeSetPreconditioner(cvode_mem, PSetupIdentity, PSolveIdentity);
-    check_flag(&flag, "CVodeSetPreconditioner", 1);
-    flag = CVodeSetLSetupFrequency(cvode_mem, 50);
-    check_flag(&flag, "CVodeSetLSetupFrequency", 1);
 
     flag = CVodeSetMinStep(cvode_mem, 1E-6); //Minimum time interval in cvode.dt = t(i) - t(i - 1);
     check_flag(&flag, "CVodeSetMinStep", 1);
