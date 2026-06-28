@@ -616,6 +616,48 @@ test_adjacency_fallback: check_sundials tests/test_adjacency_fallback.cpp $(SRC)
 	@echo '...Running test_adjacency_fallback (expect PASS) ...'
 	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/test_adjacency_fallback && echo 'OK: adjacency fallback unit test PASS' || (echo 'FAIL: adjacency fallback unit test'; exit 1)
 
+# -----------------------------------------------------------------
+# P8-tune.D KLU spike — additive carve-out (openspec change p8tune-klu-spike)
+# -----------------------------------------------------------------
+# `libshud.a` is the documented carve-out per spec
+# `klu-pattern-spike-verdict` REQ-1 Scenario "Tool authoring with no
+# SHUD source patch": the spike tool under `tools/p8tune.D/` links this
+# archive instead of `main.cpp`, so the spike binary has the Model_Data
+# API (loadinput / initialize / rhs_core / public AoS) without dragging
+# in `shud.cpp::SHUD()` CVODE main loop. ZERO impact to existing `shud`
+# / `shud_omp` / `shud_asan` / `smoke_*` / `test_adjacency_fallback`
+# targets — uses the same `SHUD_SRC_NOMAIN` wildcard already defined at
+# L548 for the s1d StrictOMP smoke test (proves the SHUD framework
+# objects compile + link without `main.cpp`).
+#
+# Object files land under `_libshud_obj/` (gitignored via SHUD repo's
+# existing `*.o` ignore + this directory's gitignored status under
+# SHUD-OpenMP outer-repo `.gitignore` for `SHUD/_libshud_obj/`). The
+# archive lands at SHUD-repo root next to the `shud` binary so the
+# spike tool's `tools/p8tune.D/Makefile` can reference it via the
+# relative path `../../SHUD/libshud.a`.
+#
+# Flag set: ZERO instrumentation defines (no SHUD_DUMP_RHS / no
+# SHUD_ENABLE_PROFILE / no OMP defines / no DIAGNOSTICS) so the
+# archive is a clean Config-A-equivalent object set. SUNDIALS includes
+# are pulled in via $(INCLUDES) because `Model_Data.hpp` and friends
+# include `nvector_serial.h` etc.
+LIBSHUD_OBJ_DIR  := _libshud_obj
+LIBSHUD_ARCHIVE  := libshud.a
+LIBSHUD_SRC      := $(SHUD_SRC_NOMAIN)
+LIBSHUD_OBJ      := $(patsubst $(SRC_DIR)/%.cpp,$(LIBSHUD_OBJ_DIR)/%.o,$(LIBSHUD_SRC))
+
+$(LIBSHUD_OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) -c $< -o $@
+
+.PHONY: libshud.a
+libshud.a: check_sundials $(LIBSHUD_OBJ)
+	@echo '...Archiving libshud.a (P8-tune.D KLU spike — openspec change p8tune-klu-spike) ...'
+	$(AR) rcs $(LIBSHUD_ARCHIVE) $(LIBSHUD_OBJ)
+	@echo " $(LIBSHUD_ARCHIVE) is archived successfully (additive — Config A flag set, no instrumentation)"
+	@echo
+
 clean:
 	@echo "Cleaning ... "
 	@echo "  rm -f *.o"
@@ -628,5 +670,8 @@ clean:
 	@rm -f $(TARGET_DEBUG)
 	@echo "  rm -f $(BUILDDIR)/shud_asan"
 	@rm -f $(BUILDDIR)/shud_asan
+	@echo "  rm -f $(LIBSHUD_ARCHIVE) + rm -rf $(LIBSHUD_OBJ_DIR)/"
+	@rm -f $(LIBSHUD_ARCHIVE)
+	@rm -rf $(LIBSHUD_OBJ_DIR)
 	@echo "Done. (InstallSundials/ preserved)"
 	@echo
