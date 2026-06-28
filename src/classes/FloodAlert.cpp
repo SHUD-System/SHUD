@@ -34,8 +34,8 @@ FloodAlert::~FloodAlert(){
 //    delete[]  Q_low;
 //    delete[]  Y_high;
 //    delete[]  Y_low;
-    
-    fclose(fid);
+
+    if(fid != NULL) fclose(fid);
 }
 void FloodAlert::pushRiverType(int index, int type){
     itype[index] = type - 1;
