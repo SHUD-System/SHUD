@@ -38,7 +38,10 @@ private:
     int eof;
     int iNow, iNext;
     int nQue = 0;
-    double *ts[MAXQUE + 1];
+    // P8-tune.F PR-0 (#394) Phase 6 — brace-init nullptr defaults so the
+    // dtor `delete[] ts[i]` loop is safe on partial-init via exception
+    // mid-ctor (deleting nullptr is a defined no-op in C++03+).
+    double *ts[MAXQUE + 1] = {nullptr};
     int pRing[MAXQUE + 1];
     
     //    void    buildfn(std::string fforc);

@@ -50,10 +50,16 @@ void LakeBathymetry::read(FILE *fp){
 //    }
 }
 LakeBathymetry::~LakeBathymetry(){
+    // P8-tune.F PR-0 (#394) Phase 6 — array-vs-scalar form correction:
+    // index/yi/ai are `new[]`-allocated in InitValue() (L134-136), so the
+    // dtor MUST use `delete[]` to properly destruct array elements + free
+    // the array block. Scalar `delete` on `new[]` storage is independent
+    // UB even if the element type is trivially-destructible. NSDMI nullptr
+    // defaults in Lake.hpp guard the unallocated case.
     if(nvalue > 0){
-        delete index;
-        delete yi;
-        delete ai;
+        delete[] index;
+        delete[] yi;
+        delete[] ai;
     }
 }
 double LakeBathymetry::toparea(double y){
@@ -82,16 +88,21 @@ double LakeBathymetry::toparea(double y){
 _Lake::_Lake(){
 }
 _Lake::~_Lake(){
+    // P8-tune.F PR-0 (#394) Phase 6 — array-vs-scalar form correction:
+    // iEleBank/QEleSurf/QEleGW/QRivIn/RivOut are `new[]`-allocated in
+    // readLake() + Initialize() (L99/101/111/117/123). Scalar `delete` on
+    // `new[]` storage is independent UB. NSDMI nullptr defaults in Lake.hpp
+    // make the counter-guarded `delete[]` doubly-safe.
     if(NumEleBank > 0){
-        delete iEleBank;
-        delete QEleSurf;
-        delete QEleGW;
+        delete[] iEleBank;
+        delete[] QEleSurf;
+        delete[] QEleGW;
     }
     if(NumRivIn > 0){
-        delete QRivIn;
+        delete[] QRivIn;
     }
     if(NumRivOut > 0){
-        delete RivOut;
+        delete[] RivOut;
     }
 }
 void _Lake::Initialize(){

@@ -167,8 +167,14 @@ public:
     double AccT_surf_min = -3;
     
     double WatershedArea = 0.;
-    double *ISFactor = nullptr;        /* ISFactor is used to calculate ISMax from LAI */
-    double *windH = nullptr;        /* Height at which wind velocity is measured */
+    // P8-tune.F PR-0 (#394) Phase 6 F9 — `ISFactor` and `windH` (top-level
+    // Model_Data) are dead fields: grep across src/ + tools/ shows zero
+    // assignment / dereference / `delete` occurrences (the live wind-height
+    // data flows through `Ele[i].windH` + `hot.windH`; the live ISFactor
+    // logic is inlined elsewhere). NSDMI nullptr is correct but redundant;
+    // removing per cosmetic cleanup.
+    double *ISFactor;        /* ISFactor is used to calculate ISMax from LAI */
+    double *windH;        /* Height at which wind velocity is measured */
     _Lake *lake = nullptr;
     int NumLake = 0;
     double *QoutSurf = nullptr;
