@@ -100,7 +100,21 @@ public:
     int *io_riv = nullptr;
     int *io_lake = nullptr; /* Wether Export the data of these elements */
     
-    _TimeSeriesData *tsd_weather;
+    /* P8-tune.F PR-0 (#386) — Default-init heap pointer members to
+     * nullptr so Model_Data::FreeData()'s unconditional `delete[]` /
+     * `delete` chain is a defined no-op when allocation never ran (e.g.
+     * NumY > 100k OOM in malloc_EleRiv mid-loop; ctor short-circuit on
+     * exception). Symmetric to io_ele/io_riv/io_lake NSDMI defaults
+     * added in S5d.2-5a. The default ctor `Model_Data()` is otherwise
+     * empty (Model_Data.cpp:12-13) leaving these fields with
+     * indeterminate values; the second ctor `Model_Data(FileIn*, FileOut*)`
+     * sets only pf_in/pf_out. Production happy-path allocates these in
+     * malloc_EleRiv()/malloc_Y()/MD_Lake.cpp/MD_readin.cpp;
+     * the nullptr default is invisible to that path (assignment overrides).
+     * Bitwise contract: NSDMI default-init does NOT change the writes
+     * that subsequently land in these pointers, so SHUD output bytes
+     * remain neutral vs B0/B1a/B1b baselines. */
+    _TimeSeriesData *tsd_weather = nullptr;
     _TimeSeriesData tsd_LAI;
 //    _TimeSeriesData tsd_RL;
     _TimeSeriesData tsd_MF;
@@ -122,7 +136,7 @@ public:
     globalCal gc;
     Control_Data CS;
     
-    _Element *Ele;        /* Store Element Information */
+    _Element *Ele = nullptr;        /* Store Element Information */
     /* S5d.1 (#178) — ElementHotData SoA hot field container. See
      * MD_layout.hpp + docs/s5d_hot_fields.yaml. Populated by
      * initialize_hot() called from initialize() AFTER _Element AoS data
@@ -132,33 +146,33 @@ public:
      * path (MD_ElementFlux/MD_f/MD_ET) reads this; init/IO/calib path
      * reads _Element. */
     ElementHotData hot;
-    _Node *Node;        /* Store Node Information */
+    _Node *Node = nullptr;        /* Store Node Information */
     //element_IC * Ele_IC;    /* Store Element Initial Condtion */
-    Soil_Layer *Soil;        /* Store Soil Information */
-    Geol_Layer *Geol;            /* Store Geology Information */
-    Landcover *LandC;        /* Store Land Cover Information */
-    
-    _River *Riv;        /* Store River Reach Information */
-    river_para *Riv_Type;    /* Store River Shape Information */
-    _Node *rivNode;
-    FloodAlert *flood;
-    
-    double *fu_Surf; /* Fraction of unfrozen landsurface */
-    double *fu_Sub; /* Fraction of unfrozen subsurface */
-    _AccTemp *AccT_surf;
-    _AccTemp *AccT_sub;
+    Soil_Layer *Soil = nullptr;        /* Store Soil Information */
+    Geol_Layer *Geol = nullptr;            /* Store Geology Information */
+    Landcover *LandC = nullptr;        /* Store Land Cover Information */
+
+    _River *Riv = nullptr;        /* Store River Reach Information */
+    river_para *Riv_Type = nullptr;    /* Store River Shape Information */
+    _Node *rivNode = nullptr;
+    FloodAlert *flood = nullptr;
+
+    double *fu_Surf = nullptr; /* Fraction of unfrozen landsurface */
+    double *fu_Sub = nullptr; /* Fraction of unfrozen subsurface */
+    _AccTemp *AccT_surf = nullptr;
+    _AccTemp *AccT_sub = nullptr;
     double AccT_sub_max = 10;
     double AccT_sub_min = -10;
     double AccT_surf_max = 3;
     double AccT_surf_min = -3;
     
     double WatershedArea = 0.;
-    double *ISFactor;        /* ISFactor is used to calculate ISMax from LAI */
-    double *windH;        /* Height at which wind velocity is measured */
-    _Lake *lake;
+    double *ISFactor = nullptr;        /* ISFactor is used to calculate ISMax from LAI */
+    double *windH = nullptr;        /* Height at which wind velocity is measured */
+    _Lake *lake = nullptr;
     int NumLake = 0;
-    double *QoutSurf;
-    
+    double *QoutSurf = nullptr;
+
     /* S5d.2-5a (#179) — jagged QeleSurf/QeleSub flattened to one
      * contiguous row-major `double[NumEle*3]` block per array. Index
      * convention matches MD_layout.hpp flat-3 idiom: at(i,j) ↔
@@ -169,102 +183,102 @@ public:
      * uses the new flat-overload InitIJ(...double *x_flat, int j, ...)
      * — the per-column file slices are still 1 column out of 3 with
      * stride 3 across rows; see Model_Control.cpp. */
-    double *QeleSurf_flat; /* Overland Flux — flat NumEle*3 */
-    double *QeleSub_flat;  /* Subsurface Flux — flat NumEle*3 */
+    double *QeleSurf_flat = nullptr; /* Overland Flux — flat NumEle*3 */
+    double *QeleSub_flat = nullptr;  /* Subsurface Flux — flat NumEle*3 */
     //double ** FluxRiv;    /* River Segment Flux */
-    double *QrivSurf;        /* surface Flux between river and element */
-    double *QrivSub;        /* gw Flux between river and element */
-    double *QrivDown;
-    double *QrivUp;
-    double *QsegSurf;
-    double *QsegSub;    
-    
-    double *QeleSurfTot;
-    double *QeleSubTot;
-    
-    double *Qe2r_Surf;
-    double *Qe2r_Sub;
-    
-    double *yEleWetFront;        /* Weting Front */
-    
-    double *qElePrep;        /* Precep. on each element */
-    double *qEleETloss;
-    double *qEleNetPrep;    /* Net precep. on each elment */
-    double *qEleInfil;    /* Variable infiltration rate */
-    double *qEleExfil;    /* Variable exfiltration rate */
-    double *qEleRecharge;    /* Recharge rate to GW */
-    double *yEleSnowGrnd;    /* Snow depth on ground element */
-    double *yEleSnowCanopy;    /* Snow depth on canopy element */
-    double *yEleISmax;    /* Maximum interception storage (liquid
+    double *QrivSurf = nullptr;        /* surface Flux between river and element */
+    double *QrivSub = nullptr;        /* gw Flux between river and element */
+    double *QrivDown = nullptr;
+    double *QrivUp = nullptr;
+    double *QsegSurf = nullptr;
+    double *QsegSub = nullptr;
+
+    double *QeleSurfTot = nullptr;
+    double *QeleSubTot = nullptr;
+
+    double *Qe2r_Surf = nullptr;
+    double *Qe2r_Sub = nullptr;
+
+    double *yEleWetFront = nullptr;        /* Weting Front */
+
+    double *qElePrep = nullptr;        /* Precep. on each element */
+    double *qEleETloss = nullptr;
+    double *qEleNetPrep = nullptr;    /* Net precep. on each elment */
+    double *qEleInfil = nullptr;    /* Variable infiltration rate */
+    double *qEleExfil = nullptr;    /* Variable exfiltration rate */
+    double *qEleRecharge = nullptr;    /* Recharge rate to GW */
+    double *yEleSnowGrnd = nullptr;    /* Snow depth on ground element */
+    double *yEleSnowCanopy = nullptr;    /* Snow depth on canopy element */
+    double *yEleISmax = nullptr;    /* Maximum interception storage (liquid
                            * precep) */
-    double *yEleISsnowmax;    /* Maximum interception storage (snow) */
-    double *qEleTF;        /* Through Fall */
-    
-    double *yEleIS;        /* Interception storage */
-    double *yEleSnow;        /* Snow depth on each element */
-    double *yEleGW;   // debug may not necessary
-    double *yEleSurf;   // debug may not necessary
-    double *yEleUnsat;   // debug may not necessary
+    double *yEleISsnowmax = nullptr;    /* Maximum interception storage (snow) */
+    double *qEleTF = nullptr;        /* Through Fall */
+
+    double *yEleIS = nullptr;        /* Interception storage */
+    double *yEleSnow = nullptr;        /* Snow depth on each element */
+    double *yEleGW = nullptr;   // debug may not necessary
+    double *yEleSurf = nullptr;   // debug may not necessary
+    double *yEleUnsat = nullptr;   // debug may not necessary
 //    double *yEleSM;   // Soil Moisture Ratio
-    double *qEleETP;    /* Potential ET  = qPotEvap * (1-VegFrac)+ qPotTran * VegFrac */
-    double *qPotEvap;   /* Potential Evaporation of Soil */
-    double *qPotTran;   /* Potential Transpiration of Vegetation */
-    double *qEs;    /* Evaporation from surface ponding */
-    double *qEu;    /* Evaporation from Unsat */
-    double *qEg;    /* Evaporation from GW */
-    double *qTu;    /* Transpiration from Unsat */
-    double *qTg;    /* Transpiration from GW */
-    
-    
-    double *qEleE_IC;    /* Evaporation from canopy interception */
-    double *qEleEvapo;    /* Evaporation from canopy interception */
-    double *qEleTrans;    /* Evaporation from canopy interception */
-    
-    double *iBeta;
-    double *qEleETA;
-    double *yRivStg;   // debug may not necessary
+    double *qEleETP = nullptr;    /* Potential ET  = qPotEvap * (1-VegFrac)+ qPotTran * VegFrac */
+    double *qPotEvap = nullptr;   /* Potential Evaporation of Soil */
+    double *qPotTran = nullptr;   /* Potential Transpiration of Vegetation */
+    double *qEs = nullptr;    /* Evaporation from surface ponding */
+    double *qEu = nullptr;    /* Evaporation from Unsat */
+    double *qEg = nullptr;    /* Evaporation from GW */
+    double *qTu = nullptr;    /* Transpiration from Unsat */
+    double *qTg = nullptr;    /* Transpiration from GW */
+
+
+    double *qEleE_IC = nullptr;    /* Evaporation from canopy interception */
+    double *qEleEvapo = nullptr;    /* Evaporation from canopy interception */
+    double *qEleTrans = nullptr;    /* Evaporation from canopy interception */
+
+    double *iBeta = nullptr;
+    double *qEleETA = nullptr;
+    double *yRivStg = nullptr;   // debug may not necessary
     /* Lake variables */
-    double *yLakeStg;
-    double *y2LakeArea;
-    double *QLakeSurf;
-    double *QLakeSub;
-    double *QLakeRivIn;
-    double *QLakeRivOut;
-    double *qLakeEvap;
-    double *qLakePrcp;
+    double *yLakeStg = nullptr;
+    double *y2LakeArea = nullptr;
+    double *QLakeSurf = nullptr;
+    double *QLakeSub = nullptr;
+    double *QLakeRivIn = nullptr;
+    double *QLakeRivOut = nullptr;
+    double *qLakeEvap = nullptr;
+    double *qLakePrcp = nullptr;
     /* S3b (PR-9): per-edge / per-element scratch slots for shared-write
      * splitting. Element->Lake surface/sub fluxes write to these slots
      * (size NumEle*3, indexed i*3+j) instead of the racy `QLakeSurf[ilake] += Q`
      * pattern; PassValue_legacy() then gathers into QLakeSurf/QLakeSub.
      * Transitional — PR-11 (S3c) will replace the gather with
      * rhs_deterministic_gather(). */
-    double *QeleSurf_lake;
-    double *QeleSub_lake;
+    double *QeleSurf_lake = nullptr;
+    double *QeleSub_lake = nullptr;
     /* S3b.4 (PR-9): per-element scratch for lake-cell evap/prcp split
      * (NumEle sized). Lake-cell elements write the pre-divided per-element
      * contribution; gather (in rhs_flux / f_loop BEFORE the lake clamp)
      * sums to per-lake qLakeEvap / qLakePrcp. Cannot live in PassValue_legacy
      * because the lake clamp reads qLakeEvap/qLakePrcp BEFORE PassValue_legacy
      * is called. */
-    double *qEleEvapo_lake;
-    double *qElePrep_lake;
-    
-    
+    double *qEleEvapo_lake = nullptr;
+    double *qElePrep_lake = nullptr;
+
+
     int NumSegmt;
-    RiverSegement *RivSeg;
-    
+    RiverSegement *RivSeg = nullptr;
+
     long ForcStartTime;
-    
+
 private:
-    double *t_prcp;
-    double *t_temp;
-    double *t_rh;
-    double *t_sph;
-    double *t_wind;
-    double *t_rn;
-    double *t_vp;
-    double *t_lai;
-    double *t_mf;
+    double *t_prcp = nullptr;
+    double *t_temp = nullptr;
+    double *t_rh = nullptr;
+    double *t_sph = nullptr;
+    double *t_wind = nullptr;
+    double *t_rn = nullptr;
+    double *t_vp = nullptr;
+    double *t_lai = nullptr;
+    double *t_mf = nullptr;
 //    double *t_hc;  /* New defination: Height of Crop. void in temporary*/
 public:
     /* Methods: */

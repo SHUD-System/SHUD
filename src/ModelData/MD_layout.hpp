@@ -57,49 +57,60 @@
 struct ElementHotData {
     /* All members allocated by Model_Data::malloc_EleRiv() under
      * MD_layout-managed contiguous block (S5d.3 will switch to parallel
-     * first-touch). Free()d by FreeData() symmetrically. */
+     * first-touch). Free()d by FreeData() symmetrically.
+     *
+     * P8-tune.F PR-0 (#386) — NSDMI nullptr default for every pointer
+     * field so Model_Data::FreeData()'s unconditional `delete[] hot.*`
+     * chain is a defined no-op when malloc_EleRiv() never ran or aborted
+     * partway (e.g. NumY > 100k OOM in mid-allocation). Without these
+     * defaults, the `hot` substruct's pointer slots hold indeterminate
+     * stack/heap bytes — `delete[]` on those triggers `free(): invalid
+     * pointer` heap corruption (glibc) or SEGV (other allocators). The
+     * default writes are overridden by the `hot.* = new ...` assignments
+     * in Model_Data::malloc_EleRiv() so production happy-path output
+     * remains bitwise-identical to B0/B1a/B1b baselines. */
 
     /* Geometry — from class Triangle */
-    int    *nabr_flat;        /* nabr[NumEle][3] flat */
-    int    *lakenabr_flat;    /* lakenabr[NumEle][3] flat */
-    double *edge_flat;        /* edge[NumEle][3] flat */
-    double *area;             /* per-element area */
-    double *z_bottom;         /* per-element aquifer bottom elevation */
-    double *z_surf;           /* per-element surface elevation */
+    int    *nabr_flat = nullptr;        /* nabr[NumEle][3] flat */
+    int    *lakenabr_flat = nullptr;    /* lakenabr[NumEle][3] flat */
+    double *edge_flat = nullptr;        /* edge[NumEle][3] flat */
+    double *area = nullptr;             /* per-element area */
+    double *z_bottom = nullptr;         /* per-element aquifer bottom elevation */
+    double *z_surf = nullptr;           /* per-element surface elevation */
 
     /* Topology indices — from class AttriuteIndex (RHS-touched only) */
-    int    *iSoil;            /* index into Soil[] for soil-stress lookup */
-    int    *iLC;              /* index into Landcover[] for LAI tsd lookup */
-    int    *iMF;              /* meltFactor tsd column index */
-    int    *iForc;            /* forcing tsd index */
-    int    *iLake;            /* lake-cell membership (0 = land) */
-    int    *iBC;              /* boundary-condition tag (sign-encoded) */
-    int    *iSS;              /* source/sink tag (sign-encoded) */
+    int    *iSoil = nullptr;            /* index into Soil[] for soil-stress lookup */
+    int    *iLC = nullptr;              /* index into Landcover[] for LAI tsd lookup */
+    int    *iMF = nullptr;              /* meltFactor tsd column index */
+    int    *iForc = nullptr;            /* forcing tsd index */
+    int    *iLake = nullptr;            /* lake-cell membership (0 = land) */
+    int    *iBC = nullptr;              /* boundary-condition tag (sign-encoded) */
+    int    *iSS = nullptr;              /* source/sink tag (sign-encoded) */
 
     /* Direct _Element fields */
-    double *Dist2Nabor_flat;  /* Dist2Nabor[NumEle][3] flat */
-    double *Dist2Edge_flat;   /* Dist2Edge[NumEle][3] flat */
-    double *avgRough_flat;    /* avgRough[NumEle][3] flat */
-    double *FixPressure;      /* per-element atmospheric pressure */
-    double *WetlandLevel;     /* Aquiferdepth - infD */
-    double *RootReachLevel;   /* Aquiferdepth - RzD */
-    double *depression;       /* per-element depression storage */
-    double *QBC;              /* per-element BC flux */
-    double *QSS;              /* per-element source/sink flux */
-    double *windH;            /* per-element wind-measurement height */
-    double *u_qi;             /* infiltration; written by Flux_Infiltration */
-    double *u_qex;            /* exfiltration; written by Flux_Infiltration */
-    double *u_effKH;          /* horizontal effective K; written by updateElement */
-    double *u_satn;           /* saturation ratio; written by updateElement */
+    double *Dist2Nabor_flat = nullptr;  /* Dist2Nabor[NumEle][3] flat */
+    double *Dist2Edge_flat = nullptr;   /* Dist2Edge[NumEle][3] flat */
+    double *avgRough_flat = nullptr;    /* avgRough[NumEle][3] flat */
+    double *FixPressure = nullptr;      /* per-element atmospheric pressure */
+    double *WetlandLevel = nullptr;     /* Aquiferdepth - infD */
+    double *RootReachLevel = nullptr;   /* Aquiferdepth - RzD */
+    double *depression = nullptr;       /* per-element depression storage */
+    double *QBC = nullptr;              /* per-element BC flux */
+    double *QSS = nullptr;              /* per-element source/sink flux */
+    double *windH = nullptr;            /* per-element wind-measurement height */
+    double *u_qi = nullptr;             /* infiltration; written by Flux_Infiltration */
+    double *u_qex = nullptr;            /* exfiltration; written by Flux_Infiltration */
+    double *u_effKH = nullptr;          /* horizontal effective K; written by updateElement */
+    double *u_satn = nullptr;           /* saturation ratio; written by updateElement */
 
     /* From Soil_Layer parent (RHS-touched only) */
-    double *Sy;               /* specific yield; DY scale in f_applyDY */
+    double *Sy = nullptr;               /* specific yield; DY scale in f_applyDY */
 
     /* From Landcover parent (RHS-touched only) */
-    double *VegFrac;          /* vegetation fraction */
-    double *Albedo;           /* surface albedo for net radiation */
-    double *Rough;            /* surface roughness for boundary flux */
-    double *ImpAF;            /* impervious area fraction */
+    double *VegFrac = nullptr;          /* vegetation fraction */
+    double *Albedo = nullptr;           /* surface albedo for net radiation */
+    double *Rough = nullptr;            /* surface roughness for boundary flux */
+    double *ImpAF = nullptr;            /* impervious area fraction */
 };
 
 #endif /* MD_LAYOUT_HPP */
