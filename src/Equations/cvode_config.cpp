@@ -524,6 +524,41 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     flag = CVodeSetLinearSolver(cvode_mem, LS, NULL);
     check_flag(&flag, "CVSpilsSetLinearSolver", 1);
 
+    /* PR-X1: optional CVODE linear convergence safety factor override
+     * for RCA on G0 ncfn=100138 (issue #412 NO-GO). When SHUD_CVODE_EPSLIN
+     * is set to a value in (0, 1), it overrides the SUNDIALS default
+     * (0.05) via CVodeSetEpsLin. Pattern mirrors the existing
+     * SHUD_SPGMR_MAXL hook style (L320-381) — strtod parse with strict
+     * range gate + fatal exit on malformed input + stderr provenance
+     * line. env unset → CVODE's default 0.05 preserved exactly
+     * (bitwise default-compat invariant). */
+    {
+        const char *env_eps = getenv("SHUD_CVODE_EPSLIN");
+        if (env_eps != NULL && env_eps[0] != '\0') {
+            char *endp = NULL;
+            double eps_lin = strtod(env_eps, &endp);
+            if (endp == env_eps || eps_lin <= 0.0 || eps_lin >= 1.0) {
+                fprintf(stderr,
+                    "[shud] FATAL: SHUD_CVODE_EPSLIN=%s is not a valid float in (0, 1)\n",
+                    env_eps);
+                fflush(stderr);
+                exit(EXIT_FAILURE);
+            }
+            int rc = CVodeSetEpsLin(cvode_mem, eps_lin);
+            if (rc != CV_SUCCESS) {
+                fprintf(stderr,
+                    "[shud] FATAL: CVodeSetEpsLin(%.4f) returned %d\n",
+                    eps_lin, rc);
+                fflush(stderr);
+                exit(EXIT_FAILURE);
+            }
+            fprintf(stderr,
+                "[shud] PR-X1 hook: CVodeSetEpsLin(%.4f) applied\n",
+                eps_lin);
+        }
+        /* env unset → default-compat: CVODE's default (0.05) preserved. */
+    }
+
     flag = CVodeSetMinStep(cvode_mem, 1E-6); //Minimum time interval in cvode.dt = t(i) - t(i - 1);
     check_flag(&flag, "CVodeSetMinStep", 1);
     

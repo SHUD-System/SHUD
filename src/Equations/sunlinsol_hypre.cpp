@@ -668,6 +668,31 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
     HYPRE_BoomerAMGSetCoarsenType(c->amg, c->coarsen_type);
     HYPRE_BoomerAMGSetMaxIter(c->amg, 100);
     HYPRE_BoomerAMGSetTol(c->amg, 1e-8);
+    /* PR-X1: optional Hypre solve tolerance override for RCA on
+     * G0 ncfn=100138 (issue #412 NO-GO). When SHUD_AMG_TOL is set
+     * to a value in (0, 1), it overrides the 1e-8 default above
+     * via a second SetTol call (Hypre semantics: last setter wins).
+     * env unset → no override, preserves G0 PR-0 default behavior
+     * exactly (bitwise default-compat invariant). */
+    {
+        const char* env_tol = std::getenv("SHUD_AMG_TOL");
+        if (env_tol && env_tol[0] != '\0') {
+            char* endp = nullptr;
+            double tol = std::strtod(env_tol, &endp);
+            if (endp == env_tol || tol <= 0.0 || tol >= 1.0) {
+                std::fprintf(stderr,
+                    "[shud-amg] FATAL: SHUD_AMG_TOL=%s is not a valid float in (0, 1)\n",
+                    env_tol);
+                std::exit(2);
+            }
+            HYPRE_BoomerAMGSetTol(c->amg, tol);
+            std::fprintf(stderr,
+                "[shud-amg] PR-X1 hook: HYPRE_BoomerAMGSetTol(%.3e) applied\n",
+                tol);
+        }
+        /* env unset → default-compat: do NOT call SetTol again, the
+         * 1e-8 default above stays in effect (preserves G0 default). */
+    }
     HYPRE_BoomerAMGSetPrintLevel(c->amg, 0);
 #if HYPRE_RELEASE_NUMBER >= 22300
     /* HYPRE_BoomerAMGSetCumNnzAP was added in Hypre 2.23 (Nov 2021).
