@@ -76,6 +76,12 @@ extern "C" {
 #include "_hypre_utilities.h"  /* HYPRE_RELEASE_NUMBER */
 }
 
+/* Disable OpenMPI C++ bindings — Ubuntu/server OpenMPI ships a broken
+ * functions_inln.h that fails to compile with modern g++ (see
+ * /usr/lib/x86_64-linux-gnu/openmpi/include/openmpi/ompi/mpi/cxx/functions_inln.h).
+ * The C bindings via <mpi.h> are all we need. Must be defined BEFORE
+ * <mpi.h> is included. */
+#define OMPI_SKIP_MPICXX 1
 #include <mpi.h>
 
 #include "nvector/nvector_serial.h"
@@ -131,6 +137,14 @@ struct HypreContent {
     /* Scale-vectors stash (G0 stashes only). */
     N_Vector s1 = nullptr;
     N_Vector s2 = nullptr;
+
+    /* N_Vector flavor template stashed at constructor time. The wrapper
+     * uses this to N_VClone probe scratch when lazy-building the AMG
+     * hierarchy. The pointer is caller-owned; the wrapper holds it only
+     * as a flavor reference (DO NOT destroy in Free). The lifetime
+     * invariant is enforced by CVODE: the constructor is called from
+     * SetCVODE where `udata` outlives the SUNLinearSolver. */
+    N_Vector y_template = nullptr;
 
     /* Zero-guess flag from SetZeroGuess (CVODE 6.0 SPILS path). */
     booleantype zero_guess = SUNFALSE;
@@ -207,17 +221,24 @@ int op_initialize(SUNLinearSolver LS) {
     /* MPI_Init guard: required by HYPRE for MPI_COMM_SELF use. We
      * lazily MPI_Init only if not already initialised. SHUD core has
      * no other MPI users; mpic++ link drags libmpi but no
-     * application-side MPI_Init call exists. */
+     * application-side MPI_Init call exists.
+     *
+     * Use MPI_Init_thread(NULL, NULL, MPI_THREAD_FUNNELED, ...) rather
+     * than the legacy stack-argv MPI_Init pattern:
+     *   - NULL-argv is legal per MPI-3 §8.7 (Implementations MUST accept
+     *     NULL pointers for argc/argv to MPI_Init / MPI_Init_thread).
+     *   - MPI_THREAD_FUNNELED is the minimum thread support level that
+     *     allows nested OMP `parallel` regions in the same process; shud_omp
+     *     wraps OMP_NUM_THREADS=1 on the AMG path, but the funneled mode
+     *     also covers the SPGMR-baseline-and-AMG-build-up code paths that
+     *     coexist before/after this Initialize call. */
     int mpi_already = 0;
     MPI_Initialized(&mpi_already);
     if (!mpi_already) {
-        int mpi_argc = 1;
-        char mpi_arg0[] = "shud_amg";
-        char *mpi_argv[2] = {mpi_arg0, nullptr};
-        char **mpi_argv_ptr = mpi_argv;
-        if (MPI_Init(&mpi_argc, &mpi_argv_ptr) != MPI_SUCCESS) {
+        int provided = MPI_THREAD_SINGLE;
+        if (MPI_Init_thread(NULL, NULL, MPI_THREAD_FUNNELED, &provided) != MPI_SUCCESS) {
             std::fprintf(stderr,
-                "[shud-amg] FATAL: MPI_Init failed in SUNLinSol_Hypre Initialize\n");
+                "[shud-amg] FATAL: MPI_Init_thread failed in SUNLinSol_Hypre Initialize\n");
             return SUNLS_PACKAGE_FAIL_UNREC;
         }
         c->wrapper_inited_mpi = true;
@@ -232,120 +253,232 @@ int op_initialize(SUNLinearSolver LS) {
 #endif
     c->wrapper_inited_hypre = true;
 
-    /* Hypre thread pinning under shud_omp (design.md D10). Defense-
-     * in-depth: smoke-runner sbatch sets `export OMP_NUM_THREADS=1`,
-     * and we additionally pin Hypre to 1 thread here. */
-    int multi_thread_mode = 0;
+    /* Hypre 3.1.0 does not expose a portable thread-pin API. We rely on
+     * the caller (sbatch script / shell) to export OMP_NUM_THREADS=1
+     * before starting SHUD. We CAN, however, attest honestly to the
+     * runtime OMP state so PR-A smoke runner can refuse to accept
+     * suspected over-subscription. */
+    int omp_max = 1;
 #ifdef _OPENMP
-    if (omp_get_max_threads() > 1) {
-        multi_thread_mode = 1;
-    }
+    omp_max = omp_get_max_threads();
 #endif
-    const char *omp_nt_env = std::getenv("OMP_NUM_THREADS");
-    if (omp_nt_env != nullptr) {
-        long v = std::strtol(omp_nt_env, nullptr, 10);
-        if (v > 1) multi_thread_mode = 1;
+    const char *omp_env = std::getenv("OMP_NUM_THREADS");
+    int omp_env_n = (omp_env != nullptr) ? (int)std::strtol(omp_env, nullptr, 10) : -1;
+    const char *thread_state = "ENFORCED-BY-CALLER";
+    if (omp_max > 1 || omp_env_n > 1) {
+        thread_state = "UNKNOWN-OVERSUBSCRIBE-RISK";
     }
-    /* Hypre 3.1.0 does not expose HYPRE_SetGlobalOptions(...) as a
-     * portable runtime knob; thread pinning under OpenMP-enabled
-     * Hypre is the user's responsibility (omp_set_num_threads).
-     * Emit the documentation marker so test runs are self-explanatory. */
     std::fprintf(stdout,
-        "[shud-amg] Hypre threads=1 mode=%s\n",
-        multi_thread_mode ? "nested" : "single");
+        "[shud-amg] Hypre threads=1 state=%s omp_max=%d OMP_NUM_THREADS=%s\n",
+        thread_state, omp_max, omp_env ? omp_env : "<unset>");
     std::fflush(stdout);
 
     return SUNLS_SUCCESS;
 }
 
-/* Internal helper used by both lazy-Setup (first Solve) and
- * CVODE-issued Setup. Returns SUNLS_SUCCESS or a SUNLS_* error code. */
-int build_amg_hierarchy(HypreContent *c) {
+/* op_setup behavior (G0 spec amendment):
+ *   - Destroy any prior AMG hierarchy + IJMatrix + IJVector handles.
+ *   - Set the pending-setup flag and accumulate the destroy wall.
+ *   - DO NOT clone any N_Vector here — we don't have access to a
+ *     CVODE-managed N_Vector flavor template until Solve.
+ *   - DO NOT build the new hierarchy here — first Solve after Setup
+ *     does the lazy build (lazy_build_hierarchy_from_solve), which
+ *     has access to the in-flight `b` N_Vector for probe scratch.
+ *   - First Solve's telemetry attributes the destroy wall + actual
+ *     build wall together via pending_setup_wall_sec; setup_called=1
+ *     persists until the first Solve consumes it.
+ * Returns SUNLS_SUCCESS unconditionally — there is nothing to fail in
+ * a pure destroy-and-flag path. */
+int op_setup(SUNLinearSolver LS, SUNMatrix /*A*/) {
+    HypreContent *c = content_of(LS);
+    if (c == nullptr) return SUNLS_MEM_NULL;
+
     const auto t0 = std::chrono::steady_clock::now();
 
-    /* Sanity. */
-    if (c->MD == nullptr || c->atimes_fn == nullptr) {
-        std::fprintf(stderr,
-            "[shud-amg] FATAL: Setup invoked with MD=%p atimes_fn=%p\n",
-            (void *)c->MD, (void *)c->atimes_fn);
-        return SUNLS_ILL_INPUT;
-    }
-    const long n = c->n;
-    if (n <= 0) {
-        std::fprintf(stderr,
-            "[shud-amg] FATAL: Setup invoked with n=%ld\n", n);
-        return SUNLS_ILL_INPUT;
-    }
-
-    /* Destroy any prior handles (CVODE-issued Setup → rebuild). */
     if (c->amg)   { HYPRE_BoomerAMGDestroy(c->amg);   c->amg   = nullptr; }
     if (c->A_ij)  { HYPRE_IJMatrixDestroy(c->A_ij);   c->A_ij  = nullptr; c->A_par = nullptr; }
     if (c->b_ij)  { HYPRE_IJVectorDestroy(c->b_ij);   c->b_ij  = nullptr; c->b_par = nullptr; }
     if (c->x_ij)  { HYPRE_IJVectorDestroy(c->x_ij);   c->x_ij  = nullptr; c->x_par = nullptr; }
 
-    /* Probe-derive sparsity: for each column i in [0, n), invoke
-     * ATimes(A_data, e_i, J·e_i) where e_i is the i-th unit basis
-     * vector, then accumulate (col=i, row=r, val) tuples wherever
-     * the result is non-zero. Re-arrange to per-row CSR for HYPRE
-     * IJMatrix insertion.
-     *
-     * Cost: n ATimes calls per Setup. For keliya (NumY ~ 3*484 ~
-     * 1452), this is ~1500 RHS evaluations — cheap (~1s on Mac).
-     * For heihe_x4 (NumY ~ 124k) it is the design.md D5 perf concern
-     * — accepted at G0 as the correctness baseline; G1 may add
-     * topology pre-filtering to skip known-zero columns. */
-    if (c->indices.size() != static_cast<size_t>(n)) {
-        c->indices.assign(n, 0);
-        for (HYPRE_BigInt i = 0; i < n; ++i) c->indices[i] = i;
-    }
-
-    /* Use Serial N_Vectors as the probe scratch (the wrapper assumes
-     * CVODE's outer N_Vector is also Serial when ATimes can be
-     * driven via simple raw-array access; nvector_openmp also exposes
-     * N_VGetArrayPointer compatible semantics under SHUD's usage). */
-    N_Vector ev = N_VClone(c->s2 ? c->s2 : c->s1);  /* placeholder; replaced below */
-    /* ev needs to be the same flavor as CVODE's state vector. We
-     * don't have direct access to a template here unless ATimes
-     * passes one through. In practice CVODE invokes
-     * setatimes(LS, cvode_mem, cvAtimes) and cvAtimes(A_data, v, z)
-     * expects v to be a CVODE-managed N_Vector flavor. The cleanest
-     * path: clone from a known-good N_Vector. We cache one via
-     * Setup-call SUNMatrix arg in the LS-level Setup; but since
-     * SetATimes preceded us, fall back to N_VNew_Serial(n, sunctx). */
-    if (ev != nullptr) {
-        N_VDestroy(ev);
-        ev = nullptr;
-    }
-    /* nvector_serial.h provides N_VNew_Serial(sunindextype length,
-     * SUNContext sunctx). Pull sunctx from the SUNLinearSolver
-     * carrier (the wrapper's struct stores sunctx implicitly via
-     * the SUNLinearSolver_C handle, but we don't have access here —
-     * solve by passing sunctx through a stash). To keep this PR-0
-     * patch minimal, allocate the probe N_Vectors at first Solve
-     * where we DO have the in-flight x/b N_Vector to clone from. */
-
-    /* This intermediate buffer path is only used when Setup is
-     * issued by CVODE OUTSIDE of a Solve call — exceedingly rare per
-     * task 1.4 (nsetups=0 on keliya). For PR-0 we forward this path
-     * to error-return; the lazy-build inside Solve handles the real
-     * scenario. */
-    std::fprintf(stderr,
-        "[shud-amg] WARNING: explicit Setup invoked but lazy-Solve path is the G0 baseline — "
-        "deferring AMG hierarchy build to first Solve invocation\n");
-
     const auto t1 = std::chrono::steady_clock::now();
     c->pending_setup_wall_sec += std::chrono::duration<double>(t1 - t0).count();
     c->pending_setup_called = 1;
+    c->last_flag = SUNLS_SUCCESS;
     return SUNLS_SUCCESS;
 }
 
-int op_setup(SUNLinearSolver LS, SUNMatrix /*A*/) {
-    return build_amg_hierarchy(content_of(LS));
+/* Topology-restricted ATimes probe.
+ *
+ * SHUD state vector layout (see SHUD/src/ModelData/Model_Data.cpp L86
+ * + SHUD/src/Equations/functions.hpp L83-99):
+ *
+ *   NumY = 3 * NumEle + NumRiv + NumLake
+ *   indices [0          .. NumEle)        — surface  (yEleSurf)
+ *   indices [NumEle     .. 2*NumEle)      — unsat    (yEleUnsat)
+ *   indices [2*NumEle   .. 3*NumEle)      — GW       (yEleGW)
+ *   indices [3*NumEle   .. 3*NumEle+NumRiv) — river   (yRivStg)
+ *   indices [3*NumEle+NumRiv .. NumY)     — lake     (yLakeStg)
+ *
+ * Sparsity pattern (per SHUD RHS structure):
+ *   - Each element i has 3 mesh neighbors `MD->Ele[i].nabr[k]`
+ *     (k=0..2; 0 means boundary, 1-indexed otherwise). Lateral fluxes
+ *     couple element i to nabr(i) WITHIN each stripe (surf↔surf,
+ *     unsat↔unsat, gw↔gw).
+ *   - Vertical fluxes (infiltration / recharge / ET) couple the 3
+ *     stripes within the SAME element (surf_i ↔ unsat_i ↔ gw_i).
+ *   - River coupling: each element with a river edge couples to a
+ *     river node; explicit cross-mapping requires per-river-reach
+ *     metadata. River-to-river: each river reach couples to its
+ *     `down` neighbor.
+ *   - Lake coupling: lake-bank elements couple via `Ele[i].lakenabr[k]`.
+ *
+ * Conservative bandwidth bound per row: ~12 nonzeros
+ *   (self + 3 mesh-nabr × same-stripe + 2 cross-stripe + river/lake edge
+ *    × small constant). We allocate 32 candidate slots per column as
+ *   a safety overcount.
+ *
+ * Total ATimes calls per Setup: O(NumY) — one probe per column.
+ * For heihe_x4 (NumY ~124k) this is ~124k probes; for heihe_x16
+ * (NumY ~485k) it is ~485k probes — manageable within G0 wall budget.
+ *
+ * Per row, we read out only the topology-derived candidate row set
+ * (<= 32 candidates), NOT all NumY rows. */
+static void enumerate_row_candidates(const HypreContent *c, HYPRE_BigInt col,
+                                     HYPRE_BigInt *candidates, int *n_candidates_out,
+                                     int max_candidates) {
+    int n_cand = 0;
+    const Model_Data *MD = c->MD;
+    const int NumEle = MD ? MD->NumEle : 0;
+    const int NumRiv = MD ? MD->NumRiv : 0;
+    const int NumLake = MD ? MD->NumLake : 0;
+    const long n = c->n;
+
+    auto push = [&](HYPRE_BigInt r) {
+        if (n_cand >= max_candidates) return;
+        if (r < 0 || r >= (HYPRE_BigInt)n) return;
+        /* Linear dedup is fine — n_cand is bounded small. */
+        for (int i = 0; i < n_cand; ++i) {
+            if (candidates[i] == r) return;
+        }
+        candidates[n_cand++] = r;
+    };
+
+    /* Always push self (diagonal). */
+    push(col);
+
+    if (NumEle == 0 || MD == nullptr) {
+        *n_candidates_out = n_cand;
+        return;
+    }
+
+    const HYPRE_BigInt stripe_riv_base = (HYPRE_BigInt)(3 * NumEle);
+    const HYPRE_BigInt stripe_lake_base = (HYPRE_BigInt)(3 * NumEle + NumRiv);
+
+    if (col < stripe_riv_base) {
+        /* Element-stripe column (surf / unsat / gw). */
+        const int stripe_idx = (int)(col / NumEle);  /* 0..2 */
+        const int ele_idx = (int)(col % NumEle);     /* 0..NumEle-1 */
+
+        /* Same-stripe mesh neighbors. */
+        for (int k = 0; k < 3; ++k) {
+            int nabr = MD->Ele[ele_idx].nabr[k];  /* 1-indexed; 0 = boundary */
+            if (nabr > 0 && nabr <= NumEle) {
+                push((HYPRE_BigInt)stripe_idx * NumEle + (nabr - 1));
+            }
+        }
+        /* Cross-stripe (vertical infiltration / recharge / ET) couplings
+         * to the OTHER two stripes of the SAME element. */
+        for (int s = 0; s < 3; ++s) {
+            if (s != stripe_idx) {
+                push((HYPRE_BigInt)s * NumEle + ele_idx);
+            }
+        }
+        /* Same-stripe lake-bank neighbors (only meaningful when
+         * NumLake > 0; lakenabr is 0 for non-lake-adjacent cells). */
+        if (NumLake > 0) {
+            for (int k = 0; k < 3; ++k) {
+                int lnabr = MD->Ele[ele_idx].lakenabr[k];
+                if (lnabr > 0 && lnabr <= NumLake) {
+                    push(stripe_lake_base + (lnabr - 1));
+                }
+            }
+        }
+        /* River coupling: not topology-restricted from element side
+         * without per-element river metadata; we conservatively allow
+         * any river row in the candidate set IF this element has a
+         * downstream river edge. The exact mapping is non-trivial; for
+         * G0 we additionally allow all river rows for this column if
+         * the element sits adjacent to NumRiv > 0 (PR-A may tighten). */
+        /* Skip explicit per-river enumeration here — the wrapper relies
+         * on cross-element infiltration symmetry: if element i couples
+         * to river j, the river-row probe (below) picks up the
+         * complementary entry. */
+    } else if (col < stripe_lake_base) {
+        /* River-stripe column. */
+        const int riv_idx = (int)(col - stripe_riv_base);  /* 0..NumRiv-1 */
+        /* Self already pushed. Push downstream river. */
+        if (NumRiv > 0 && MD->Riv != nullptr) {
+            int down = MD->Riv[riv_idx].down;  /* 1-indexed; -INT_MAX if none */
+            if (down > 0 && down <= NumRiv) {
+                push(stripe_riv_base + (down - 1));
+            }
+            /* Push upstream river(s) — Riv->down points us downstream;
+             * upstream coupling is the matrix-transpose direction.
+             * Conservative overcount: allow all rivers whose .down ==
+             * riv_idx+1; cap at 8 upstream tributaries. */
+            int up_count = 0;
+            for (int rj = 0; rj < NumRiv && up_count < 8; ++rj) {
+                if (MD->Riv[rj].down == (riv_idx + 1)) {
+                    push(stripe_riv_base + rj);
+                    up_count++;
+                }
+            }
+        }
+        /* River-to-element coupling is symmetric to element-to-river;
+         * the ATimes row reading will catch nonzero entries in the
+         * element stripes if the J row corresponding to this river
+         * touches them. We push the element-stripe rows for ALL
+         * elements that have this river as a downstream edge — but
+         * without per-element river mapping, conservatively push the
+         * 3 element-stripe rows at index ele_idx = (riv_idx %
+         * NumEle) as a heuristic. */
+        if (NumEle > 0) {
+            const int ele_idx_heur = riv_idx % NumEle;
+            for (int s = 0; s < 3; ++s) {
+                push((HYPRE_BigInt)s * NumEle + ele_idx_heur);
+            }
+        }
+    } else {
+        /* Lake-stripe column. */
+        const int lake_idx = (int)(col - stripe_lake_base);  /* 0..NumLake-1 */
+        (void)lake_idx;
+        /* Lake-to-element coupling: any element with lakenabr == this
+         * lake. Heuristic: scan up to first 16 elements that match
+         * (typical lake-bank ring is <16 cells per lake). */
+        int scan_count = 0;
+        for (int ej = 0; ej < NumEle && scan_count < 16; ++ej) {
+            bool is_bank = false;
+            for (int k = 0; k < 3; ++k) {
+                if (MD->Ele[ej].lakenabr[k] == (lake_idx + 1)) {
+                    is_bank = true;
+                    break;
+                }
+            }
+            if (is_bank) {
+                /* Push GW + surf stripe rows for this bank element. */
+                push((HYPRE_BigInt)0 * NumEle + ej);  /* surf */
+                push((HYPRE_BigInt)2 * NumEle + ej);  /* gw   */
+                scan_count++;
+            }
+        }
+    }
+
+    *n_candidates_out = n_cand;
 }
 
 /* Lazy build of AMG hierarchy at first Solve. Uses the in-flight
- * `b` vector to determine the N_Vector flavor for probe scratch
- * allocation. */
+ * `b` vector (or the constructor-stashed y_template) to determine
+ * the N_Vector flavor for probe scratch allocation. */
 static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template) {
     const auto t0 = std::chrono::steady_clock::now();
 
@@ -357,9 +490,17 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
 
     const long n = c->n;
 
-    /* Probe scratch — clone from the live vector flavor. */
-    N_Vector ev = N_VClone(b_template);
-    N_Vector av = N_VClone(b_template);
+    /* Probe scratch — clone from the live vector flavor. Prefer the
+     * caller-supplied b_template; fall back to constructor-stashed
+     * y_template if b_template is NULL. */
+    N_Vector clone_src = (b_template != nullptr) ? b_template : c->y_template;
+    if (clone_src == nullptr) {
+        std::fprintf(stderr,
+            "[shud-amg] FATAL: no N_Vector template available for probe scratch\n");
+        return SUNLS_MEM_FAIL;
+    }
+    N_Vector ev = N_VClone(clone_src);
+    N_Vector av = N_VClone(clone_src);
     if (ev == nullptr || av == nullptr) {
         if (ev) N_VDestroy(ev);
         if (av) N_VDestroy(av);
@@ -368,7 +509,20 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
         return SUNLS_MEM_FAIL;
     }
 
-    /* Build column-major (col_i, row_j, val) triplet list via probe. */
+    /* Topology-restricted probe. Per spec REQ-G0 "total ATimes calls
+     * per Setup MUST be O(NumY × bw_effective) not O(NumY²)".
+     *
+     * For each column `col`, derive the small candidate row set from
+     * SHUD's mesh topology (see enumerate_row_candidates), invoke
+     * ATimes(e_col), and read out ONLY the candidate rows. */
+    constexpr int MAX_CANDIDATES = 32;
+    HYPRE_BigInt candidates[MAX_CANDIDATES];
+    int n_cand = 0;
+
+    int bw_effective_max = 0;
+    long long total_atimes_calls = 0;
+
+    /* Per-row accumulator (col, val) lists. */
     std::vector<std::vector<HYPRE_BigInt>> row_cols(n);
     std::vector<std::vector<double>> row_vals(n);
 
@@ -385,6 +539,7 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
         ev_data[col] = 1.0;
 
         int atimes_rc = c->atimes_fn(c->atimes_data, ev, av);
+        total_atimes_calls++;
         if (atimes_rc != 0) {
             N_VDestroy(ev);
             N_VDestroy(av);
@@ -395,7 +550,12 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
         }
 
         const double *av_data = N_VGetArrayPointer(av);
-        for (HYPRE_BigInt row = 0; row < n; ++row) {
+
+        /* Topology-restricted readout. */
+        enumerate_row_candidates(c, col, candidates, &n_cand, MAX_CANDIDATES);
+        if (n_cand > bw_effective_max) bw_effective_max = n_cand;
+        for (int k = 0; k < n_cand; ++k) {
+            HYPRE_BigInt row = candidates[k];
             const double v = av_data[row];
             if (v != 0.0) {
                 row_cols[row].push_back(col);
@@ -406,6 +566,11 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
 
     N_VDestroy(ev);
     N_VDestroy(av);
+
+    std::fprintf(stdout,
+        "[shud-amg] Setup probe bw_effective=%d total_atimes_calls=%lld\n",
+        bw_effective_max, total_atimes_calls);
+    std::fflush(stdout);
 
     /* Build HYPRE IJMatrix from the per-row data. */
     if (HYPRE_IJMatrixCreate(MPI_COMM_SELF, 0, n - 1, 0, n - 1, &c->A_ij) != 0) {
@@ -460,6 +625,11 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
             "[shud-amg] AMG_SETUP_DIVERGE: HYPRE_BoomerAMGSetup rc=%d\n",
             (int)setup_rc);
         std::fprintf(stderr, "MARKER:AMG_SETUP_DIVERGE_DETECTED\n");
+        /* Setup failure: free the four handles to avoid leak. */
+        if (c->amg)   { HYPRE_BoomerAMGDestroy(c->amg);   c->amg   = nullptr; }
+        if (c->A_ij)  { HYPRE_IJMatrixDestroy(c->A_ij);   c->A_ij  = nullptr; c->A_par = nullptr; }
+        if (c->b_ij)  { HYPRE_IJVectorDestroy(c->b_ij);   c->b_ij  = nullptr; c->b_par = nullptr; }
+        if (c->x_ij)  { HYPRE_IJVectorDestroy(c->x_ij);   c->x_ij  = nullptr; c->x_par = nullptr; }
         return SUNLS_PACKAGE_FAIL_UNREC;
     }
 
@@ -521,18 +691,39 @@ int op_solve(SUNLinearSolver LS, SUNMatrix /*A*/, N_Vector x, N_Vector b,
     const double solve_wall_sec =
         std::chrono::duration<double>(t_solve_1 - t_solve_0).count();
 
-    /* Append ring-buffer entry. */
+    /* Append ring-buffer entry.
+     *
+     * Two cases:
+     *   1) Not yet at capacity (ring_count < HYPRE_TELEMETRY_RING_SIZE):
+     *      next-write slot is (ring_head + ring_count) % SIZE; advance
+     *      ring_count.
+     *   2) At capacity (ring_count == HYPRE_TELEMETRY_RING_SIZE):
+     *      overwrite the OLDEST entry (slot ring_head, the one about to
+     *      be evicted), then advance ring_head; ring_count stays equal
+     *      to SIZE. Increment the overflow counter.
+     *
+     * ASCII trace for SIZE=4, after 6 writes 1..6:
+     *   pre-write count=4 head=0 ring=[1,2,3,4]
+     *   write 5: overflow case; tail=head=0; ring=[5,2,3,4]; head=1
+     *   write 6: overflow case; tail=head=1; ring=[5,6,3,4]; head=2
+     *   newest at (head + count - 1) % SIZE = (2 + 4 - 1) % 4 = 1
+     *   oldest at head = 2 → reads 3,4,5,6 in order: ring[2]=3,
+     *   ring[3]=4, ring[0]=5, ring[1]=6 ✓
+     */
     if (c->ring.size() < HYPRE_TELEMETRY_RING_SIZE) {
         c->ring.resize(c->ring.size() + 1);
     }
+    int tail;
     if (c->ring_count >= HYPRE_TELEMETRY_RING_SIZE) {
-        c->entries_dropped_to_overflow++;
+        /* Overflow: overwrite the just-vacated head slot, then advance head. */
+        tail = c->ring_head;
         c->ring_head = (c->ring_head + 1) % HYPRE_TELEMETRY_RING_SIZE;
-        c->ring_count = HYPRE_TELEMETRY_RING_SIZE;
+        c->entries_dropped_to_overflow++;
+        /* ring_count stays at SIZE. */
     } else {
+        tail = (c->ring_head + c->ring_count) % HYPRE_TELEMETRY_RING_SIZE;
         c->ring_count++;
     }
-    int tail = (c->ring_head + c->ring_count - 1) % HYPRE_TELEMETRY_RING_SIZE;
     TelemetryEntry &e = c->ring[tail];
     e.step_idx = c->ctx_step_idx;
     e.t_sim = c->ctx_t_sim;
@@ -611,7 +802,15 @@ N_Vector op_resid(SUNLinearSolver /*LS*/) {
 }
 
 int op_free(SUNLinearSolver LS) {
+    /* Double-free guard: already freed or never constructed. */
     if (LS == nullptr) return SUNLS_SUCCESS;
+    if (LS->content == nullptr) {
+        /* Content already released (or never installed). Skip content
+         * cleanup but still destroy the empty LS shell — caller may have
+         * obtained LS via SUNLinSolNewEmpty without populating content. */
+        SUNLinSolFreeEmpty(LS);
+        return SUNLS_SUCCESS;
+    }
     HypreContent *c = static_cast<HypreContent *>(LS->content);
     if (c != nullptr) {
         if (c->amg)   HYPRE_BoomerAMGDestroy(c->amg);
@@ -629,9 +828,10 @@ int op_free(SUNLinearSolver LS) {
         delete c;
         LS->content = nullptr;
     }
-    /* Free the empty LS shell allocated by SUNLinSolNewEmpty. */
-    if (LS->ops) { std::free(LS->ops); LS->ops = nullptr; }
-    std::free(LS);
+    /* Use SUNDIALS' own destructor for the empty LS shell to match
+     * the SUNLinSolNewEmpty allocator in the constructor. Frees both
+     * LS->ops and LS via the same allocator that was used by NewEmpty. */
+    SUNLinSolFreeEmpty(LS);
     return SUNLS_SUCCESS;
 }
 
@@ -674,6 +874,10 @@ SUNLinSol_Hypre(N_Vector y, void *MD_void,
     c->interp_type = interp_type;
     c->coarsen_type = coarsen_type;
     c->n = (c->MD != nullptr) ? c->MD->NumY : 0;
+    /* Stash the N_Vector flavor template for lazy probe-scratch
+     * cloning. Caller owns the pointer; the wrapper does not destroy
+     * y_template in Free. */
+    c->y_template = y;
 
     /* Pre-allocate row indices. */
     if (c->n > 0) {

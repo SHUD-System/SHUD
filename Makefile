@@ -409,6 +409,14 @@ SRC_H = $(SRC_DIR)/classes/*.hpp \
 HYPRE_INCDIR ?= /opt/homebrew/include
 HYPRE_LIBDIR ?= /opt/homebrew/lib
 
+# OPENBLAS_LIBDIR — openblas search path. On macOS brew openblas is
+# keg-only (installed under /opt/homebrew/opt/openblas/lib, NOT in the
+# default linker search path); on Ubuntu apt libopenblas-dev installs
+# under the multiarch /usr/lib/x86_64-linux-gnu/ which IS in the default
+# search path so the override is empty there. Default to the Mac brew
+# path; CI overrides to empty (Ubuntu uses default linker path).
+OPENBLAS_LIBDIR ?= /opt/homebrew/opt/openblas/lib
+
 INCLUDES = -I $(SUNDIALS_DIR)/include \
            -I $(INC_OMP) \
            -I $(SRC_DIR)/Model \
@@ -427,7 +435,9 @@ LIBRARIES = $(if $(LIB_OMP),-L$(LIB_OMP)) \
 RPATH = '-Wl,-rpath,$(LIB_SUN)'
 
 LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial \
-           -L$(HYPRE_LIBDIR) -lHYPRE -lmpi -Wl,-rpath,$(HYPRE_LIBDIR)
+           -L$(HYPRE_LIBDIR) -lHYPRE -lmpi \
+           $(if $(OPENBLAS_LIBDIR),-L$(OPENBLAS_LIBDIR)) -lopenblas \
+           -Wl,-rpath,$(HYPRE_LIBDIR)
 # S1d.2 (openMP #48) — LK_OMP now only carries the platform OpenMP
 # runtime flags (`-lgomp` on Linux, `-Xpreprocessor -fopenmp -lomp`
 # on macOS via brew libomp). The historical hardcoded
@@ -511,6 +521,7 @@ help:
 	@echo "  Ubuntu apt:  HYPRE_INCDIR=/usr/include/hypre    HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu"
 	@echo "  Server:      HYPRE_INCDIR=/scratch/frd_muziyao/local/hypre-3.1.0/include"
 	@echo "               HYPRE_LIBDIR=/scratch/frd_muziyao/local/hypre-3.1.0/lib"
+	@echo "  LK_FLAGS:    -lHYPRE -lmpi -lopenblas (openblas required by Hypre at link time)"
 	@echo "  ColPack:     NOT required for G0 (per PRE0_SPIKE_NOTES.md §1.7)"
 	@echo
 

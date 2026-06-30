@@ -7,6 +7,7 @@
 #include <errno.h>   /* errno (SHUD_SPGMR_MAXL strtol parse, p8tune-spgmr-maxl PR-C) */
 #include <stdlib.h>  /* getenv, exit, EXIT_FAILURE (p8tune-g0 PR-0 SHUD_LINSOL) */
 #include <string.h>  /* strcmp (p8tune-g0 PR-0 SHUD_LINSOL) */
+#include <dlfcn.h>   /* dlopen / dlclose (p8tune-g0 PR-0 Hypre runtime probe) */
 
 /* P8-tune.G0 PR-0 (openspec change p8tune-g0-instrumented-amg-smoke).
  * BoomerAMG wrapper at SHUD/src/Equations/sunlinsol_hypre.{h,cpp}. */
@@ -420,6 +421,51 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     fprintf(stdout, "[shud] linsol=%s source=%s\n",
             sel.sel_name, sel.source);
     fflush(stdout);
+
+    /* P8-tune.G0 PR-0 — Hypre runtime probe (defense in depth).
+     *
+     * We attempt dlopen with multiple candidate library names; if any
+     * succeeds (i.e., the dynamic loader can find Hypre via the binary
+     * DT_NEEDED entries OR via LD_LIBRARY_PATH OR via the RPATH baked
+     * at link time), we are confident the AMG path will work. Without
+     * RTLD_NOLOAD this also forces a fresh load attempt for libraries
+     * that may have been resolved lazily on macOS (where the loader's
+     * versioned-soname matching is less forgiving than glibc's).
+     *
+     * Candidate names cover the platform matrix:
+     *   - libHYPRE.so          (Linux unversioned)
+     *   - libHYPRE.dylib       (Mac unversioned)
+     *   - libHYPRE.so.<N>      (Linux soname; Hypre 3.x = libHYPRE.so.0)
+     *   - libHYPRE.301.dylib   (Mac versioned, Hypre 3.1.0 brew)
+     *
+     * If a candidate dlopen succeeds, we dlclose immediately — that
+     * just drops our extra reference, the loader keeps it pinned via
+     * the binary's own NEEDED entry. */
+    if (sel.sel == LINSOL_AMG) {
+        const char *candidates[] = {
+            "libHYPRE.so",
+            "libHYPRE.dylib",
+            "libHYPRE.so.0",
+            "libHYPRE.301.dylib",
+            NULL
+        };
+        void *hypre_handle = NULL;
+        for (int i = 0; candidates[i] != NULL; ++i) {
+            hypre_handle = dlopen(candidates[i], RTLD_LAZY);
+            if (hypre_handle != NULL) break;
+        }
+        if (hypre_handle == NULL) {
+            const char *hypre_libdir = getenv("HYPRE_LIBDIR");
+            fprintf(stderr,
+                    "[shud] FATAL: Hypre runtime dylib not loadable "
+                    "(tried libHYPRE.{so,dylib,so.0,301.dylib}; set "
+                    "LD_LIBRARY_PATH/DYLD_LIBRARY_PATH to %s or platform default)\n",
+                    hypre_libdir ? hypre_libdir : "<HYPRE_LIBDIR>");
+            fflush(stderr);
+            exit(EXIT_FAILURE);
+        }
+        dlclose(hypre_handle);
+    }
 
     /********* SUNDIALS 6.0+ ************/
     /* Allocate memory, and set problem data, initial values, tolerances */
