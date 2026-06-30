@@ -433,10 +433,21 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
      * versioned-soname matching is less forgiving than glibc's).
      *
      * Candidate names cover the platform matrix:
-     *   - libHYPRE.so          (Linux unversioned)
-     *   - libHYPRE.dylib       (Mac unversioned)
-     *   - libHYPRE.so.<N>      (Linux soname; Hypre 3.x = libHYPRE.so.0)
-     *   - libHYPRE.301.dylib   (Mac versioned, Hypre 3.1.0 brew)
+     *   - libHYPRE.so              (Linux unversioned)
+     *   - libHYPRE.dylib           (Mac unversioned)
+     *   - libHYPRE.so.<N>          (Linux soname; Hypre 3.x = libHYPRE.so.0)
+     *   - libHYPRE.301.dylib       (Mac versioned, Hypre 3.1.0 brew)
+     *   - libHYPRE-3.1.0.so        (Linux versioned-soname form,
+     *                               e.g. server build under
+     *                               /scratch/.../local/hypre-3.1.0/lib)
+     *   - libHYPRE.3.1.0.dylib     (Mac versioned-soname form for
+     *                               Hypre 3.1.0 brew install)
+     *
+     * The versioned-soname entries are required because some installs
+     * (e.g. CMake-built Hypre 3.1.0 on Linux server) emit a directly-
+     * loadable `libHYPRE-3.1.0.so` filename WITHOUT a `libHYPRE.so`
+     * symlink. Probing only the unversioned names misses such installs
+     * even though the binary itself links them via DT_NEEDED.
      *
      * If a candidate dlopen succeeds, we dlclose immediately — that
      * just drops our extra reference, the loader keeps it pinned via
@@ -447,6 +458,8 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
             "libHYPRE.dylib",
             "libHYPRE.so.0",
             "libHYPRE.301.dylib",
+            "libHYPRE-3.1.0.so",
+            "libHYPRE.3.1.0.dylib",
             NULL
         };
         void *hypre_handle = NULL;
@@ -458,7 +471,8 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
             const char *hypre_libdir = getenv("HYPRE_LIBDIR");
             fprintf(stderr,
                     "[shud] FATAL: Hypre runtime dylib not loadable "
-                    "(tried libHYPRE.{so,dylib,so.0,301.dylib}; set "
+                    "(tried libHYPRE.{so,dylib,so.0,301.dylib} + "
+                    "libHYPRE-3.1.0.so + libHYPRE.3.1.0.dylib; set "
                     "LD_LIBRARY_PATH/DYLD_LIBRARY_PATH to %s or platform default)\n",
                     hypre_libdir ? hypre_libdir : "<HYPRE_LIBDIR>");
             fflush(stderr);
