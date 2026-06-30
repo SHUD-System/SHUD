@@ -15,6 +15,18 @@
 #include "TimeSeriesData.hpp"
 #include "FloodAlert.hpp"
 #include "CommandIn.hpp"
+/* P8-tune.G0 PR-B (#411) + PR-0 Phase 7 finding #4 cleanup —
+ * SUNLinSol_Hypre_DrainTelemetry + SUNLinSolFree on shutdown. The
+ * wrapper is link-always (cvode_config.cpp dispatches via SHUD_LINSOL);
+ * the drain is a per-Solve telemetry ring drained to TSV at process
+ * shutdown when $SHUD_TELEMETRY_TSV is set. SUNLinSolFree releases the
+ * wrapper's HypreContent (Hypre handles + ring buffer) — addresses
+ * PR-0 #414 Phase 7 finding #4 process-exit cleanup leak. On
+ * SHUD_LINSOL=spgmr the drain is a no-op (wrapper not in use; the
+ * SPGMR LS is a stock SUNDIALS object and SUNLinSolFree releases that
+ * cleanly too — the wrapper's drain probes LS->ops->getid and returns
+ * 0 if the handle is not the custom AMG wrapper). */
+#include "sunlinsol_hypre.h"
 
 /* S0-8a / openMP #10 — wall-clock profile timer infrastructure. Header
  * lives in the outer `tools/profile/` directory, sibling to SHUD/. We
@@ -340,8 +352,47 @@ double SHUD(FileIn *fin, FileOut *fout){
         }
     }
 
+    /* P8-tune.G0 PR-B (#411): drain wrapper telemetry ring buffer to
+     * $SHUD_TELEMETRY_TSV before freeing the LS. Env-var unset / drain
+     * file fopen fail / SPGMR (non-AMG wrapper) — all benign no-ops:
+     *   - getenv NULL ⇒ skip drain entirely.
+     *   - fopen NULL  ⇒ emit one warn line, continue (do not abort).
+     *   - SPGMR LS    ⇒ DrainTelemetry probes getid() and returns 0.
+     * The wrapper drain writes TSV header + rows, then resets the ring
+     * buffer head/tail (idempotent across re-invocations). */
+    {
+        const char *telemetry_tsv = getenv("SHUD_TELEMETRY_TSV");
+        if (telemetry_tsv != NULL && telemetry_tsv[0] != '\0' && LS != NULL) {
+            FILE *tsv_fp = fopen(telemetry_tsv, "w");
+            if (tsv_fp != NULL) {
+                int written = SUNLinSol_Hypre_DrainTelemetry(LS, tsv_fp);
+                fclose(tsv_fp);
+                fprintf(stdout,
+                        "[shud-G0] SUNLinSol_Hypre_DrainTelemetry: "
+                        "wrote %d telemetry rows to %s\n",
+                        written, telemetry_tsv);
+                fflush(stdout);
+            } else {
+                fprintf(stderr,
+                        "[shud-G0] WARN: SHUD_TELEMETRY_TSV fopen failed "
+                        "at '%s'; telemetry not drained (run continues).\n",
+                        telemetry_tsv);
+            }
+        }
+    }
+
     /* Free integrator memory */
     CVodeFree(&mem);
+
+    /* P8-tune.G0 PR-B (#411) + PR-0 #414 Phase 7 finding #4 — release
+     * the SUNLinearSolver (wrapper releases its HypreContent which holds
+     * the Hypre AMG handle + IJ matrix/vector handles + ring buffer;
+     * stock SPGMR LS releases its workspace too). Guarded against the
+     * pre-G0 NULL-default LS case (the wrapper or SPGMR ctor populates
+     * LS via SetCVODE; if SetCVODE bailed early LS remains NULL). */
+    if (LS != NULL) {
+        SUNLinSolFree(LS);
+    }
 
 #ifdef SHUD_ENABLE_PROFILE
     /* S0-8a / openMP #10 — dump profile bucket skeleton. #10 ships
@@ -565,12 +616,47 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
         }
     }
 
+    /* P8-tune.G0 PR-B (#411): drain wrapper telemetry from LS1 (the
+     * surface solver — same representative-mem1 rationale as the
+     * cvode_stats.txt emission above). The other LS{2..5} are released
+     * below but their telemetry is not drained (uncouple path is not a
+     * G0 target; G0 covers the implicit / coupled path). */
+    {
+        const char *telemetry_tsv = getenv("SHUD_TELEMETRY_TSV");
+        if (telemetry_tsv != NULL && telemetry_tsv[0] != '\0' && LS1 != NULL) {
+            FILE *tsv_fp = fopen(telemetry_tsv, "w");
+            if (tsv_fp != NULL) {
+                int written = SUNLinSol_Hypre_DrainTelemetry(LS1, tsv_fp);
+                fclose(tsv_fp);
+                fprintf(stdout,
+                        "[shud-G0] SUNLinSol_Hypre_DrainTelemetry "
+                        "(uncouple LS1): wrote %d telemetry rows to %s\n",
+                        written, telemetry_tsv);
+                fflush(stdout);
+            } else {
+                fprintf(stderr,
+                        "[shud-G0] WARN: SHUD_TELEMETRY_TSV fopen failed "
+                        "at '%s'; telemetry not drained (run continues).\n",
+                        telemetry_tsv);
+            }
+        }
+    }
+
     /* Free integrator memory */
     CVodeFree(&mem1);
     CVodeFree(&mem2);
     CVodeFree(&mem3);
     CVodeFree(&mem4);
     CVodeFree(&mem5);
+
+    /* P8-tune.G0 PR-B (#411) + PR-0 #414 Phase 7 finding #4 — release
+     * all 5 SUNLinearSolvers (each holds either an AMG wrapper context
+     * or stock SPGMR workspace). */
+    if (LS1 != NULL) SUNLinSolFree(LS1);
+    if (LS2 != NULL) SUNLinSolFree(LS2);
+    if (LS3 != NULL) SUNLinSolFree(LS3);
+    if (LS4 != NULL) SUNLinSolFree(LS4);
+    if (LS5 != NULL) SUNLinSolFree(LS5);
 
 #ifdef SHUD_ENABLE_PROFILE
     /* S0-8a / openMP #10 — profile bucket dump (uncouple path). */
