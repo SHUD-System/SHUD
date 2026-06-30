@@ -615,7 +615,12 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
     HYPRE_BoomerAMGSetMaxIter(c->amg, 100);
     HYPRE_BoomerAMGSetTol(c->amg, 1e-8);
     HYPRE_BoomerAMGSetPrintLevel(c->amg, 0);
+#if HYPRE_RELEASE_NUMBER >= 22300
+    /* HYPRE_BoomerAMGSetCumNnzAP was added in Hypre 2.23 (Nov 2021).
+     * Ubuntu 22.04 ships libhypre-dev 2.22.1 which predates it; on those
+     * platforms the GetCumNnzAP call below also degrades to UNAVAILABLE. */
     HYPRE_BoomerAMGSetCumNnzAP(c->amg, 1.0);  /* enable nnz tracking */
+#endif
 
     HYPRE_Int setup_rc =
         HYPRE_BoomerAMGSetup(c->amg, c->A_par, c->b_par, c->x_par);
@@ -689,7 +694,14 @@ int op_solve(SUNLinearSolver LS, SUNMatrix /*A*/, N_Vector x, N_Vector b,
     HYPRE_Int hypre_iters = 0;
     HYPRE_Real cum_nnz_AP = 0.0;
     HYPRE_BoomerAMGGetNumIterations(c->amg, &hypre_iters);
+#if HYPRE_RELEASE_NUMBER >= 22300
     HYPRE_BoomerAMGGetCumNnzAP(c->amg, &cum_nnz_AP);
+#else
+    /* Hypre < 2.23 (e.g., Ubuntu 22.04 libhypre-dev 2.22.1) lacks
+     * GetCumNnzAP. PR-B aggregator must treat cum_nnz_AP == -1.0 as
+     * "unsupported on this Hypre release" and skip cycle_complexity. */
+    cum_nnz_AP = -1.0;
+#endif
 
     const auto t_solve_1 = std::chrono::steady_clock::now();
     const double solve_wall_sec =
