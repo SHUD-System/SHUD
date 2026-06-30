@@ -43,15 +43,20 @@
  *
  * - Telemetry. Hypre 3.1.0 public API does NOT expose
  *   `HYPRE_BoomerAMGGetCycleNumIterations` / `..GetCycleOpCount`
- *   (verified via grep against `/opt/homebrew/include/HYPRE_parcsr_ls.h`
- *   on 2026-06-29 — only `GetNumIterations` and `GetCumNnzAP` are
- *   public). The wrapper uses `HYPRE_BoomerAMGGetNumIterations` for
- *   the per-Solve iteration count and `HYPRE_BoomerAMGGetCumNnzAP`
- *   as the operator-complexity proxy. The
- *   `MARKER:AMG_TELEMETRY_REAL` line records BOTH the Hypre release
- *   number AND the chosen API names so PR-B aggregator can
- *   disambiguate. Future Hypre releases that expose CycleNumIterations
- *   can be picked up via the `HYPRE_RELEASE_NUMBER` gate.
+ *   nor `HYPRE_BoomerAMGGetOperatorComplexity` (verified via grep
+ *   against `/opt/homebrew/include/HYPRE_parcsr_ls.h` on 2026-06-29
+ *   — only `GetNumIterations` and `GetCumNnzAP` are public). The
+ *   wrapper uses `HYPRE_BoomerAMGGetNumIterations` for the per-Solve
+ *   iteration count, `HYPRE_BoomerAMGGetCumNnzAP` as the
+ *   cycle-complexity proxy (cumulative nonzeros across Setups), and
+ *   private-header macros `hypre_ParAMGDataNumLevels` +
+ *   `hypre_ParAMGDataAArray` + `hypre_ParCSRMatrixNumNonzeros` to
+ *   compute the STATIC operator_complexity per Setup (PR-B #416
+ *   Phase 6 P0-2). The `MARKER:AMG_TELEMETRY_REAL` line records
+ *   the Hypre release number so PR-B aggregator can disambiguate.
+ *   Future Hypre releases that expose a public OperatorComplexity
+ *   API can replace the private-macro path via the
+ *   `HYPRE_RELEASE_NUMBER` gate.
  */
 
 #include "sunlinsol_hypre.h"
@@ -79,6 +84,41 @@
 #include "HYPRE_IJ_mv.h"
 #include "HYPRE_parcsr_ls.h"
 #include "_hypre_utilities.h"  /* HYPRE_RELEASE_NUMBER */
+/* PR-B #416 Phase 6 P0-2: include Hypre private headers for
+ * operator_complexity derivation. Hypre 3.1.0 PUBLIC API exposes neither
+ * HYPRE_BoomerAMGGetOperatorComplexity nor a per-level NNZ accessor; the
+ * private hypre_ParAMGData macros + hypre_ParCSRMatrixNumNonzeros macro
+ * are the only honest path to the value. ABI-stability caveat: these
+ * macros are part of `_hypre_*` headers and may shift across Hypre
+ * versions. The HYPRE_RELEASE_NUMBER gate below pins access to releases
+ * that ship the same struct layout (>=2.23 matches the CumNnzAP gate).
+ *
+ * Macro-collision guard: SHUD's Model/Macros.hpp (included transitively
+ * via Model_Data.hpp above) defines short-name physical-constant macros
+ * `Cp`, `Lm`, `Train`, `To`, `Tsnow`, `Nforc`, `SecADay`, etc. Hypre's
+ * private header uses some of those names as function parameters
+ * (e.g., hypre_ParILUExtractEBFC has `Bp`, `Cp`, `Up`, ...). We push
+ * the colliding macros undef before Hypre includes, then restore them
+ * afterwards so SHUD core code retains its physical-constant values. */
+#if HYPRE_RELEASE_NUMBER >= 22300
+#pragma push_macro("Cp")
+#pragma push_macro("Lm")
+#pragma push_macro("To")
+#pragma push_macro("Train")
+#pragma push_macro("Tsnow")
+#undef Cp
+#undef Lm
+#undef To
+#undef Train
+#undef Tsnow
+#include "_hypre_parcsr_ls.h"  /* hypre_ParAMGData accessor macros */
+#include "_hypre_parcsr_mv.h"  /* hypre_ParCSRMatrixNumNonzeros macro */
+#pragma pop_macro("Tsnow")
+#pragma pop_macro("Train")
+#pragma pop_macro("To")
+#pragma pop_macro("Lm")
+#pragma pop_macro("Cp")
+#endif
 
 /* Disable OpenMPI C++ bindings — Ubuntu/server OpenMPI ships a broken
  * functions_inln.h that fails to compile with modern g++ (see
@@ -105,6 +145,14 @@ struct TelemetryEntry {
     double solve_wall_sec = 0.0;
     long cvode_nli_step = 0;
     long cvode_nfeLS_step = 0;
+    /* PR-B #416 Phase 6 P0-2: per-Setup operator_complexity. Derived in
+     * lazy_build_hierarchy_from_solve from hypre_ParAMGDataAArray +
+     * hypre_ParCSRMatrixNumNonzeros (Hypre 3.1.0 public API ABSENT).
+     * Carried on every Solve row that follows a Setup rebuild; the value
+     * is a STATIC per-Setup attribute (not per-Solve), so all rows
+     * between Setups share the same value. -1.0 sentinel = unavailable
+     * (Hypre release predates 2.23 or num_levels==0). */
+    double operator_complexity = -1.0;
 };
 
 struct HypreContent {
@@ -174,6 +222,12 @@ struct HypreContent {
      * next Solve telemetry row. */
     double pending_setup_wall_sec = 0.0;
     int pending_setup_called = 0;
+
+    /* PR-B #416 Phase 6 P0-2: latest measured operator_complexity. Set
+     * by lazy_build_hierarchy_from_solve at every Setup rebuild;
+     * carried forward into subsequent Solve telemetry rows until the
+     * next Setup. -1.0 sentinel = unavailable. */
+    double latest_operator_complexity = -1.0;
 
     /* For Solve return-code routing through LastFlag. */
     sunindextype last_flag = SUNLS_SUCCESS;
@@ -629,6 +683,50 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
     c->pending_setup_wall_sec += std::chrono::duration<double>(t1 - t0).count();
     c->pending_setup_called = 1;
 
+    /* PR-B #416 Phase 6 P0-2: derive operator_complexity from Hypre
+     * internals. Hypre 3.1.0 PUBLIC API exposes neither
+     * HYPRE_BoomerAMGGetOperatorComplexity nor a per-level NNZ accessor.
+     * Private macros (gated behind HYPRE_RELEASE_NUMBER >= 22300 to
+     * match the same ABI guarantee as CumNnzAP) give us:
+     *   - hypre_ParAMGData* via cast from HYPRE_Solver (c->amg is the
+     *     opaque handle; in Hypre internals it's a hypre_ParAMGData*).
+     *   - num_levels via hypre_ParAMGDataNumLevels.
+     *   - per-level A matrix array via hypre_ParAMGDataAArray.
+     *   - per-matrix NNZ via hypre_ParCSRMatrixNumNonzeros.
+     *
+     * Formula: OC = sum_k(NNZ(A_array[k])) / NNZ(A_array[0]).
+     *
+     * Failure modes (set sentinel -1.0):
+     *   - HYPRE_RELEASE_NUMBER < 22300 (Ubuntu 22.04 libhypre-dev 2.22.x).
+     *   - setup_rc != 0 (Setup diverged; A_array invalid).
+     *   - num_levels == 0 (Setup ran but produced empty hierarchy).
+     *   - nnz_fine == 0 (would divide by zero).
+     */
+    c->latest_operator_complexity = -1.0;
+#if HYPRE_RELEASE_NUMBER >= 22300
+    if (setup_rc == 0) {
+        hypre_ParAMGData *amg_data = (hypre_ParAMGData *)c->amg;
+        if (amg_data != nullptr) {
+            const HYPRE_Int num_levels = hypre_ParAMGDataNumLevels(amg_data);
+            hypre_ParCSRMatrix **A_array = hypre_ParAMGDataAArray(amg_data);
+            if (num_levels > 0 && A_array != nullptr && A_array[0] != nullptr) {
+                const HYPRE_BigInt nnz_fine =
+                    hypre_ParCSRMatrixNumNonzeros(A_array[0]);
+                if (nnz_fine > 0) {
+                    HYPRE_BigInt nnz_sum = 0;
+                    for (HYPRE_Int k = 0; k < num_levels; ++k) {
+                        if (A_array[k] != nullptr) {
+                            nnz_sum += hypre_ParCSRMatrixNumNonzeros(A_array[k]);
+                        }
+                    }
+                    c->latest_operator_complexity =
+                        (double)nnz_sum / (double)nnz_fine;
+                }
+            }
+        }
+    }
+#endif
+
     if (setup_rc != 0) {
         std::fprintf(stderr,
             "[shud-amg] AMG_SETUP_DIVERGE: HYPRE_BoomerAMGSetup rc=%d\n",
@@ -750,6 +848,11 @@ int op_solve(SUNLinearSolver LS, SUNMatrix /*A*/, N_Vector x, N_Vector b,
     e.solve_wall_sec = solve_wall_sec;
     e.cvode_nli_step = c->ctx_nli_step;
     e.cvode_nfeLS_step = c->ctx_nfeLS_step;
+    /* PR-B #416 Phase 6 P0-2: stamp per-Setup operator_complexity onto
+     * every Solve row. Value is set at the most-recent Setup rebuild
+     * (lazy_build_hierarchy_from_solve) and carried forward; the
+     * sentinel -1.0 means unavailable (Hypre <2.23 or build failed). */
+    e.operator_complexity = c->latest_operator_complexity;
 
     c->pending_setup_wall_sec = 0.0;
     c->pending_setup_called = 0;
@@ -969,20 +1072,36 @@ SUNLinSol_Hypre_DrainTelemetry(SUNLinearSolver LS, FILE *out) {
     }
     HypreContent *c = content_of(LS);
 
+    /* PR-B #416 Phase 6 P0-2: TSV column expansion — added
+     * operator_complexity as column 6 (between hypre_op_count and
+     * setup_wall_sec). Sentinel -1.0 emitted as "NA" so the aggregator's
+     * floating-point parse doesn't trip on a string vs number ambiguity.
+     * Aggregator parse_telemetry_tsv shifts: setup_wall is now col 7,
+     * solve_wall is col 8. */
     std::fprintf(out,
         "step_idx\tt_sim\tsetup_called\thypre_iters\thypre_op_count"
+        "\toperator_complexity"
         "\tsetup_wall_sec\tsolve_wall_sec\tcvode_nli_step\tcvode_nfeLS_step\n");
 
     int written = 0;
     for (int i = 0; i < c->ring_count; ++i) {
         int idx = (c->ring_head + i) % HYPRE_TELEMETRY_RING_SIZE;
         const TelemetryEntry &e = c->ring[idx];
-        std::fprintf(out,
-            "%ld\t%.6f\t%d\t%d\t%.0f\t%.6e\t%.6e\t%ld\t%ld\n",
-            e.step_idx, (double)e.t_sim, e.setup_called,
-            e.hypre_iters, e.hypre_op_count,
-            e.setup_wall_sec, e.solve_wall_sec,
-            e.cvode_nli_step, e.cvode_nfeLS_step);
+        if (e.operator_complexity < 0.0) {
+            std::fprintf(out,
+                "%ld\t%.6f\t%d\t%d\t%.0f\tNA\t%.6e\t%.6e\t%ld\t%ld\n",
+                e.step_idx, (double)e.t_sim, e.setup_called,
+                e.hypre_iters, e.hypre_op_count,
+                e.setup_wall_sec, e.solve_wall_sec,
+                e.cvode_nli_step, e.cvode_nfeLS_step);
+        } else {
+            std::fprintf(out,
+                "%ld\t%.6f\t%d\t%d\t%.0f\t%.6f\t%.6e\t%.6e\t%ld\t%ld\n",
+                e.step_idx, (double)e.t_sim, e.setup_called,
+                e.hypre_iters, e.hypre_op_count, e.operator_complexity,
+                e.setup_wall_sec, e.solve_wall_sec,
+                e.cvode_nli_step, e.cvode_nfeLS_step);
+        }
         written++;
     }
     if (c->entries_dropped_to_overflow > 0) {

@@ -359,7 +359,15 @@ double SHUD(FileIn *fin, FileOut *fout){
      *   - fopen NULL  ⇒ emit one warn line, continue (do not abort).
      *   - SPGMR LS    ⇒ DrainTelemetry probes getid() and returns 0.
      * The wrapper drain writes TSV header + rows, then resets the ring
-     * buffer head/tail (idempotent across re-invocations). */
+     * buffer head/tail (idempotent across re-invocations).
+     *
+     * PR-B #416 Phase 6 P1-6: drain BEFORE CVodeFree. CVODE 6.0
+     * cvLsFree (CVodeFree teardown path) may touch LS->content during
+     * integrator-side cleanup; draining first guarantees the wrapper's
+     * HypreContent ring buffer is intact when DrainTelemetry walks it.
+     * The reverse order (drain after CVodeFree) would also work for
+     * SPGMR (no LS->content state to lose) but is unsafe for the AMG
+     * wrapper whose HypreContent owns the telemetry buffer. */
     {
         const char *telemetry_tsv = getenv("SHUD_TELEMETRY_TSV");
         if (telemetry_tsv != NULL && telemetry_tsv[0] != '\0' && LS != NULL) {
