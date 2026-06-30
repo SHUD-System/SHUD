@@ -409,6 +409,14 @@ SRC_H = $(SRC_DIR)/classes/*.hpp \
 HYPRE_INCDIR ?= /opt/homebrew/include
 HYPRE_LIBDIR ?= /opt/homebrew/lib
 
+# MPI_INCDIR — mpi.h search path. Hypre's HYPRE_utilities.h unconditionally
+# #include "mpi.h" so we need to expose the MPI headers at compile time even
+# when SHUD itself does not invoke any MPI API.
+#   macOS brew  : Hypre is built --without-MPI, so this is unused (but harmless)
+#   Ubuntu apt  : libopenmpi-dev ships at /usr/lib/x86_64-linux-gnu/openmpi/include
+#   Server      : /usr/lib/x86_64-linux-gnu/openmpi/include (cn-node OpenMPI 4.x)
+MPI_INCDIR ?= /usr/lib/x86_64-linux-gnu/openmpi/include
+
 # OPENBLAS_LIBDIR — openblas search path. On macOS brew openblas is
 # keg-only (installed under /opt/homebrew/opt/openblas/lib, NOT in the
 # default linker search path); on Ubuntu apt libopenblas-dev installs
@@ -423,7 +431,8 @@ INCLUDES = -I $(SUNDIALS_DIR)/include \
            -I $(SRC_DIR)/ModelData \
            -I $(SRC_DIR)/classes \
            -I $(SRC_DIR)/Equations \
-           -I $(HYPRE_INCDIR)
+           -I $(HYPRE_INCDIR) \
+           $(if $(wildcard $(MPI_INCDIR)/mpi.h),-I $(MPI_INCDIR))
 
 # Use $(if …) so an empty $(LIB_OMP) / $(LIB_SYS) does NOT emit a bare `-L`
 # token (which gobbles the next argument and breaks the link line on Linux,
