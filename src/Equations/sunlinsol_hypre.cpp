@@ -69,12 +69,16 @@
 #include <omp.h>
 #endif
 
-extern "C" {
+/* DO NOT wrap Hypre headers in `extern "C" { ... }` here. Hypre's public
+ * headers already provide their own `#ifdef __cplusplus extern "C"`
+ * guards, and on Ubuntu apt-installed libhypre-dev the transitive include
+ * chain from `_hypre_utilities.h` pulls C++ stdlib headers (libstdc++
+ * <bits/stl_tree.h>, <ext/aligned_buffer.h>) that hard-fail with
+ * "template with C linkage" if forced inside an `extern "C"` block. */
 #include "HYPRE.h"
 #include "HYPRE_IJ_mv.h"
 #include "HYPRE_parcsr_ls.h"
 #include "_hypre_utilities.h"  /* HYPRE_RELEASE_NUMBER */
-}
 
 /* Disable OpenMPI C++ bindings — Ubuntu/server OpenMPI ships a broken
  * functions_inln.h that fails to compile with modern g++ (see
