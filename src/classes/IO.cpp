@@ -94,6 +94,19 @@ void FileIn:: setInFilePath(char * indir, char *  pjrname){
 FileOut::FileOut(){
     setsuffix("");
 }
+FileOut::~FileOut(){
+    /* #401 sub-task 1 — leak chain closure for the time-log FILE*.
+     * Opened by updateFilePath() L187 (`fopen(File_Time, "w")`); pre-
+     * 2026-06-30 there was no matching close at process exit. fid_time
+     * is FILE* (not new[]'d), so fclose is the correct release call;
+     * the NSDMI nullptr default in IO.hpp guards instances where
+     * updateFilePath() was never called (FileOut allocated then
+     * discarded — e.g. exception paths in malloc_EleRiv()). */
+    if (fid_time) {
+        fclose(fid_time);
+        fid_time = nullptr;
+    }
+}
 void FileOut::setsuffix(const char *s){
     strcpy(suffix, s);
 }

@@ -75,7 +75,13 @@ void PrintOutDt::calibmode(int dt ){
 Control_Data::Control_Data(){
 }
 Control_Data::~Control_Data(){
-//    delete Tout;
+    /* #401 sub-task 1 — leak chain closure paired with NSDMI nullptr
+     * default in Model_Control.hpp. Pre-2026-06-30 this was a commented-
+     * out scalar `delete` because `Tout` had no defined default and
+     * deleting an uninitialized pointer is UB. With the NSDMI default,
+     * `delete[] nullptr` is a defined no-op (and any future writer that
+     * uses `new double[N]` will be freed correctly). */
+    delete[] Tout;
 }
 void Control_Data::ExportResults(double t){
     /* P2a fix (2026-06-26): inner Timer removed; outer Timers in

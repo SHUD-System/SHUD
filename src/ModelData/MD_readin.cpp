@@ -673,17 +673,33 @@ void Model_Data::FreeData(){
     /* free mesh, read_mesh */
     delete[] Ele;
     delete[] Node;
-    
+
     /* free soil, read_soil */
     delete[] Soil;
     /* free geol, read_geol */
     delete[] Geol;
     /* free lc, read_lc */
     delete[] LandC;
-    
+
     /* free forcing data */
     delete[] tsd_weather;
-    
+
+    /* #401 sub-task 1 — pre-existing leak chain closure. These five
+     * pointer members have NSDMI nullptr defaults in Model_Data.hpp
+     * and are dynamically allocated by Model_Data::malloc_EleRiv()
+     * (AccT_surf/AccT_sub/t_sph) and MD_Lake.cpp::initializeLake()
+     * (lake/y2LakeArea) but were absent from FreeData() before
+     * 2026-06-30. `delete[] nullptr` is a defined no-op, so the
+     * unconditional form is safe even when allocation never ran (e.g.
+     * NumLake==0 path). lake[] dtor chain (`_Lake::~_Lake()` +
+     * `LakeBathymetry::~LakeBathymetry()`) added in SHUD 1ab61c0 now
+     * becomes reachable from this delete[]. */
+    delete[] AccT_surf;
+    delete[] AccT_sub;
+    delete[] lake;
+    delete[] y2LakeArea;
+    delete[] t_sph;
+
     /* MD::initialize() */
     delete flood;
 }

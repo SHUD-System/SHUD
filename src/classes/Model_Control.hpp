@@ -127,7 +127,12 @@ public:
     double StartTime = 0.;      /* Start time of simulation [min]*/
     double EndTime = 14400;     /* End time of simulation [min]*/
     double dt = 1;
-    double *Tout;
+    /* #401 sub-task 1 — NSDMI nullptr default so the dtor's `delete[]`
+     * is a defined no-op when this field is never allocated. As of
+     * 2026-06-30 `Tout` is a dead field (no assignment anywhere in
+     * src/), but the NSDMI + delete[] pair is kept defensive for any
+     * future writer. */
+    double *Tout = nullptr;
     int NumPrint = 0;;
     int exfiltration = 0;
     Print_Ctrl PCtrl[100];
