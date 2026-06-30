@@ -453,13 +453,19 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
      * just drops our extra reference, the loader keeps it pinned via
      * the binary's own NEEDED entry. */
     if (sel.sel == LINSOL_AMG) {
+        /* Candidate order: most-common-success first, to minimize the
+         * number of negative dlopen probes on the hot path. The server
+         * canonical install emits libHYPRE-3.1.0.so (CMake-built from
+         * source under /scratch/.../local/hypre-3.1.0/lib), and the Mac
+         * brew install emits libHYPRE.301.dylib. Unversioned and
+         * SONAME-0 fallbacks follow for atypical installs. */
         const char *candidates[] = {
-            "libHYPRE.so",
-            "libHYPRE.dylib",
-            "libHYPRE.so.0",
-            "libHYPRE.301.dylib",
-            "libHYPRE-3.1.0.so",
-            "libHYPRE.3.1.0.dylib",
+            "libHYPRE-3.1.0.so",       /* Linux Hypre 3.1.0 from-source (server canonical) */
+            "libHYPRE.301.dylib",      /* Mac brew Hypre 3.1.0 (Mac canonical) */
+            "libHYPRE.so",             /* Linux unversioned */
+            "libHYPRE.dylib",          /* Mac unversioned */
+            "libHYPRE.so.0",           /* Linux SONAME-0 (Hypre 2.x) */
+            "libHYPRE.3.1.0.dylib",    /* Mac alternate versioned-soname */
             NULL
         };
         void *hypre_handle = NULL;
@@ -470,11 +476,15 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
         if (hypre_handle == NULL) {
             const char *hypre_libdir = getenv("HYPRE_LIBDIR");
             fprintf(stderr,
-                    "[shud] FATAL: Hypre runtime dylib not loadable "
-                    "(tried libHYPRE.{so,dylib,so.0,301.dylib} + "
-                    "libHYPRE-3.1.0.so + libHYPRE.3.1.0.dylib; set "
-                    "LD_LIBRARY_PATH/DYLD_LIBRARY_PATH to %s or platform default)\n",
-                    hypre_libdir ? hypre_libdir : "<HYPRE_LIBDIR>");
+                    "[shud] FATAL: Hypre runtime dylib not loadable; "
+                    "tried { libHYPRE-3.1.0.so, libHYPRE.301.dylib, "
+                    "libHYPRE.so, libHYPRE.dylib, libHYPRE.so.0, "
+                    "libHYPRE.3.1.0.dylib }. "
+                    "Set LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH "
+                    "(macOS) to HYPRE_LIBDIR=%s or platform default "
+                    "(Linux: /usr/lib, /usr/local/lib; "
+                    "macOS: $(brew --prefix hypre)/lib).\n",
+                    hypre_libdir ? hypre_libdir : "<unset>");
             fflush(stderr);
             exit(EXIT_FAILURE);
         }
