@@ -443,8 +443,15 @@ LIBRARIES = $(if $(LIB_OMP),-L$(LIB_OMP)) \
 
 RPATH = '-Wl,-rpath,$(LIB_SUN)'
 
+# MPI_CXX_LIB — Ubuntu apt libhypre-dev is built with OpenMPI C++ bindings
+# enabled, so libHYPRE.so has DT_NEEDED on libmpi_cxx.so.40. On Linux the
+# linker requires it on the command line ("DSO missing from command line"
+# error). Mac brew openmpi disabled C++ bindings (libmpi_cxx not shipped).
+# Auto-detect via wildcard.
+MPI_CXX_LIB ?= $(if $(wildcard /usr/lib/x86_64-linux-gnu/libmpi_cxx.so*),-lmpi_cxx)
+
 LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial \
-           -L$(HYPRE_LIBDIR) -lHYPRE -lmpi \
+           -L$(HYPRE_LIBDIR) -lHYPRE -lmpi $(MPI_CXX_LIB) \
            $(if $(OPENBLAS_LIBDIR),-L$(OPENBLAS_LIBDIR)) -lopenblas \
            -Wl,-rpath,$(HYPRE_LIBDIR)
 # S1d.2 (openMP #48) — LK_OMP now only carries the platform OpenMP
