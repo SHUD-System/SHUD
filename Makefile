@@ -387,12 +387,35 @@ SRC_H = $(SRC_DIR)/classes/*.hpp \
         $(SRC_DIR)/Model/*.hpp \
         $(SRC_DIR)/Equations/*.hpp
 
+# -----------------------------------------------------------------
+# P8-tune.G0 PR-0 — Hypre / BoomerAMG link chain (additive)
+# -----------------------------------------------------------------
+# G0 wires the SUNLinSol_Hypre wrapper at
+# $(SRC_DIR)/Equations/sunlinsol_hypre.{h,cpp}. The wrapper is
+# linked into every `make shud` / `make shud_omp` binary
+# (link-always, runtime-opt-in via SHUD_LINSOL=amg env var; see
+# cvode_config.cpp factory dispatch). Default builds (SHUD_LINSOL
+# unset or "spgmr") make zero Hypre calls and produce bit-identical
+# SPGMR output vs the pre-G0 baseline.
+#
+# Install matrix (env-overridable defaults):
+#   macOS brew  : HYPRE_INCDIR=/opt/homebrew/include          HYPRE_LIBDIR=/opt/homebrew/lib
+#   Ubuntu apt  : HYPRE_INCDIR=/usr/include/hypre              HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu
+#   Server      : HYPRE_INCDIR=/scratch/frd_muziyao/local/hypre-3.1.0/include
+#                 HYPRE_LIBDIR=/scratch/frd_muziyao/local/hypre-3.1.0/lib
+#
+# Set per platform via `make HYPRE_INCDIR=... HYPRE_LIBDIR=... shud`
+# or by exporting the vars in the shell before invoking make.
+HYPRE_INCDIR ?= /opt/homebrew/include
+HYPRE_LIBDIR ?= /opt/homebrew/lib
+
 INCLUDES = -I $(SUNDIALS_DIR)/include \
            -I $(INC_OMP) \
            -I $(SRC_DIR)/Model \
            -I $(SRC_DIR)/ModelData \
            -I $(SRC_DIR)/classes \
-           -I $(SRC_DIR)/Equations
+           -I $(SRC_DIR)/Equations \
+           -I $(HYPRE_INCDIR)
 
 # Use $(if …) so an empty $(LIB_OMP) / $(LIB_SYS) does NOT emit a bare `-L`
 # token (which gobbles the next argument and breaks the link line on Linux,
@@ -403,7 +426,8 @@ LIBRARIES = $(if $(LIB_OMP),-L$(LIB_OMP)) \
 
 RPATH = '-Wl,-rpath,$(LIB_SUN)'
 
-LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial
+LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial \
+           -L$(HYPRE_LIBDIR) -lHYPRE -lmpi -Wl,-rpath,$(HYPRE_LIBDIR)
 # S1d.2 (openMP #48) — LK_OMP now only carries the platform OpenMP
 # runtime flags (`-lgomp` on Linux, `-Xpreprocessor -fopenmp -lomp`
 # on macOS via brew libomp). The historical hardcoded
@@ -481,6 +505,13 @@ help:
 	@echo "       make smoke_configd                  - build + run Config D OpenMP NVector runtime probe (openMP #49)"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
 	@echo "       make clean        - remove binary outputs (preserves InstallSundials)"
+	@echo
+	@echo "P8-tune.G0 Hypre/BoomerAMG link chain (additive, runtime-opt-in via SHUD_LINSOL=amg):"
+	@echo "  macOS brew:  HYPRE_INCDIR=/opt/homebrew/include HYPRE_LIBDIR=/opt/homebrew/lib (defaults)"
+	@echo "  Ubuntu apt:  HYPRE_INCDIR=/usr/include/hypre    HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu"
+	@echo "  Server:      HYPRE_INCDIR=/scratch/frd_muziyao/local/hypre-3.1.0/include"
+	@echo "               HYPRE_LIBDIR=/scratch/frd_muziyao/local/hypre-3.1.0/lib"
+	@echo "  ColPack:     NOT required for G0 (per PRE0_SPIKE_NOTES.md §1.7)"
 	@echo
 
 cvode CVODE:

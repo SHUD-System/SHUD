@@ -5,6 +5,91 @@
 #include "../Model/MD_diagnostics.hpp"
 
 #include <errno.h>   /* errno (SHUD_SPGMR_MAXL strtol parse, p8tune-spgmr-maxl PR-C) */
+#include <stdlib.h>  /* getenv, exit, EXIT_FAILURE (p8tune-g0 PR-0 SHUD_LINSOL) */
+#include <string.h>  /* strcmp (p8tune-g0 PR-0 SHUD_LINSOL) */
+
+/* P8-tune.G0 PR-0 (openspec change p8tune-g0-instrumented-amg-smoke).
+ * BoomerAMG wrapper at SHUD/src/Equations/sunlinsol_hypre.{h,cpp}. */
+#include "sunlinsol_hypre.h"
+
+/* P8-tune.G0 PR-0 — runtime linear-solver selector enum + factory
+ * dispatch. `SHUD_LINSOL` env var picks the inner solver passed to
+ * CVODE; default-compat (`unset` OR `=spgmr`) replicates the pre-G0
+ * SUNLinSol_SPGMR(udata, PREC_NONE, get_spgmr_maxl_from_env(), sunctx)
+ * call site EXACTLY (G0-1 bit-identical anchor). `=amg` opt-in
+ * dispatches the SUNLinSol_Hypre wrapper instead. Any other value
+ * fatal-exits BEFORE `CVodeCreate`, so no CVODE state is allocated
+ * on the error path (auditable: no leak). See design.md §D3. */
+typedef enum {
+    LINSOL_SPGMR = 0,
+    LINSOL_AMG = 1,
+    LINSOL_UNKNOWN = -1
+} linsol_t;
+
+/* `source` reports whether the selection came from the env var
+ * ("env") or fell through to the default ("default"). Used to tag
+ * the `[shud] linsol=...` stdout marker for log post-mortem
+ * traceability (matches existing `[CVODE] SPGMR maxl=...` pattern). */
+struct linsol_selection {
+    linsol_t sel;
+    const char *sel_name;
+    const char *source;
+};
+
+static linsol_selection parse_linsol_env(void)
+{
+    const char *env = getenv("SHUD_LINSOL");
+
+    /* Unset / empty / whitespace-only -> default SPGMR (no env tag). */
+    if (env == NULL || env[0] == '\0') {
+        return linsol_selection{LINSOL_SPGMR, "spgmr", "default"};
+    }
+    /* Strip leading/trailing whitespace via local pointer math.
+     * Case-sensitive compare ("amG" / "AMG" / "Amg" all rejected). */
+    const char *start = env;
+    while (*start == ' ' || *start == '\t' || *start == '\n') ++start;
+    if (*start == '\0') {
+        return linsol_selection{LINSOL_SPGMR, "spgmr", "default"};
+    }
+    /* Compute end without modifying the env-var string. */
+    const char *end = start + strlen(start);
+    while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\n')) --end;
+    size_t len = (size_t)(end - start);
+
+    if (len == 5 && strncmp(start, "spgmr", 5) == 0) {
+        return linsol_selection{LINSOL_SPGMR, "spgmr", "env"};
+    }
+    if (len == 3 && strncmp(start, "amg", 3) == 0) {
+        return linsol_selection{LINSOL_AMG, "amg", "env"};
+    }
+
+    /* Unrecognized value — fatal-exit BEFORE CVodeCreate. Spec
+     * REQ-G0 fatal-exit-on-unknown invariant: stderr message names
+     * the offender + the accepted set, exits non-zero, leaves no
+     * CVODE state allocated. */
+    fprintf(stderr,
+            "[shud] FATAL: SHUD_LINSOL=%s unrecognized; accepted: spgmr, amg\n",
+            env);
+    fflush(stderr);
+    exit(EXIT_FAILURE);
+}
+
+/* Factory: SPGMR backend (PRE-G0 path — must produce
+ * bit-identical output bytes vs the pre-G0 baseline). Encapsulates
+ * the existing SUNLinSol_SPGMR call at the L324 site below; the
+ * argument list is preserved byte-for-byte (PREC_NONE +
+ * get_spgmr_maxl_from_env() + sunctx). `y` is the same N_Vector
+ * the caller previously passed as `udata` — variable renaming
+ * does not affect the linker. */
+static SUNLinearSolver create_spgmr_ls(N_Vector y, SUNContext sunctx);
+
+/* Factory: AMG backend via SUNLinSol_Hypre wrapper. Probes the
+ * HYPRE runtime via the wrapper constructor (which returns NULL +
+ * stderr on missing dylib / runtime init failure). On NULL return
+ * the caller fatal-exits per spec REQ-G0 "fatal-exit on AMG
+ * factory failure". */
+static SUNLinearSolver create_amg_ls(N_Vector y, Model_Data *MD,
+                                     SUNContext sunctx);
 
 int check_flag(void *flagvalue, const char *funcname, int opt)
 {
@@ -294,10 +379,48 @@ static int get_spgmr_maxl_from_env(void)
     return (int)val;
 }
 
+static SUNLinearSolver create_spgmr_ls(N_Vector y, SUNContext sunctx)
+{
+    /* Mirror the pre-G0 hardcoded SUNLinSol_SPGMR call at the
+     * previous L324 site EXACTLY (PREC_NONE + maxl from env hook +
+     * sunctx). The variable rename `udata` -> `y` is local to this
+     * function and does not change generated code: SUNLinSol_SPGMR
+     * sees the same N_Vector pointer the caller previously passed. */
+    SUNLinearSolver LS = SUNLinSol_SPGMR(y, PREC_NONE,
+                                         get_spgmr_maxl_from_env(),
+                                         sunctx);
+    check_flag((void *)LS, "SUNLinSol_SPGMR", 0);
+    return LS;
+}
+
+static SUNLinearSolver create_amg_ls(N_Vector y, Model_Data *MD,
+                                     SUNContext sunctx)
+{
+    /* G0: hardcoded (interp_type=6, coarsen_type=8). The wrapper
+     * constructor rejects other pairs with stderr + NULL return. */
+    SUNLinearSolver LS = SUNLinSol_Hypre(y, (void *)MD, 6, 8, sunctx);
+    if (LS == NULL) {
+        fprintf(stderr,
+                "[shud] FATAL: AMG factory failed; check Hypre install\n");
+        fflush(stderr);
+        exit(EXIT_FAILURE);
+    }
+    return LS;
+}
+
 void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS, SUNContext &sunctx){
 
     int flag;
-    
+
+    /* P8-tune.G0 PR-0 — linsol selection parsed BEFORE CVodeCreate
+     * so the fatal-exit-on-unknown invariant holds (no CVODE state
+     * leaked on the error path). Marker line precedes any CVODE
+     * output for log post-mortem ordering. */
+    const linsol_selection sel = parse_linsol_env();
+    fprintf(stdout, "[shud] linsol=%s source=%s\n",
+            sel.sel_name, sel.source);
+    fflush(stdout);
+
     /********* SUNDIALS 6.0+ ************/
     /* Allocate memory, and set problem data, initial values, tolerances */
 //    u = N_VNew_Serial(NY, sunctx);
@@ -306,23 +429,27 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
 //    check_flag(void *)data, "AllocUserData", 2);
 //    InitUserData(data);
 //    SetInitialProfiles(u, data->dx, data->dy);
-    
+
     cvode_mem = CVodeCreate(CV_BDF, sunctx);
     check_flag((void *)cvode_mem, "CVodeCreate", 0);
-    
+
     flag = CVodeSetUserData(cvode_mem, MD);
     check_flag(&flag, "CVodeSetUserData", 1);
-    
+
     //Model start from TIME = zero;
     flag = CVodeInit(cvode_mem, f, MD->CS.StartTime, udata);
     check_flag(&flag, "CVodeInit", 1);
-    
+
     flag = CVodeSStolerances(cvode_mem, MD->CS.reltol, MD->CS.abstol);
     check_flag(&flag, "CVodeSStolerances", 1);
-    
-    //    LS = SUNSPGMR(udata, 0, 0); //v3.x
-    LS = SUNLinSol_SPGMR(udata, PREC_NONE, get_spgmr_maxl_from_env(), sunctx);
-    check_flag((void *)LS, "SUNLinSol_SPGMR", 0);
+
+    /* Factory dispatch (P8-tune.G0 PR-0). Default path
+     * (LINSOL_SPGMR) invokes create_spgmr_ls which calls
+     * SUNLinSol_SPGMR with byte-identical args to the pre-G0 site
+     * — the G0-1 bit-identical anchor depends on this. */
+    LS = (sel.sel == LINSOL_AMG)
+       ? create_amg_ls(udata, MD, sunctx)
+       : create_spgmr_ls(udata, sunctx);
 
     flag = CVodeSetLinearSolver(cvode_mem, LS, NULL);
     check_flag(&flag, "CVSpilsSetLinearSolver", 1);
