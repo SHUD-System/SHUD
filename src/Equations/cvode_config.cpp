@@ -510,7 +510,36 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     flag = CVodeInit(cvode_mem, f, MD->CS.StartTime, udata);
     check_flag(&flag, "CVodeInit", 1);
 
-    flag = CVodeSStolerances(cvode_mem, MD->CS.reltol, MD->CS.abstol);
+    /* PR-Z1: optional CVODE relative tolerance override for P9 upper-bound
+     * spot check under A5 hydrology acceptance. When SHUD_CVODE_RELTOL is
+     * set to a value in (0, 1), it overrides MD->CS.reltol (parsed from
+     * cfg.para) at the CVodeSStolerances call site below. Pattern mirrors
+     * the SHUD_CVODE_EPSLIN hook (L527-560) — strtod parse with strict
+     * range gate + fatal exit on malformed input + stderr provenance
+     * line. env unset → reltol_effective = MD->CS.reltol → bitwise
+     * default-compat invariant (identical to pre-hook behavior). */
+    double reltol_effective = MD->CS.reltol;
+    {
+        const char *env_rel = getenv("SHUD_CVODE_RELTOL");
+        if (env_rel != NULL && env_rel[0] != '\0') {
+            char *endp = NULL;
+            double rel = strtod(env_rel, &endp);
+            if (endp == env_rel || rel <= 0.0 || rel >= 1.0) {
+                fprintf(stderr,
+                    "[shud] FATAL: SHUD_CVODE_RELTOL=%s is not a valid float in (0, 1)\n",
+                    env_rel);
+                fflush(stderr);
+                exit(EXIT_FAILURE);
+            }
+            reltol_effective = rel;
+            fprintf(stderr,
+                "[shud] PR-Z1 hook: CVODE reltol overridden %.4e -> %.4e\n",
+                MD->CS.reltol, rel);
+        }
+        /* env unset → default-compat: uses MD->CS.reltol from cfg.para. */
+    }
+
+    flag = CVodeSStolerances(cvode_mem, reltol_effective, MD->CS.abstol);
     check_flag(&flag, "CVodeSStolerances", 1);
 
     /* Factory dispatch (P8-tune.G0 PR-0). Default path
