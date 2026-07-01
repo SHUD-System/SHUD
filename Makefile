@@ -137,7 +137,20 @@ endif
 # `-DNDEBUG` strips assert to a no-op and would let the switch case
 # fall through silently to the next statement. `std::abort()` is
 # unconditional; safe under `EXTRA_CXXFLAGS=-DNDEBUG` smoke compile.
-SHUD_ENABLE_OPENMP_RHS ?= 0
+# Release v1.0 default flip: `make shud_omp` defaults to
+# SHUD_ENABLE_OPENMP_RHS=1 (Config C, Serial NVec + StrictOMP RHS,
+# ADR-0002 Path 1 winner). `make shud` remains SHUD_ENABLE_OPENMP_RHS=0
+# (Config A, canonical serial reference). User explicit override on the
+# command line (e.g. `make shud_omp SHUD_ENABLE_OPENMP_RHS=0`) still
+# wins via `?=` semantics — the research escape hatch is preserved.
+# NB: `?=` late-evaluates SHUD_ENABLE_OPENMP_RHS; target-specific vars
+# would NOT flow into the `ifeq` block below (parse-time vs recipe-time
+# phases), so MAKECMDGOALS filtering is the correct hook.
+ifneq (,$(filter shud_omp,$(MAKECMDGOALS)))
+  SHUD_ENABLE_OPENMP_RHS ?= 1
+else
+  SHUD_ENABLE_OPENMP_RHS ?= 0
+endif
 ifeq ($(SHUD_ENABLE_OPENMP_RHS),0)
   SHUD_OMP_RHS_DEFINE :=
   SHUD_OMP_RHS_CK     :=
@@ -570,19 +583,30 @@ shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
 
-# S1d.2 (openMP #48) — `shud_omp` is now a thin wrapper that adds:
-#   - $(CXX_OPENMP_CFLAGS)  : -fopenmp (sets _OPENMP compiler builtin)
-#   - $(CXX_OPENMP_LFLAGS)  : -lgomp / -lomp (OpenMP runtime)
-# plus hardcoded `-DSHUD_USE_OPENMP_NVECTOR=1` + `-lsundials_nvecopenmp`
-# for back-compat with the pre-#48 implicit semantics (the legacy
-# `shud_omp` target always built with the OpenMP NVector backend).
-# Equivalent to `make shud SHUD_USE_OPENMP_NVECTOR=1 CXX_EXTRA=-fopenmp`
-# but keeps the historical target name working for downstream tooling.
+# Release v1.0 — `shud_omp` produces the production Config C binary by
+# default: Serial NVector + StrictOMP RHS (ADR-0002 Path 1 winner,
+# heihe_x4 sp@8 = 1.6–1.7×). The MAKECMDGOALS-conditional default flip
+# above (around SHUD_ENABLE_OPENMP_RHS ?= 1 for shud_omp) means users
+# get the parallel RHS without passing extra flags. Researcher escape
+# hatches:
+#   - `make shud_omp SHUD_ENABLE_OPENMP_RHS=0` → Config A/B (serial RHS)
+#     for A/B/D reproducibility (P1c/d era build).
+#   - `make shud_omp SHUD_USE_OPENMP_NVECTOR=1` → Config D (both OMP);
+#     `SHUD_NVEC_OMP_DEFINE` + `SHUD_NVEC_OMP_LK` handle the link line.
+# The recipe adds:
+#   - $(CXX_OPENMP_CFLAGS)   : -fopenmp (sets _OPENMP compiler builtin)
+#   - $(CXX_OPENMP_LFLAGS)   : -lgomp / -lomp (OpenMP runtime)
+#   - $(SHUD_NVEC_OMP_DEFINE): -DSHUD_USE_OPENMP_NVECTOR=1 iff opted in
+#   - $(SHUD_NVEC_OMP_LK)    : -lsundials_nvecopenmp iff opted in
+# Historical note: pre-release, `shud_omp` hardcoded
+# `-DSHUD_USE_OPENMP_NVECTOR=1` + `-lsundials_nvecopenmp` (P1c/d era
+# Config B semantics). Release v1.0 flip aligns the default OpenMP
+# target with the P1e-endorsed production build.
 shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
-	@echo '...Compiling shud_OpenMP ...'
-	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_USE_OPENMP_NVECTOR=1 $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) -lsundials_nvecopenmp $(LK_OMP)
+	@echo '...Compiling shud_OpenMP (Config C default: Serial NVec + StrictOMP RHS) ...'
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_USE_OPENMP_NVECTOR=1 $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) -lsundials_nvecopenmp $(LK_OMP)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
 	@echo
 	@echo " $(TARGET_OMP) is compiled successfully!"
 	@echo
