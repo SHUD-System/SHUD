@@ -15,6 +15,12 @@
 #include "TimeSeriesData.hpp"
 #include "FloodAlert.hpp"
 #include "CommandIn.hpp"
+/* P11-osc PR-D1 (#434) — env-gated (strict `=1`) CVODE stepping diagnostics.
+ * Default-off: when neither SHUD_DIAG_DT=1 nor SHUD_DIAG_OSC=1 is set, every
+ * hook below is a no-op and the default hot path is byte-identical (keliya
+ * B0 SHA gate). Reads ONLY the accepted CVODE state vector — never the uY*
+ * RHS scratch globals (source-audit spec). */
+#include "MD_osc_diag.hpp"
 /* P8-tune.G0 PR-B (#411) + PR-0 Phase 7 finding #4 cleanup —
  * SUNLinSol_Hypre_DrainTelemetry + SUNLinSolFree on shutdown. The
  * wrapper is link-always (cvode_config.cpp dispatches via SHUD_LINSOL);
@@ -197,6 +203,17 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->debugData(fout->outpath);
     MD->gc.write(fout->Calib_bak);
 //    f(t, udata, du, MD); /* Initialized the status */
+    /* P11-osc PR-D1 (#434) — construct + prime the env-gated diagnostics
+     * BEFORE the profiled solver-loop scope so header-write / buffer alloc /
+     * initial-state snapshot do not skew t_wall_total (mirrors the existing
+     * "init lives outside this scope" intent). No-op unless SHUD_DIAG_DT=1
+     * or SHUD_DIAG_OSC=1 (strict `=1`). State read via N_VGetArrayPointer
+     * (accepted CVODE state), never the uY* RHS scratch globals. */
+    OscDiag diag;
+    if (diag.any_on()) {
+        diag.begin(mem, udata, fout->projectname, MD->CS.SolverStep,
+                   MD->NumEle, MD->NumRiv, fout->outpath);
+    }
     {
 #ifdef SHUD_ENABLE_PROFILE
         /* S0-10 / openMP #14 — t_wall_total wraps the main solver loop
@@ -245,6 +262,16 @@ double SHUD(FileIn *fin, FileOut *fout){
                     flag = CVode(mem, tnext, udata, &t, CV_NORMAL);
                     check_flag(&flag, "CVode", 1);
                 }
+            }
+            /* P11-osc PR-D1 (#434): per-interval diagnostic sample at the
+             * accepted CVode-return boundary (t == tnext here; the inner
+             * while runs exactly once per SolverStep in CV_NORMAL). Emits
+             * one diag_dt_trace.csv row (counter deltas) and folds this
+             * interval into the flip counters. Placed AFTER the while so it
+             * is outside the t_CVODE_raw profile scope. No-op unless a
+             * strict `=1` gate is set. */
+            if (diag.any_on()) {
+                diag.record(mem, udata, t);
             }
             //            CVODEstatus(mem, udata, t);
             {
@@ -297,6 +324,11 @@ double SHUD(FileIn *fin, FileOut *fout){
             }
             MD->flood->FloodWarning(t);
         }
+    }
+    /* P11-osc PR-D1 (#434): dump the flip-counter CSVs at run end (no-op
+     * unless SHUD_DIAG_OSC=1). Outside the t_wall_total scope by design. */
+    if (diag.any_on()) {
+        diag.finish();
     }
     MD->ScreenPrint(t, MD->CS.NumSteps);
     MD->PrintInit(fout->Init_update, t);
