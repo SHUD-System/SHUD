@@ -33,6 +33,14 @@
  * through. No code here lives on the RHS f() path (f.cpp / MD_rhs_core.cpp
  * untouched). */
 #include "MD_nvec_prof.hpp"
+/* P12-nvec PR-N1 (#443) — Config E hybrid NVector serial reduction
+ * overrides. nvec_hybrid_install() overwrites the reduction entries of the
+ * OpenMP-backed ops table with SHUD-owned serial generic-API loops; the
+ * whole impl TU is #ifdef SHUD_NVEC_HYBRID (no-op fallbacks otherwise), so
+ * default builds are preprocessor-identical. Installed on udata/du right
+ * after N_VNew_OpenMP and BEFORE the SHUD_NVEC_PROF wrap (overrides first,
+ * shims outermost). No code here lives on the RHS f() path. */
+#include "MD_nvec_hybrid.hpp"
 /* P8-tune.G0 PR-B (#411) + PR-0 Phase 7 finding #4 cleanup —
  * SUNLinSol_Hypre_DrainTelemetry + SUNLinSolFree on shutdown. The
  * wrapper is link-always (cvode_config.cpp dispatches via SHUD_LINSOL);
@@ -164,6 +172,18 @@ double SHUD(FileIn *fin, FileOut *fout){
     screeninfo("\nopenMP NVector: ON. No of Threads = %d\n", MD->CS.num_threads);
     udata = N_VNew_OpenMP(NY, MD->CS.num_threads, sunctx);
     du = N_VNew_OpenMP(NY, MD->CS.num_threads, sunctx);
+#ifdef SHUD_NVEC_HYBRID
+    /* P12-nvec PR-N1 (#443) — Config E: overwrite the reduction entries of
+     * the OpenMP ops table with SHUD-owned serial loops, IMMEDIATELY after
+     * N_VNew_OpenMP and BEFORE CVodeInit (SetCVODE, below) AND before the
+     * SHUD_NVEC_PROF wrap (overrides first, shims outermost — design D1/D2).
+     * N_VClone (called inside CVodeInit) copies the ops table, so the
+     * overrides propagate to every internal temporary. Both udata and du
+     * are overridden (idempotent; each write stores a SHUD address).
+     * Element-wise ops keep the stock OpenMP parallel implementation. */
+    nvec_hybrid_install(udata);
+    nvec_hybrid_install(du);
+#endif
 #else
     screeninfo("\nopenMP NVector: OFF (Serial backend)\n");
     udata = N_VNew_Serial(NY, sunctx);
@@ -214,7 +234,18 @@ double SHUD(FileIn *fin, FileOut *fout){
      * on udata so the stdout PASS line is captured in the evidence log. */
     {
 #ifdef SHUD_USE_OPENMP_NVECTOR
+# ifdef SHUD_NVEC_HYBRID
+        /* Config E: OpenMP element-wise + SHUD serial reduction overrides.
+         * The overrides were installed on udata/du above (before this
+         * profiler wrap), so the shims delegate to them and the CSV header
+         * reports the effective backend as `hybrid`. Run the hybrid clone-
+         * propagation assert once on udata (independent of the profiler
+         * gate) so the [NVEC_HYBRID] PASS line is always in the run log. */
+        const char *nvec_prof_backend = "hybrid";
+        nvec_hybrid_clone_carries_overrides(udata);
+# else
         const char *nvec_prof_backend = "openmp";
+# endif
 #else
         const char *nvec_prof_backend = "serial";
 #endif
@@ -222,6 +253,15 @@ double SHUD(FileIn *fin, FileOut *fout){
         nvec_prof_install(du, nvec_prof_backend);
         if (nvec_prof_is_on()) {
             nvec_prof_clone_carries_shims(udata);
+#ifdef SHUD_USE_OPENMP_NVECTOR
+# ifdef SHUD_NVEC_HYBRID
+            /* PR-N1 task 2.5(a) composition assert: now that the profiler
+             * shims wrap the already-overridden table, verify each reduction
+             * slot holds a shim (≠ stock) whose delegate is the hybrid
+             * override address. Runs only in the Config E + PROF combination. */
+            nvec_prof_reduction_delegates_match(udata, nvec_hybrid_addr_is_override);
+# endif
+#endif
         }
     }
     SetCVODE(mem, f, MD, udata, LS, sunctx);
@@ -369,7 +409,11 @@ double SHUD(FileIn *fin, FileOut *fout){
      * outside any profile-timer scope. */
     if (nvec_prof_is_on()) {
 #ifdef SHUD_USE_OPENMP_NVECTOR
+# ifdef SHUD_NVEC_HYBRID
+        const char *nvec_prof_backend = "hybrid";
+# else
         const char *nvec_prof_backend = "openmp";
+# endif
 #else
         const char *nvec_prof_backend = "serial";
 #endif

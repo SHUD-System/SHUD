@@ -90,4 +90,16 @@ bool nvec_prof_clone_carries_shims(N_Vector v);
 void nvec_prof_dump(const char *project_name, int NY, int nthreads,
                     const char *backend, const char *outpath);
 
+/* PROF×HYBRID composition assert (spec nvec-op-profile "composition with
+ * hybrid overrides"): for every WRAPPED reduction-class slot, verify (a) the
+ * live ops-table entry of `v` holds THIS profiler's shim (so the reduction
+ * pointer differs from the stock OpenMP address), and (b) the shim's captured
+ * delegate satisfies `is_override` (so the delegate is the hybrid override
+ * address, not a stock reduction). `is_override` is supplied by the hybrid
+ * module (nvec_hybrid_addr_is_override) so the profiler stays decoupled from
+ * the hybrid symbols. No-op returning true unless the profiler is on. Prints
+ * a PASS/FAIL line to stdout and returns true on PASS. Intended to run AFTER
+ * nvec_prof_install (i.e. once the shims wrap the overridden table). */
+bool nvec_prof_reduction_delegates_match(N_Vector v, bool (*is_override)(void *));
+
 #endif /* MD_NVEC_PROF_HPP */

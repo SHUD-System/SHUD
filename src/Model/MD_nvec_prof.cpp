@@ -540,6 +540,67 @@ bool nvec_prof_clone_carries_shims(N_Vector v) {
     return pass;
 }
 
+bool nvec_prof_reduction_delegates_match(N_Vector v, bool (*is_override)(void *)) {
+    if (!nvec_prof_is_on()) return true;
+    if (v == NULL || v->ops == NULL || is_override == NULL) return false;
+    N_Vector_Ops o = v->ops;
+
+    /* (live ops-table entry, THIS profiler's shim, registry index, name) for
+     * every reduction-class slot the OpenMP backend populates. A slot counts
+     * only if it was actually wrapped (populated on this backend). For each
+     * wrapped slot assert: live entry == our shim (differs from stock) AND
+     * captured delegate g_slot[idx].orig satisfies is_override(). */
+    struct RedSlot { void *live; void *shim; int idx; const char *name; };
+    const RedSlot red[] = {
+        { (void *)o->nvdotprod,          (void *)nvp_dotprod,          NVP_DOTPROD,          "nvdotprod" },
+        { (void *)o->nvmaxnorm,          (void *)nvp_maxnorm,          NVP_MAXNORM,          "nvmaxnorm" },
+        { (void *)o->nvwrmsnorm,         (void *)nvp_wrmsnorm,         NVP_WRMSNORM,         "nvwrmsnorm" },
+        { (void *)o->nvwrmsnormmask,     (void *)nvp_wrmsnormmask,     NVP_WRMSNORMMASK,     "nvwrmsnormmask" },
+        { (void *)o->nvmin,              (void *)nvp_min,              NVP_MIN,              "nvmin" },
+        { (void *)o->nvwl2norm,          (void *)nvp_wl2norm,          NVP_WL2NORM,          "nvwl2norm" },
+        { (void *)o->nvl1norm,           (void *)nvp_l1norm,           NVP_L1NORM,           "nvl1norm" },
+        { (void *)o->nvinvtest,          (void *)nvp_invtest,          NVP_INVTEST,          "nvinvtest" },
+        { (void *)o->nvconstrmask,       (void *)nvp_constrmask,       NVP_CONSTRMASK,       "nvconstrmask" },
+        { (void *)o->nvminquotient,      (void *)nvp_minquotient,      NVP_MINQUOTIENT,      "nvminquotient" },
+        { (void *)o->nvdotprodlocal,     (void *)nvp_dotprodlocal,     NVP_DOTPRODLOCAL,     "nvdotprodlocal" },
+        { (void *)o->nvmaxnormlocal,     (void *)nvp_maxnormlocal,     NVP_MAXNORMLOCAL,     "nvmaxnormlocal" },
+        { (void *)o->nvminlocal,         (void *)nvp_minlocal,         NVP_MINLOCAL,         "nvminlocal" },
+        { (void *)o->nvl1normlocal,      (void *)nvp_l1normlocal,      NVP_L1NORMLOCAL,      "nvl1normlocal" },
+        { (void *)o->nvinvtestlocal,     (void *)nvp_invtestlocal,     NVP_INVTESTLOCAL,     "nvinvtestlocal" },
+        { (void *)o->nvconstrmasklocal,  (void *)nvp_constrmasklocal,  NVP_CONSTRMASKLOCAL,  "nvconstrmasklocal" },
+        { (void *)o->nvminquotientlocal, (void *)nvp_minquotientlocal, NVP_MINQUOTIENTLOCAL, "nvminquotientlocal" },
+        { (void *)o->nvwsqrsumlocal,     (void *)nvp_wsqrsumlocal,     NVP_WSQRSUMLOCAL,     "nvwsqrsumlocal" },
+        { (void *)o->nvwsqrsummasklocal, (void *)nvp_wsqrsummasklocal, NVP_WSQRSUMMASKLOCAL, "nvwsqrsummasklocal" },
+        { (void *)o->nvdotprodmultilocal,(void *)nvp_dotprodmultilocal,NVP_DOTPRODMULTILOCAL,"nvdotprodmultilocal" },
+    };
+    const int NR = (int)(sizeof(red) / sizeof(red[0]));
+
+    int checked = 0, live_ok = 0, delegate_ok = 0;
+    bool pass = true;
+    for (int i = 0; i < NR; i++) {
+        if (!g_slot[red[i].idx].wrapped) continue; /* slot not populated on this backend */
+        checked++;
+        bool live_is_shim   = (red[i].live == red[i].shim);
+        bool deleg_is_ovr   = is_override(g_slot[red[i].idx].orig);
+        if (live_is_shim)  live_ok++;     else pass = false;
+        if (deleg_is_ovr)  delegate_ok++; else pass = false;
+        if (!live_is_shim || !deleg_is_ovr) {
+            fprintf(stdout,
+                    "[NVEC_PROF] composition MISMATCH on %s: live_is_shim=%d "
+                    "delegate_is_override=%d\n",
+                    red[i].name, live_is_shim ? 1 : 0, deleg_is_ovr ? 1 : 0);
+        }
+    }
+    /* must have checked at least the standard reductions CVODE always drives */
+    if (checked == 0) pass = false;
+
+    fprintf(stdout,
+            "[NVEC_PROF] PROF x HYBRID composition assert: reduction_slots_wrapped=%d "
+            "live_is_shim=%d delegate_is_override=%d -> %s\n",
+            checked, live_ok, delegate_ok, pass ? "PASS" : "FAIL");
+    return pass;
+}
+
 void nvec_prof_dump(const char *project_name, int NY, int nthreads,
                     const char *backend, const char *outpath) {
     if (!nvec_prof_is_on()) return;
