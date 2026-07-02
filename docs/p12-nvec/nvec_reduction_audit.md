@@ -118,29 +118,54 @@ behavioral backstop.
 Config E is bitwise-identical to the Serial NVector backend (Config C) as well
 as across thread counts.
 
-**Fold-order pin (`-O0`) — necessary for the bitwise-to-C half of G-E1:**
-mirroring the serial *source* is necessary but NOT sufficient. Config C's
-reference reductions are the **SUNDIALS library** serial functions
-(`N_VWrmsNorm_Serial`, `N_VDotProd_Serial`, …), and the vendored library is
-built with `CMAKE_BUILD_TYPE=""` → effectively **-O0** (verified in
-`InstallSundials/.../CMakeCache.txt`: `CMAKE_BUILD_TYPE:STRING=` empty,
-`CMAKE_C_FLAGS:STRING=` empty; the `-O3` in `CMAKE_C_FLAGS_RELEASE` is inert
-without `BUILD_TYPE=Release`). SHUD itself compiles at `-O2 -ffp-contract=off`
-(B0 IEEE-754 lockdown). Compiling the *same* scalar serial loop at `-O2` lets
-the optimizer reassociate / reschedule the accumulation, so its rounding
-drifts from the -O0 library fold by ~1 ULP. Measured (unit sweep, 3000
-keliya-shaped datasets): the -O2 body diverges from the library on **363/3000**
-inputs; the -O0-pinned body diverges on **0/3000**. On real keliya solver data
-the -O2 drift first appears in `keliya.rivqdown.dat` at byte offset 3728
-(reldiff 2.15e-16 = 1 ULP) and cascades to 96.7% of values → the G-E1
-vs-Config-C gate FAILS. Fix: each FP-folding override carries
-`SHUD_NVEC_NOOPT` (`__attribute__((optnone))` on clang /
-`__attribute__((optimize("O0")))` on gcc), which pins its codegen to a strict
-source-order scalar fold that bit-matches the -O0 library. This keeps the spec
-mechanism intact — the bodies are still plain serial loops over the generic
-API (`N_VGetArrayPointer` / `N_VGetLength`), with NO `N_V*_Serial` call and NO
-content-struct macro; the attribute only removes the optimizer's freedom to
-reassociate FP ops. See `MD_nvec_hybrid.cpp` header for the full rationale and
-the documented fragility (the guarantee assumes the SUNDIALS library stays
--O0-equivalent; if `./configure` is ever changed to build it `-O3`, the G-E1
-gate is the backstop that would catch the resulting mismatch).
+**Codegen pin (`SHUD_NVEC_NOOPT`) — platform-dependent, needed on Apple
+clang / ARM:** mirroring the serial *source* is necessary but not, on every
+toolchain, sufficient. Config C's reference reductions are the **SUNDIALS
+library** serial functions (`N_VDotProd_Serial`, `N_VWSqrSumLocal_Serial`, …).
+Whether a SHUD-compiled generic-API serial loop bit-matches them depends on the
+compiler, because SHUD's `-ffp-contract=off` (B0 IEEE-754 lockdown) forces two
+codegen choices on the override that the vendored library does not make:
+
+1. **FMA contraction.** The vendored library is compiled with **no
+   `-ffp-contract` flag** (`InstallSundials/.../flags.make` carries no contract
+   flag; `CMAKE_BUILD_TYPE=""`), so its *default* contraction fuses
+   `sum += x[i]*y[i]` into a single-rounding `fma` on targets that have FMA.
+   `-ffp-contract=off` **strips** that FMA from our override → two roundings
+   instead of one.
+2. **Auto-vectorization.** At `-O2` the non-FMA reduction is a vectorizer
+   candidate; the loop/SLP vectorizer folds partial sums across SIMD lanes → a
+   different (pairwise/tree) order than the library's sequential scalar loop.
+
+The mechanism was NOT reassociation of the scalar loop (IEEE FP-add reassoc is
+illegal at plain `-O2` without `-ffast-math`, and neither clang nor gcc does
+it — a plain `-O2 -ffp-contract=off` loop matches an `-O0`-same-flags loop 0/N).
+It is the FMA-state + vectorization difference above, and it is
+**platform-specific**:
+
+| toolchain | library codegen | plain override (`-O2 -ffp-contract=off`) | match? |
+|-----------|-----------------|-------------------------------------------|--------|
+| Apple clang / ARM (Mac) | scalar **`fmadd`** | non-FMA, `-O2`-vectorized | **NO** — dot 4785/5000, wsqrsum 1819/5000 diverge (~1 ULP) |
+| x86_64 / gcc (server + CI) | scalar non-FMA (`mulsd`+`addsd`) | scalar non-FMA (same) | **YES** — 0/5000, attribute not needed |
+
+On clang, `-ffp-contract=on` **alone** does not fix it (the loop still
+vectorizes → 1823/5000); only scalar **and** FMA together match. **Fix:** each
+FP-folding override carries `SHUD_NVEC_NOOPT`. On clang it expands to
+`__attribute__((optnone))`, which disables vectorization AND discards the
+function-level `-ffp-contract=off` (restoring default contraction → FMA), so the
+override reproduces the library's scalar-FMA fold exactly (**0/5000**). On gcc
+it expands to `__attribute__((optimize("O0","no-tree-vectorize")))` — scalar +
+default contraction; not required for correctness on x86 (the plain override
+already matches, **0/5000** measured on server gcc-13) but pins the intent and
+guards a future gcc that might vectorize this loop.
+
+Spec mechanism is intact: the bodies are plain serial loops over the generic
+API (`N_VGetArrayPointer` / `N_VGetLength`), NO `N_V*_Serial` call, NO
+content-struct macro; the attribute only constrains codegen (scalar + default
+contraction), not the source logic. **Honest fragility:** the bitwise-to-C
+guarantee rests on a per-compiler codegen coincidence (clang's optnone-restores-
+contraction side effect; gcc's `-O2 -ffp-contract=off` already yielding the
+library fold) — NOT on the library's `-O` level. The G-E1 SHA gate (Mac clang +
+PR-N2 server gcc matrix + CI GCC) is the backstop for any future toolchain
+change. Evidence: `.review-evidence/p12-nvec/pr-n1/optnone_fold_order.evidence.txt`
+(per-variant divergence + FMA disassembly, both toolchains) and
+`.../gcc_spot_leg/` (server gcc G-E1 heihe spot verdict).

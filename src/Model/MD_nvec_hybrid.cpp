@@ -24,41 +24,76 @@
 #define ONEPT5 RCONST(1.5)
 
 /* ---------------------------------------------------------------------
- * SHUD_NVEC_NOOPT — pin each reduction body to -O0 codegen.
+ * SHUD_NVEC_NOOPT — force each reduction body to a scalar, FMA-preserving
+ * fold that bit-matches the vendored SUNDIALS *_Serial reductions.
  *
- * WHY THIS EXISTS (the G-E1 bitwise gate depends on it):
- * The vendored SUNDIALS is built with CMAKE_BUILD_TYPE="" (empty) →
- * effectively -O0; its serial reductions (N_VWrmsNorm_Serial, ...) are
- * the reference Config C runs against. SHUD itself compiles at
- * `-O2 -ffp-contract=off` (B0 IEEE-754 lockdown). Compiling the *same*
- * scalar serial loop at -O2 lets the optimizer reassociate / reschedule
- * the accumulation (SLP, strength reduction) so its rounding drifts from
- * the -O0 library fold by ~1 ULP. Measured on keliya solver data:
- *   override(-O2)=2.1536859975410953038e-05
- *   libSerial(-O0)=2.153685997541094965e-05   (eq=0, 1 ULP)
- * cascading to 96.7% of keliya.rivqdown.dat values (first divergence at
- * byte offset 3728) → G-E1 vs-Config-C would FAIL. A 3000-dataset unit
- * sweep confirms: -O2 body diverges from the library on 363/3000 inputs;
- * the -O0-pinned body diverges on 0/3000. Pinning the reduction bodies
- * to -O0 makes the SHUD-compiled scalar fold bit-match the -O0 library.
+ * WHY THIS EXISTS (the G-E1 bitwise gate needs it on Apple clang / ARM):
+ * Config C's reference reductions are the SUNDIALS library serial
+ * functions (N_VDotProd_Serial / N_VWSqrSumLocal_Serial / ...). Whether a
+ * SHUD-compiled generic-API serial loop bit-matches them is PLATFORM-
+ * DEPENDENT, because the divergence is driven by two codegen choices that
+ * SHUD's `-ffp-contract=off` (B0 IEEE-754 lockdown) forces on us:
  *
- * This is NOT a spec-approach change: the bodies remain plain serial
- * loops over the generic API (N_VGetArrayPointer / N_VGetLength). The
- * attribute only removes the optimizer's freedom to reassociate FP ops.
+ *   (1) FMA contraction. The vendored library carries no -ffp-contract
+ *       flag, so its default contraction produces a fused multiply-add for
+ *       `sum += x[i]*y[i]` on targets that have FMA. SHUD's
+ *       -ffp-contract=off STRIPS that FMA from our override, changing the
+ *       per-iteration rounding (x*y rounded, then +sum rounded — two
+ *       roundings vs the library's single fma rounding).
+ *   (2) Auto-vectorization. At -O2 the non-FMA reduction is a candidate
+ *       for the loop / SLP vectorizer, which folds partial sums across
+ *       SIMD lanes → a different (pairwise/tree) summation order than the
+ *       library's sequential scalar loop.
  *
- * DOCUMENTED ASSUMPTION / fragility: correctness of the *bitwise-to-C*
- * guarantee rests on the SUNDIALS library being -O0-equivalent scalar.
- * If `./configure` is ever changed to build SUNDIALS at -O3
- * (CMAKE_BUILD_TYPE=Release → CMAKE_C_FLAGS_RELEASE=-O3), Config C's
- * reference reductions change and this -O0 pin would no longer match;
- * the G-E1 gate would catch it. The construction-guaranteed alternative
- * (copy into a Serial N_Vector and call the library N_V*_Serial) is
- * documented in the PR-N1 evidence as the robust fallback.
+ * Measured (unit sweep, keliya/heihe-shaped data, override vs library):
+ *   - Apple clang / ARM (Mac): the vendored lib emits scalar `fmadd`;
+ *     our -ffp-contract=off override emits non-FMA and (at -O2) vectorizes
+ *     → dot diverges 4785/5000, wsqrsum 1819/5000 (~1 ULP). BOTH knobs
+ *     matter: -ffp-contract=on ALONE still diverges (still vectorized,
+ *     1823/5000); scalar+FMA together (or optnone) → 0/5000.
+ *   - x86_64 / gcc (server + CI): the gcc-built lib emits scalar non-FMA
+ *     (`mulsd`+`addsd`); gcc at -O2 -ffp-contract=off produces the SAME
+ *     scalar non-FMA fold → the plain override ALREADY matches, 0/5000,
+ *     with or without this attribute (verified by disassembly + sweep on
+ *     the server gcc-13 toolchain, .review-evidence/.../gcc_spot_leg/).
+ *
+ * THE FIX. `optnone` on clang does BOTH: it disables vectorization AND
+ * discards the function-level -ffp-contract=off (restoring the default
+ * contraction → FMA), so the override reproduces the library's scalar-FMA
+ * fold exactly (0/5000). On gcc `optimize("O0")` disables vectorization
+ * and keeps default contraction; it is not *needed* there (the plain
+ * override already matches) but is harmless and keeps one portable knob.
+ * So SHUD_NVEC_NOOPT is REQUIRED on clang/ARM and correctness-INERT on
+ * gcc/x86 — safe on both, validated on both.
+ *
+ * This is NOT a spec-approach change: the bodies remain plain serial loops
+ * over the generic API (N_VGetArrayPointer / N_VGetLength), with NO
+ * N_V*_Serial call and NO content-struct macro. The attribute only
+ * constrains codegen (scalar + default contraction), not the source logic.
+ *
+ * FRAGILITY (the honest statement): correctness of the bitwise-to-Config-C
+ * guarantee rests on a per-compiler codegen coincidence — on clang the
+ * `optnone`-restores-contraction side effect, on gcc the fact that -O2
+ * -ffp-contract=off already yields the library's scalar non-FMA fold. It
+ * does NOT rest on the library being rebuilt at a different -O level. If a
+ * future toolchain changes either the library's contraction default or
+ * clang's optnone contraction behaviour, the G-E1 SHA gate (Mac clang +
+ * the PR-N2 server gcc matrix + CI GCC) is the backstop that catches the
+ * regression. The copy-into-Serial + library-call alternative is
+ * spec-PROHIBITED here (no N_V*_Serial in overrides), so this codegen pin
+ * is the spec-compliant path.
  * ------------------------------------------------------------------- */
 #if defined(__clang__)
+/* clang: optnone disables vectorization AND drops the fn-level
+ * -ffp-contract=off, restoring the default contraction (FMA) so the fold
+ * matches the vendored *_Serial reductions on ARM. */
 #  define SHUD_NVEC_NOOPT __attribute__((optnone))
 #elif defined(__GNUC__)
-#  define SHUD_NVEC_NOOPT __attribute__((optimize("O0")))
+/* gcc: -O0 + explicit no-tree-vectorize → scalar sequential fold with
+ * default contraction. Not required for correctness on x86 (the plain
+ * override already matches the gcc-built lib) but pins the intent and
+ * guards a future gcc that might vectorize this loop at -O2. */
+#  define SHUD_NVEC_NOOPT __attribute__((optimize("O0", "no-tree-vectorize")))
 #else
 #  define SHUD_NVEC_NOOPT
 #endif
@@ -70,14 +105,17 @@
  * `cvode-6.0.0/src/nvector/serial/nvector_serial.c` function, with
  * `NV_LENGTH_S`/`NV_DATA_S` replaced by the backend-agnostic
  * `N_VGetLength`/`N_VGetArrayPointer`. Reproducing the serial body (not
- * the OpenMP body) guarantees the exact left-to-right accumulation order,
- * so results are bitwise-identical to the Serial NVector backend AND
- * across every thread count (there is no parallel accumulation left).
- * Each reduction that folds FP values carries SHUD_NVEC_NOOPT (see above)
- * so the -O2 optimizer cannot reassociate the fold away from the -O0
- * library order. Pure integer/branch bodies (invtest, constrmask) do not
- * strictly need it but carry it for uniformity + defence against future
- * FP creep.
+ * the OpenMP body) gives the same sequential left-to-right accumulation as
+ * the library *_Serial reductions, so results are bitwise-identical to the
+ * Serial NVector backend (Config C) AND across every thread count (there is
+ * no parallel accumulation left). Each reduction that folds FP values
+ * carries SHUD_NVEC_NOOPT (see above) so the compiler keeps a scalar,
+ * default-contraction (FMA-preserving) fold that matches the vendored
+ * library codegen — on clang/ARM this is REQUIRED (else -ffp-contract=off
+ * strips FMA and -O2 vectorizes the loop → ~1 ULP drift); on gcc/x86 it is
+ * inert (the plain override already matches). Pure integer/branch bodies
+ * (invtest, constrmask) carry no FP fold but keep the attribute for
+ * uniformity + defence against future FP creep.
  * ------------------------------------------------------------------- */
 
 /* a = sum(x[i]*y[i]) — mirrors N_VDotProd_Serial */
