@@ -21,6 +21,18 @@
  * B0 SHA gate). Reads ONLY the accepted CVODE state vector — never the uY*
  * RHS scratch globals (source-audit spec). */
 #include "MD_osc_diag.hpp"
+/* P12-nvec PR-N0 (#442) — env-gated (strict `=1`) NVector op-share
+ * profiler. Default-off: when SHUD_NVEC_PROF!=1 the ops-table shims are
+ * NEVER installed and the coupled-vector creation path is byte-identical
+ * (keliya B0 SHA gate). When on, shims are pure delegation (counting +
+ * monotonic-ns), so trajectories stay identical; nvec_prof.csv is dumped
+ * at run end. Wraps ONLY the coupled udata/du family; the decoupled
+ * 5-solver vectors (SHUD_uncouple below) are never wrapped. Composition
+ * order: the profiler wraps LAST/OUTERMOST so a future PR-N1 hybrid
+ * override (installed on the same vector BEFORE this call) is delegated
+ * through. No code here lives on the RHS f() path (f.cpp / MD_rhs_core.cpp
+ * untouched). */
+#include "MD_nvec_prof.hpp"
 /* P8-tune.G0 PR-B (#411) + PR-0 Phase 7 finding #4 cleanup —
  * SUNLinSol_Hypre_DrainTelemetry + SUNLinSolFree on shutdown. The
  * wrapper is link-always (cvode_config.cpp dispatches via SHUD_LINSOL);
@@ -192,6 +204,26 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->initialize_output();
     MD->PrintInit(fout->Init_bak, 0);
     MD->InitFloodAlert(fout->floodout);
+    /* P12-nvec PR-N0 (#442) — install the NVector op-share profiler shims
+     * on the coupled vectors HERE: after creation (and after any future
+     * SHUD-owned ops-table override, which a PR-N1 hybrid build inserts
+     * above), and BEFORE SetCVODE (which calls CVodeInit → N_VClone
+     * allocates every internal temporary, propagating the shim table).
+     * No-op unless SHUD_NVEC_PROF=1. Wrap both udata and du (same family;
+     * install is idempotent). The clone-propagation smoke assert runs once
+     * on udata so the stdout PASS line is captured in the evidence log. */
+    {
+#ifdef SHUD_USE_OPENMP_NVECTOR
+        const char *nvec_prof_backend = "openmp";
+#else
+        const char *nvec_prof_backend = "serial";
+#endif
+        nvec_prof_install(udata, nvec_prof_backend);
+        nvec_prof_install(du, nvec_prof_backend);
+        if (nvec_prof_is_on()) {
+            nvec_prof_clone_carries_shims(udata);
+        }
+    }
     SetCVODE(mem, f, MD, udata, LS, sunctx);
     /* set start time */
     t = MD->CS.StartTime;
@@ -329,6 +361,20 @@ double SHUD(FileIn *fin, FileOut *fout){
      * unless SHUD_DIAG_OSC=1). Outside the t_wall_total scope by design. */
     if (diag.any_on()) {
         diag.finish();
+    }
+    /* P12-nvec PR-N0 (#442): dump nvec_prof.csv at run end (no-op unless
+     * SHUD_NVEC_PROF=1). Reads only the per-op global counters, not the
+     * vectors, so it is safe to call before/after N_VDestroy; placed here
+     * (before free) to mirror the diag.finish() run-end pattern and stay
+     * outside any profile-timer scope. */
+    if (nvec_prof_is_on()) {
+#ifdef SHUD_USE_OPENMP_NVECTOR
+        const char *nvec_prof_backend = "openmp";
+#else
+        const char *nvec_prof_backend = "serial";
+#endif
+        nvec_prof_dump(fout->projectname, NY, MD->CS.num_threads,
+                       nvec_prof_backend, fout->outpath);
     }
     MD->ScreenPrint(t, MD->CS.NumSteps);
     MD->PrintInit(fout->Init_update, t);
