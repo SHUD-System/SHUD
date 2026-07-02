@@ -371,6 +371,25 @@ SHUD_NVEC_NOOPT static int shud_dotprodmultilocal(int nvec, N_Vector x, N_Vector
 #ifdef SHUD_NVEC_DETRED
 
 #include <stdlib.h>   /* malloc / free for the per-block partial array */
+#include <cstdlib>    /* std::abort on allocation failure */
+
+/* Checked allocation of the `nb`-entry block-partial array. On failure we
+ * ABORT LOUDLY rather than fall back to a serial fold: a fallback would
+ * compute a DIFFERENT summation order and silently break the cross-thread
+ * determinism contract (the whole point of Config E2). nb is bounded (heihe_x4
+ * NY≈120k → nb≈31 → ~248 bytes at B=4096), so a failure here is effectively
+ * system OOM, not an E2-specific condition — abort, never order-shift silently. */
+static realtype *det_alloc_partials(sunindextype nb)
+{
+  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+  if (part == NULL) {
+    fprintf(stderr,
+            "SHUD_NVEC_DETRED: block-partial allocation failed (nb=%d) — "
+            "aborting rather than degrading determinism\n", (int)nb);
+    std::abort();
+  }
+  return part;
+}
 
 /* Fixed compile-time block size B, independent of thread count. Overridable
  * on the make CLI (-DSHUD_NVEC_DETRED_B=256) for the forced-small-B
@@ -455,7 +474,7 @@ SHUD_NVEC_NOOPT static realtype det_dotprod(N_Vector x, N_Vector y)
     for (sunindextype i = 0; i < N; i++) DET_ADD(sum, c, xd[i] * yd[i]);
     return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
   }
-  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+  realtype *part = det_alloc_partials(nb);
 #pragma omp parallel for schedule(static)
   for (sunindextype blk = 0; blk < nb; blk++) {
     sunindextype lo = blk * (SHUD_NVEC_DETRED_B);
@@ -481,7 +500,7 @@ SHUD_NVEC_NOOPT static realtype det_wsqrsum(N_Vector x, N_Vector w)
     for (sunindextype i = 0; i < N; i++) { prodi = xd[i] * wd[i]; DET_ADD(sum, c, SUNSQR(prodi)); }
     return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
   }
-  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+  realtype *part = det_alloc_partials(nb);
 #pragma omp parallel for schedule(static)
   for (sunindextype blk = 0; blk < nb; blk++) {
     sunindextype lo = blk * (SHUD_NVEC_DETRED_B);
@@ -510,7 +529,7 @@ SHUD_NVEC_NOOPT static realtype det_wsqrsummask(N_Vector x, N_Vector w, N_Vector
     for (sunindextype i = 0; i < N; i++) if (idd[i] > ZERO) { prodi = xd[i] * wd[i]; DET_ADD(sum, c, SUNSQR(prodi)); }
     return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
   }
-  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+  realtype *part = det_alloc_partials(nb);
 #pragma omp parallel for schedule(static)
   for (sunindextype blk = 0; blk < nb; blk++) {
     sunindextype lo = blk * (SHUD_NVEC_DETRED_B);
@@ -553,7 +572,7 @@ SHUD_NVEC_NOOPT static realtype det_l1norm(N_Vector x)
     for (sunindextype i = 0; i < N; i++) DET_ADD(sum, c, SUNRabs(xd[i]));
     return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
   }
-  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+  realtype *part = det_alloc_partials(nb);
 #pragma omp parallel for schedule(static)
   for (sunindextype blk = 0; blk < nb; blk++) {
     sunindextype lo = blk * (SHUD_NVEC_DETRED_B);
