@@ -373,7 +373,18 @@ double SHUD(FileIn *fin, FileOut *fout){
 #else
         const char *nvec_prof_backend = "serial";
 #endif
-        nvec_prof_dump(fout->projectname, NY, MD->CS.num_threads,
+        /* Report the EFFECTIVE OpenMP thread count driving the run (== the
+         * N knob: OMP_NUM_THREADS / SHUD_RHS_THREADS via omp_get_max_threads),
+         * NOT MD->CS.num_threads (the cfg NUM_OPENMP value, which in Config C
+         * only governs the unused Serial-NVector thread hint and can differ
+         * from the run's N). Falls back to CS.num_threads when OpenMP is not
+         * compiled in (plain serial `make shud`). */
+#if defined(_OPENMP)
+        int nvec_prof_nthreads = omp_get_max_threads();
+#else
+        int nvec_prof_nthreads = MD->CS.num_threads;
+#endif
+        nvec_prof_dump(fout->projectname, NY, nvec_prof_nthreads,
                        nvec_prof_backend, fout->outpath);
     }
     MD->ScreenPrint(t, MD->CS.NumSteps);
