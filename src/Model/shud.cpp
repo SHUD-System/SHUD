@@ -183,6 +183,15 @@ double SHUD(FileIn *fin, FileOut *fout){
      * Element-wise ops keep the stock OpenMP parallel implementation. */
     nvec_hybrid_install(udata);
     nvec_hybrid_install(du);
+    /* P12-nvec PR-N3 (#445) — startup config identity line for the E2 binary
+     * marker (spec tier2-det-reduction "binary marker / startup log line").
+     * Config E prints DETRED=off; Config E2 prints the block size + Neumaier
+     * flag so the evidence log unambiguously identifies the reduction path. */
+    if (nvec_hybrid_detred_active())
+        fprintf(stdout, "NVEC config: Config E2 (fixed-tree deterministic reductions; B=%d, Neumaier=%d)\n",
+                nvec_hybrid_detred_block_size(), nvec_hybrid_detred_neumaier());
+    else
+        fprintf(stdout, "NVEC config: Config E (serial reduction overrides; DETRED=off)\n");
 #endif
 #else
     screeninfo("\nopenMP NVector: OFF (Serial backend)\n");

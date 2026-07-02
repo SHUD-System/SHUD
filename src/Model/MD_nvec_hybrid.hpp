@@ -56,8 +56,28 @@
  * are left stock. NULL slots (fused/vector-array, disabled by default)
  * stay NULL. Safe to call on udata AND du (idempotent — each call writes
  * the same SHUD addresses). Prints a one-line install summary to stdout
- * for the evidence log. */
+ * for the evidence log.
+ *
+ * P12-nvec PR-N3 (#445) — Config E2 (`SHUD_NVEC_DETRED=1`): the SUMMATION
+ * reduction slots (dotprod / wsqrsum[mask] / wl2norm / l1norm +
+ * dotprodmultilocal + their aliased `*local` siblings) are installed with
+ * FIXED-TREE deterministic bodies instead of the plain Tier-1 serial fold;
+ * the non-summation reductions (min / maxnorm / invtest / constrmask /
+ * minquotient) keep the Tier-1 serial bodies (already cross-thread
+ * deterministic — no combine order to fix). Selected entirely at compile
+ * time; with `SHUD_NVEC_DETRED` unset this function is byte-for-byte the
+ * Config E install (see the whole-file `#ifdef` note in the .cpp). */
 void nvec_hybrid_install(N_Vector v);
+
+/* P12-nvec PR-N3 (#445) — Config E2 identity + parameters for the startup
+ * banner and evidence log. Returns 1 iff built with `SHUD_NVEC_DETRED=1`
+ * (fixed-tree deterministic reductions active), else 0 (plain Config E).
+ * `*block_size` receives the compile-time block B; `*neumaier` receives 1
+ * iff Neumaier compensation is compiled in. All three are meaningful only
+ * under a hybrid build; the non-hybrid fallback returns 0 / 0 / 0. */
+int nvec_hybrid_detred_active(void);
+int nvec_hybrid_detred_block_size(void);
+int nvec_hybrid_detred_neumaier(void);
 
 /* Smoke assert (spec scenario "propagation assert"): clone `v` via BOTH
  * N_VClone and N_VCloneEmpty and verify each clone's reduction op pointers

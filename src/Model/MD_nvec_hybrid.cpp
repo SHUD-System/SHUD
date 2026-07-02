@@ -324,6 +324,263 @@ SHUD_NVEC_NOOPT static int shud_dotprodmultilocal(int nvec, N_Vector x, N_Vector
   return (0);
 }
 
+/* =====================================================================
+ * P12-nvec PR-N3 (#445) — Config E2: fixed-tree deterministic reductions.
+ *
+ * COMPILE-TIME-SELECTABLE ALTERNATIVE to the Tier-1 serial overrides above
+ * (spec tier2-det-reduction "SHUD_NVEC_DETRED build wiring"): the whole
+ * block is `#ifdef SHUD_NVEC_DETRED`, so with the flag off this TU is
+ * byte-for-byte the Config E install and revert = a build-flag flip.
+ *
+ * WHY A TREE AT ALL. Config E's Tier-1 fold is a single sequential
+ * left-to-right accumulation — already bitwise across thread counts (there
+ * is no parallel accumulation left), which is exactly why it is SLOW: the
+ * reduction cannot use the OpenMP NVector's threads. Config E2 restores
+ * parallelism WITHOUT reintroducing thread-count-dependent nondeterminism
+ * by making the summation ORDER a pure function of (NY, B), independent of
+ * the thread count and of the thread→block scheduling:
+ *
+ *   1. Partition [0, NY) into ceil(NY/B) blocks of a FIXED compile-time
+ *      size B (SHUD_NVEC_DETRED_B, default 4096 — INDEPENDENT of N).
+ *   2. Accumulate each block SERIALLY IN INDEX ORDER into a per-block
+ *      partial `part[blk]`. `part` is indexed by BLOCK ID, so a dynamic
+ *      `omp for` thread→block mapping writes only its own slots and cannot
+ *      affect any value (each block is a disjoint index range).
+ *   3. Combine the block partials in a FIXED bottom-up binary tree
+ *      (det_tree_combine): fold adjacent pairs [0,1][2,3]… then the
+ *      halved array, repeat until one value remains. Pure function of the
+ *      block COUNT (hence of NY and B). Same tree for N=1 and N=16.
+ *
+ * CODEGEN PIN (load-bearing — spec "serial in-block accumulation in index
+ * order"). The in-block fold below carries SHUD_NVEC_NOOPT for the SAME
+ * reason the Tier-1 bodies do: at -O2 the clang/gcc vectorizer would
+ * interleave the per-block accumulation across SIMD lanes. That stays
+ * deterministic, but it VIOLATES the spec letter ("serial in index order")
+ * and — because the Tier-1 reference for the A4 report is the scalar-FMA
+ * fold — would also shift the in-block ulp. Reusing the existing NOOPT pin
+ * (clang optnone / gcc O0+no-tree-vectorize) keeps every block a scalar
+ * sequential fold on both toolchains, so the ONLY order change vs Config E
+ * is the cross-block tree combine (measured by the A4 report, certified by
+ * A5). The tree-combine helper is tiny and scalar; it carries the pin too.
+ *
+ * NEUMAIER. Implemented plain first (design D4 / spec: "decide FROM the
+ * measured A4 ulp evidence"). SHUD_NVEC_DETRED_NEUMAIER compiles the
+ * compensated in-block fold + compensated combine; left at 0 unless the
+ * A4 report demands it. The PR records the decision + its ulp basis.
+ * ------------------------------------------------------------------- */
+#ifdef SHUD_NVEC_DETRED
+
+#include <stdlib.h>   /* malloc / free for the per-block partial array */
+
+/* Fixed compile-time block size B, independent of thread count. Overridable
+ * on the make CLI (-DSHUD_NVEC_DETRED_B=256) for the forced-small-B
+ * determinism leg (spec: production B=4096 ≥ keliya NY degenerates to a
+ * single block → the tree combine is untested unless a smaller B forces
+ * ≥ 4 blocks / ≥ 2 combine levels). */
+#ifndef SHUD_NVEC_DETRED_B
+#  define SHUD_NVEC_DETRED_B 4096
+#endif
+
+/* Neumaier (Kahan-Babuska) compensation — off by default; enabled only if
+ * the A4 ulp report demands it (decision recorded in the PR). */
+#ifndef SHUD_NVEC_DETRED_NEUMAIER
+#  define SHUD_NVEC_DETRED_NEUMAIER 0
+#endif
+
+/* Number of B-sized blocks covering N indices (pure function of N and B). */
+static inline sunindextype det_nblocks(sunindextype N)
+{
+  return (N + (SHUD_NVEC_DETRED_B) - 1) / (SHUD_NVEC_DETRED_B);
+}
+
+#if SHUD_NVEC_DETRED_NEUMAIER
+/* Neumaier compensated add: s += x with a running compensation c. */
+#  define DET_ADD(s, c, x) do {                         \
+      realtype _x = (x);                                \
+      volatile realtype _t = (s) + _x;                  \
+      if (SUNRabs(s) >= SUNRabs(_x)) (c) += ((s) - _t) + _x; \
+      else                          (c) += ((_x) - _t) + (s); \
+      (s) = _t;                                         \
+    } while (0)
+#else
+#  define DET_ADD(s, c, x) do { (void)(c); (s) += (x); } while (0)
+#endif
+
+/* Fixed bottom-up binary-tree combine of `nb` block partials, in place.
+ * Order is a pure function of nb (hence of NY and B) — NOT of thread count.
+ * Fold adjacent pairs [0,1][2,3]…, compact into the first ceil(nb/2)
+ * slots, repeat until one value remains in part[0]. With Neumaier on, each
+ * pair-add carries its own compensation folded back in. */
+SHUD_NVEC_NOOPT static realtype det_tree_combine(realtype *part, sunindextype nb)
+{
+  if (nb <= 0) return ZERO;
+  while (nb > 1) {
+    sunindextype half = (nb + 1) / 2;
+    for (sunindextype k = 0; k < half; k++) {
+      sunindextype a = 2 * k;
+      sunindextype b = a + 1;
+      if (b < nb) {
+#if SHUD_NVEC_DETRED_NEUMAIER
+        realtype s = part[a], c = ZERO;
+        DET_ADD(s, c, part[b]);
+        part[k] = s + c;
+#else
+        part[k] = part[a] + part[b];
+#endif
+      } else {
+        part[k] = part[a];   /* odd tail carries up unchanged */
+      }
+    }
+    nb = half;
+  }
+  return part[0];
+}
+
+/* In-block serial fold of a plain product sum sum_{i in blk} f(i), where the
+ * per-element term is provided by the caller via a macro expansion. We keep
+ * the three summation kernels explicit (below) rather than a callback so the
+ * NOOPT scalar codegen is preserved and no indirect call blocks it. */
+
+/* a = sum(x[i]*y[i]) — deterministic-tree dotprod (mirrors shud_dotprod's
+ * per-element term; only the accumulation ORDER differs: per-block serial +
+ * fixed tree combine). */
+SHUD_NVEC_NOOPT static realtype det_dotprod(N_Vector x, N_Vector y)
+{
+  sunindextype N = N_VGetLength(x);
+  realtype *xd = N_VGetArrayPointer(x);
+  realtype *yd = N_VGetArrayPointer(y);
+  sunindextype nb = det_nblocks(N);
+  if (nb <= 1) {                       /* degenerate: identical to Tier-1 fold */
+    realtype sum = ZERO, c = ZERO;
+    for (sunindextype i = 0; i < N; i++) DET_ADD(sum, c, xd[i] * yd[i]);
+    return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
+  }
+  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+#pragma omp parallel for schedule(static)
+  for (sunindextype blk = 0; blk < nb; blk++) {
+    sunindextype lo = blk * (SHUD_NVEC_DETRED_B);
+    sunindextype hi = lo + (SHUD_NVEC_DETRED_B); if (hi > N) hi = N;
+    realtype sum = ZERO, c = ZERO;
+    for (sunindextype i = lo; i < hi; i++) DET_ADD(sum, c, xd[i] * yd[i]);
+    part[blk] = sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
+  }
+  realtype r = det_tree_combine(part, nb);
+  free(part);
+  return r;
+}
+
+/* sum(SUNSQR(x[i]*w[i])) — deterministic-tree wsqrsum (backs wrmsnorm). */
+SHUD_NVEC_NOOPT static realtype det_wsqrsum(N_Vector x, N_Vector w)
+{
+  sunindextype N = N_VGetLength(x);
+  realtype *xd = N_VGetArrayPointer(x);
+  realtype *wd = N_VGetArrayPointer(w);
+  sunindextype nb = det_nblocks(N);
+  if (nb <= 1) {
+    realtype sum = ZERO, c = ZERO, prodi;
+    for (sunindextype i = 0; i < N; i++) { prodi = xd[i] * wd[i]; DET_ADD(sum, c, SUNSQR(prodi)); }
+    return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
+  }
+  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+#pragma omp parallel for schedule(static)
+  for (sunindextype blk = 0; blk < nb; blk++) {
+    sunindextype lo = blk * (SHUD_NVEC_DETRED_B);
+    sunindextype hi = lo + (SHUD_NVEC_DETRED_B); if (hi > N) hi = N;
+    realtype sum = ZERO, c = ZERO, prodi;
+    for (sunindextype i = lo; i < hi; i++) { prodi = xd[i] * wd[i]; DET_ADD(sum, c, SUNSQR(prodi)); }
+    part[blk] = sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
+  }
+  realtype r = det_tree_combine(part, nb);
+  free(part);
+  return r;
+}
+
+/* masked sum(SUNSQR(x[i]*w[i])) — deterministic-tree wsqrsummask. The mask
+ * test is per-element and index-local, so it does not affect block
+ * boundaries or combine order. */
+SHUD_NVEC_NOOPT static realtype det_wsqrsummask(N_Vector x, N_Vector w, N_Vector id)
+{
+  sunindextype N = N_VGetLength(x);
+  realtype *xd  = N_VGetArrayPointer(x);
+  realtype *wd  = N_VGetArrayPointer(w);
+  realtype *idd = N_VGetArrayPointer(id);
+  sunindextype nb = det_nblocks(N);
+  if (nb <= 1) {
+    realtype sum = ZERO, c = ZERO, prodi;
+    for (sunindextype i = 0; i < N; i++) if (idd[i] > ZERO) { prodi = xd[i] * wd[i]; DET_ADD(sum, c, SUNSQR(prodi)); }
+    return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
+  }
+  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+#pragma omp parallel for schedule(static)
+  for (sunindextype blk = 0; blk < nb; blk++) {
+    sunindextype lo = blk * (SHUD_NVEC_DETRED_B);
+    sunindextype hi = lo + (SHUD_NVEC_DETRED_B); if (hi > N) hi = N;
+    realtype sum = ZERO, c = ZERO, prodi;
+    for (sunindextype i = lo; i < hi; i++) if (idd[i] > ZERO) { prodi = xd[i] * wd[i]; DET_ADD(sum, c, SUNSQR(prodi)); }
+    part[blk] = sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
+  }
+  realtype r = det_tree_combine(part, nb);
+  free(part);
+  return r;
+}
+
+/* sqrt(det_wsqrsum(x,w)/N) — deterministic-tree wrmsnorm. */
+SHUD_NVEC_NOOPT static realtype det_wrmsnorm(N_Vector x, N_Vector w)
+{
+  return (SUNRsqrt(det_wsqrsum(x, w) / (N_VGetLength(x))));
+}
+
+/* sqrt(det_wsqrsummask(x,w,id)/N) — deterministic-tree wrmsnormmask. */
+SHUD_NVEC_NOOPT static realtype det_wrmsnormmask(N_Vector x, N_Vector w, N_Vector id)
+{
+  return (SUNRsqrt(det_wsqrsummask(x, w, id) / (N_VGetLength(x))));
+}
+
+/* sqrt(sum(SUNSQR(x[i]*w[i]))) — deterministic-tree wl2norm. */
+SHUD_NVEC_NOOPT static realtype det_wl2norm(N_Vector x, N_Vector w)
+{
+  return (SUNRsqrt(det_wsqrsum(x, w)));
+}
+
+/* sum|x[i]| — deterministic-tree l1norm. */
+SHUD_NVEC_NOOPT static realtype det_l1norm(N_Vector x)
+{
+  sunindextype N = N_VGetLength(x);
+  realtype *xd = N_VGetArrayPointer(x);
+  sunindextype nb = det_nblocks(N);
+  if (nb <= 1) {
+    realtype sum = ZERO, c = ZERO;
+    for (sunindextype i = 0; i < N; i++) DET_ADD(sum, c, SUNRabs(xd[i]));
+    return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
+  }
+  realtype *part = (realtype *)malloc((size_t)nb * sizeof(realtype));
+#pragma omp parallel for schedule(static)
+  for (sunindextype blk = 0; blk < nb; blk++) {
+    sunindextype lo = blk * (SHUD_NVEC_DETRED_B);
+    sunindextype hi = lo + (SHUD_NVEC_DETRED_B); if (hi > N) hi = N;
+    realtype sum = ZERO, c = ZERO;
+    for (sunindextype i = lo; i < hi; i++) DET_ADD(sum, c, SUNRabs(xd[i]));
+    part[blk] = sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
+  }
+  realtype r = det_tree_combine(part, nb);
+  free(part);
+  return r;
+}
+
+/* single-buffer multi dot product — deterministic-tree dotprodmultilocal.
+ * Each output dotprods[i] is an independent fixed-tree sum over the same
+ * partition; the outer loop over nvec is serial (its order is not a
+ * reduction — each entry is a distinct result). */
+SHUD_NVEC_NOOPT static int det_dotprodmultilocal(int nvec, N_Vector x, N_Vector *Y, realtype *dotprods)
+{
+  if (nvec < 1) return (-1);
+  for (int i = 0; i < nvec; i++)
+    dotprods[i] = det_dotprod(x, Y[i]);
+  return (0);
+}
+
+#endif /* SHUD_NVEC_DETRED */
+
 /* ---------------------------------------------------------------------
  * install(): overwrite each populated reduction slot (and its aliased
  * `*local` sibling) with the serial override. Element-wise slots are left
@@ -334,7 +591,19 @@ SHUD_NVEC_NOOPT static int shud_dotprodmultilocal(int nvec, N_Vector x, N_Vector
  * into a NULL slot. Writing the standard AND the `*local` slot closes the
  * aliasing hazard: the stock pointers are identical, so leaving one slot
  * would keep a stock parallel body reachable.
+ *
+ * P12-nvec PR-N3 (#445): under SHUD_NVEC_DETRED the SUMMATION slots resolve
+ * to the fixed-tree det_* bodies (via the DET_SUM macro); non-summation
+ * slots (min/maxnorm/invtest/constrmask/minquotient) always use the Tier-1
+ * serial bodies — they carry no combine order to fix and are already
+ * cross-thread deterministic. With the flag off, DET_SUM(FN) == shud_FN, so
+ * install() is byte-identical to Config E.
  * ------------------------------------------------------------------- */
+#ifdef SHUD_NVEC_DETRED
+#  define DET_SUM(TIER1, DETRED) (DETRED)
+#else
+#  define DET_SUM(TIER1, DETRED) (TIER1)
+#endif
 #define HYB_SET(FIELD, FN) do { if ((FIELD) != NULL) (FIELD) = (FN); } while (0)
 
 void nvec_hybrid_install(N_Vector v)
@@ -342,42 +611,103 @@ void nvec_hybrid_install(N_Vector v)
   if (v == NULL || v->ops == NULL) return;
   N_Vector_Ops o = v->ops;
 
-  /* standard reductions */
+  /* standard reductions — summation slots go through DET_SUM (fixed-tree
+   * det_* under E2, plain serial shud_* under E); non-summation slots
+   * (maxnorm/min/invtest/constrmask/minquotient) always Tier-1 serial. */
+#ifdef SHUD_NVEC_DETRED
+  HYB_SET(o->nvdotprod,      det_dotprod);
+  HYB_SET(o->nvwrmsnorm,     det_wrmsnorm);
+  HYB_SET(o->nvwrmsnormmask, det_wrmsnormmask);
+  HYB_SET(o->nvwl2norm,      det_wl2norm);
+  HYB_SET(o->nvl1norm,       det_l1norm);
+#else
   HYB_SET(o->nvdotprod,      shud_dotprod);
-  HYB_SET(o->nvmaxnorm,      shud_maxnorm);
   HYB_SET(o->nvwrmsnorm,     shud_wrmsnorm);
   HYB_SET(o->nvwrmsnormmask, shud_wrmsnormmask);
-  HYB_SET(o->nvmin,          shud_min);
   HYB_SET(o->nvwl2norm,      shud_wl2norm);
   HYB_SET(o->nvl1norm,       shud_l1norm);
+#endif
+  HYB_SET(o->nvmaxnorm,      shud_maxnorm);
+  HYB_SET(o->nvmin,          shud_min);
   HYB_SET(o->nvinvtest,      shud_invtest);
   HYB_SET(o->nvconstrmask,   shud_constrmask);
   HYB_SET(o->nvminquotient,  shud_minquotient);
 
   /* local reduction kernels (aliased to the standard pointer on the OpenMP
    * backend — must be overridden too, else the alias keeps the stock body) */
+#ifdef SHUD_NVEC_DETRED
+  HYB_SET(o->nvdotprodlocal,     det_dotprod);
+  HYB_SET(o->nvl1normlocal,      det_l1norm);
+  HYB_SET(o->nvwsqrsumlocal,     det_wsqrsum);
+  HYB_SET(o->nvwsqrsummasklocal, det_wsqrsummask);
+#else
   HYB_SET(o->nvdotprodlocal,     shud_dotprod);
+  HYB_SET(o->nvl1normlocal,      shud_l1norm);
+  HYB_SET(o->nvwsqrsumlocal,     shud_wsqrsum);
+  HYB_SET(o->nvwsqrsummasklocal, shud_wsqrsummask);
+#endif
   HYB_SET(o->nvmaxnormlocal,     shud_maxnorm);
   HYB_SET(o->nvminlocal,         shud_min);
-  HYB_SET(o->nvl1normlocal,      shud_l1norm);
   HYB_SET(o->nvinvtestlocal,     shud_invtest);
   HYB_SET(o->nvconstrmasklocal,  shud_constrmask);
   HYB_SET(o->nvminquotientlocal, shud_minquotient);
-  HYB_SET(o->nvwsqrsumlocal,     shud_wsqrsum);
-  HYB_SET(o->nvwsqrsummasklocal, shud_wsqrsummask);
 
   /* single-buffer reduction (populated by the OpenMP backend) */
+#ifdef SHUD_NVEC_DETRED
+  HYB_SET(o->nvdotprodmultilocal, det_dotprodmultilocal);
+#else
   HYB_SET(o->nvdotprodmultilocal, shud_dotprodmultilocal);
+#endif
 
   /* fused / vector-array reductions are NULL by default (SHUD never calls
    * N_VEnable*Ops) → nothing to override; HYB_SET no-ops on the NULL slots
    * if a future config enables them it must extend this list + the audit. */
 
+#ifdef SHUD_NVEC_DETRED
+  fprintf(stdout,
+          "[NVEC_HYBRID] Config E2 fixed-tree DETERMINISTIC reduction overrides "
+          "installed on ops table (SUMMATION slots dotprod/wrmsnorm[mask]/wl2norm/"
+          "l1norm + aliased *local + wsqrsum[mask]local + dotprodmultilocal use "
+          "block B=%d + fixed binary-tree combine, Neumaier=%d; non-summation "
+          "min/maxnorm/invtest/constrmask/minquotient stay Tier-1 serial); "
+          "element-wise ops stay stock-OpenMP.\n",
+          (int)(SHUD_NVEC_DETRED_B), (int)(SHUD_NVEC_DETRED_NEUMAIER));
+#else
   fprintf(stdout,
           "[NVEC_HYBRID] serial reduction overrides installed on ops table "
           "(dotprod/maxnorm/wrmsnorm[mask]/min/wl2norm/l1norm/invtest/"
           "constrmask/minquotient + aliased *local + wsqrsum[mask]local + "
           "dotprodmultilocal); element-wise ops stay stock-OpenMP.\n");
+#endif
+}
+
+/* P12-nvec PR-N3 (#445) — Config E2 identity accessors for the startup
+ * banner + evidence log (declared in the header; hybrid build). */
+int nvec_hybrid_detred_active(void)
+{
+#ifdef SHUD_NVEC_DETRED
+  return 1;
+#else
+  return 0;
+#endif
+}
+
+int nvec_hybrid_detred_block_size(void)
+{
+#ifdef SHUD_NVEC_DETRED
+  return (int)(SHUD_NVEC_DETRED_B);
+#else
+  return 0;
+#endif
+}
+
+int nvec_hybrid_detred_neumaier(void)
+{
+#ifdef SHUD_NVEC_DETRED
+  return (int)(SHUD_NVEC_DETRED_NEUMAIER);
+#else
+  return 0;
+#endif
 }
 
 /* ---------------------------------------------------------------------
@@ -386,21 +716,39 @@ void nvec_hybrid_install(N_Vector v)
  * N_VCopyOps), and that those pointers DIFFER from a fresh stock vector's
  * reduction pointers. Checks the 10 standard reduction slots.
  * ------------------------------------------------------------------- */
+/* The expected override address for each standard reduction slot, resolving
+ * the summation slots to the fixed-tree det_* body under E2 and the plain
+ * serial shud_* body under E — so the clone-propagation count is 10 in both
+ * configs. */
+#ifdef SHUD_NVEC_DETRED
+#  define EXP_DOTPROD      det_dotprod
+#  define EXP_WRMSNORM     det_wrmsnorm
+#  define EXP_WRMSNORMMASK det_wrmsnormmask
+#  define EXP_WL2NORM      det_wl2norm
+#  define EXP_L1NORM       det_l1norm
+#else
+#  define EXP_DOTPROD      shud_dotprod
+#  define EXP_WRMSNORM     shud_wrmsnorm
+#  define EXP_WRMSNORMMASK shud_wrmsnormmask
+#  define EXP_WL2NORM      shud_wl2norm
+#  define EXP_L1NORM       shud_l1norm
+#endif
+
 static int hyb_count_overrides_on(N_Vector v)
 {
   if (v == NULL || v->ops == NULL) return 0;
   N_Vector_Ops o = v->ops;
   int n = 0;
-  if ((void *)o->nvdotprod      == (void *)shud_dotprod)      n++;
-  if ((void *)o->nvmaxnorm      == (void *)shud_maxnorm)      n++;
-  if ((void *)o->nvwrmsnorm     == (void *)shud_wrmsnorm)     n++;
-  if ((void *)o->nvwrmsnormmask == (void *)shud_wrmsnormmask) n++;
-  if ((void *)o->nvmin          == (void *)shud_min)          n++;
-  if ((void *)o->nvwl2norm      == (void *)shud_wl2norm)      n++;
-  if ((void *)o->nvl1norm       == (void *)shud_l1norm)       n++;
-  if ((void *)o->nvinvtest      == (void *)shud_invtest)      n++;
-  if ((void *)o->nvconstrmask   == (void *)shud_constrmask)   n++;
-  if ((void *)o->nvminquotient  == (void *)shud_minquotient)  n++;
+  if ((void *)o->nvdotprod      == (void *)EXP_DOTPROD)      n++;
+  if ((void *)o->nvmaxnorm      == (void *)shud_maxnorm)     n++;
+  if ((void *)o->nvwrmsnorm     == (void *)EXP_WRMSNORM)     n++;
+  if ((void *)o->nvwrmsnormmask == (void *)EXP_WRMSNORMMASK) n++;
+  if ((void *)o->nvmin          == (void *)shud_min)         n++;
+  if ((void *)o->nvwl2norm      == (void *)EXP_WL2NORM)      n++;
+  if ((void *)o->nvl1norm       == (void *)EXP_L1NORM)       n++;
+  if ((void *)o->nvinvtest      == (void *)shud_invtest)     n++;
+  if ((void *)o->nvconstrmask   == (void *)shud_constrmask)  n++;
+  if ((void *)o->nvminquotient  == (void *)shud_minquotient) n++;
   return n;
 }
 
@@ -453,7 +801,20 @@ bool nvec_hybrid_addr_is_override(void *fp)
          || fp == (void *)shud_minquotient
          || fp == (void *)shud_wsqrsum
          || fp == (void *)shud_wsqrsummask
-         || fp == (void *)shud_dotprodmultilocal;
+         || fp == (void *)shud_dotprodmultilocal
+#ifdef SHUD_NVEC_DETRED
+         /* Config E2 fixed-tree summation bodies are equally valid override
+          * addresses (the PROF×HYBRID composition assert delegates to them). */
+         || fp == (void *)det_dotprod
+         || fp == (void *)det_wrmsnorm
+         || fp == (void *)det_wrmsnormmask
+         || fp == (void *)det_wl2norm
+         || fp == (void *)det_l1norm
+         || fp == (void *)det_wsqrsum
+         || fp == (void *)det_wsqrsummask
+         || fp == (void *)det_dotprodmultilocal
+#endif
+         ;
 }
 
 #else /* !SHUD_NVEC_HYBRID — no-op fallbacks so shud.cpp links unconditionally */
@@ -463,5 +824,8 @@ bool nvec_hybrid_addr_is_override(void *fp)
 void nvec_hybrid_install(N_Vector /*v*/) { }
 bool nvec_hybrid_clone_carries_overrides(N_Vector /*v*/) { return true; }
 bool nvec_hybrid_addr_is_override(void * /*fp*/) { return false; }
+int  nvec_hybrid_detred_active(void) { return 0; }
+int  nvec_hybrid_detred_block_size(void) { return 0; }
+int  nvec_hybrid_detred_neumaier(void) { return 0; }
 
 #endif /* SHUD_NVEC_HYBRID */

@@ -268,6 +268,54 @@ else
 $(error SHUD_NVEC_HYBRID must be 0 or 1, got '$(SHUD_NVEC_HYBRID)')
 endif
 
+# -----------------------------------------------------------------
+# P12-nvec PR-N3 (#445) — SHUD_NVEC_DETRED (Config E2)
+# -----------------------------------------------------------------
+# Config E2 = Config E with the SUMMATION reduction slots replaced by
+# FIXED-TREE deterministic bodies (src/Model/MD_nvec_hybrid.cpp, guarded
+# `#ifdef SHUD_NVEC_DETRED`): partition [0,NY) into fixed compile-time
+# blocks of size SHUD_NVEC_DETRED_B (default 4096, INDEPENDENT of thread
+# count), accumulate each block serially in index order, and combine the
+# block partials in a fixed binary-tree order (a pure function of NY and B)
+# → bitwise across thread counts by construction, but a one-time summation-
+# order shift vs Config E/C (certified by G-E4 A4 ulp + A5). Design D4 /
+# spec tier2-det-reduction.
+#
+# SHUD_NVEC_DETRED (default 0):
+#   0 = the det_* fixed-tree bodies are #ifdef'd OUT; install() wires the
+#       plain Tier-1 serial overrides → behavior BYTE-IDENTICAL to Config E
+#       (spec scenario "E2 off leaves Config E intact"). Revert to Config E
+#       = rebuild without the flag, NOT a git revert.
+#   1 = -DSHUD_NVEC_DETRED=1: Config E2 leg:
+#         make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1 SHUD_NVEC_DETRED=1
+#       binary marker: "NVEC config: Config E2 ..." startup line + the
+#       [NVEC_HYBRID] Config E2 install banner.
+#
+# DETRED=1 is meaningful ONLY with the Config E hybrid overrides (it
+# selects WHICH reduction bodies install onto N_VNew_OpenMP's ops table);
+# it requires SHUD_NVEC_HYBRID=1 (which transitively requires
+# SHUD_USE_OPENMP_NVECTOR=1). Set without SHUD_NVEC_HYBRID=1 → the build
+# MUST fail LOUD (mirrors the SHUD_NVEC_HYBRID guard above). Same parse-time
+# constraint: target-specific vars don't reach a parse-time `ifeq`, so the
+# guard reads the CLI/`?=` value of SHUD_NVEC_HYBRID directly (which the
+# Config E2 leg sets on the make CLI).
+#
+# SHUD_NVEC_DETRED_B / SHUD_NVEC_DETRED_NEUMAIER: optional compile-time
+# knobs threaded through EXTRA_CXXFLAGS (e.g.
+# `EXTRA_CXXFLAGS=-DSHUD_NVEC_DETRED_B=256` for the forced-small-B
+# determinism leg). The source carries the 4096 / 0 defaults.
+SHUD_NVEC_DETRED ?= 0
+ifeq ($(SHUD_NVEC_DETRED),0)
+  SHUD_NVEC_DETRED_DEFINE :=
+else ifeq ($(SHUD_NVEC_DETRED),1)
+  ifneq ($(SHUD_NVEC_HYBRID),1)
+$(error SHUD_NVEC_DETRED=1 requires SHUD_NVEC_HYBRID=1 (Config E2 = fixed-tree deterministic reductions, a compile-time alternative to the Config E serial overrides); set all three, e.g. `make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1 SHUD_NVEC_DETRED=1`)
+  endif
+  SHUD_NVEC_DETRED_DEFINE := -DSHUD_NVEC_DETRED=1
+else
+$(error SHUD_NVEC_DETRED must be 0 or 1, got '$(SHUD_NVEC_DETRED)')
+endif
+
 # EXTRA_CXXFLAGS: free-form append slot for caller-supplied defines
 # the build doesn't otherwise know about. The S1d.1 smoke test uses
 # `EXTRA_CXXFLAGS=-DNDEBUG` to verify that `std::abort()` stubs
@@ -300,9 +348,9 @@ SHUD_ASAN_FLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer
 .PHONY: shud_asan
 shud_asan: check_sundials $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo '...Compiling shud_asan (ASan + UBSan instrumented; S5d.2-5a #179) ...'
-	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(BUILDDIR)/shud_asan $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_NVEC_OMP_LK)
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(BUILDDIR)/shud_asan $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_NVEC_OMP_LK)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(BUILDDIR)/shud_asan $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_NVEC_OMP_LK)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(BUILDDIR)/shud_asan $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_NVEC_OMP_LK)
 	@echo
 	@echo " $(BUILDDIR)/shud_asan is compiled successfully (ASan+UBSan)"
 	@echo
@@ -619,9 +667,9 @@ else
 endif
 shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo '...Compiling shud (B0 serial / Config A by default) ...'
-	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_OMP_RHS_CK) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(SHUD_OMP_RHS_LK)
+	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_OMP_RHS_CK) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(SHUD_OMP_RHS_LK)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_OMP_RHS_CK) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(SHUD_OMP_RHS_LK)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_OMP_RHS_CK) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(SHUD_OMP_RHS_LK)
 	@echo
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
@@ -647,9 +695,9 @@ shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
 # target with the P1e-endorsed production build.
 shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
 	@echo '...Compiling shud_OpenMP (Config C default: Serial NVec + StrictOMP RHS) ...'
-	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
+	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
 	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
+	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
 	@echo
 	@echo " $(TARGET_OMP) is compiled successfully!"
 	@echo
