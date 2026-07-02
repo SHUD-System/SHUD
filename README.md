@@ -168,7 +168,45 @@ export OMP_PLACES=cores
 
 Amdahl parallel fraction on `heihe_x4` is ~0.51, so the theoretical
 speedup ceiling is near 2× regardless of thread count. Adding threads
-beyond N=16 will not exceed this.
+beyond N=16 will not exceed this. **v1.1 lifts this ceiling** — the
+Config E/E2 opt-in legs below parallelize the CVODE-internal NVector
+work that constitutes most of that serial remainder.
+
+### Config E / E2 — deterministic hybrid NVector (v1.1+, opt-in)
+
+Two additional build legs parallelize CVODE's internal vector operations
+(element-wise + reductions ≈ 86% of raw CVODE time at N=16 on
+`heihe_x4`). Both are compile-time opt-in; `make shud_omp` alone still
+produces the unchanged Config C default.
+
+```bash
+# Config E — OpenMP element-wise NVector + serial reduction overrides.
+#            BITWISE-IDENTICAL to Config C at every thread count.
+make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1
+
+# Config E2 — Config E + fixed-tree deterministic parallel reductions
+#             (block size B=4096 via SHUD_NVEC_DETRED_B). Cross-thread
+#             bitwise BY CONSTRUCTION, but a ONE-TIME summation-order
+#             shift vs C/E => new golden lineage (A5-certified:
+#             nse=1.0000 / kge=0.9999 vs Config C).
+make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1 SHUD_NVEC_DETRED=1
+```
+
+Measured on `heihe_x4` (90-day, node-exclusive Xeon, 3-run medians):
+
+| Config @N16 | wall (s) | vs Config C @N16 | vs serial |
+|---|---:|---:|---:|
+| C (default)  | 694 | 1.00× | 1.86× |
+| E            | 492 | 1.41× | 2.62× |
+| E2           | 363 | **1.915×** | **≈3.55×** |
+
+Thread-count knob for E/E2: the NVector thread count comes from the
+**cfg.para `NUM_OPENMP`** field (not `OMP_NUM_THREADS` alone) — set both
+to the same N. Note Config E at cfg N=1 runs a 2-thread NVector floor.
+Determinism contract: E == C bitwise everywhere; E2 is thread-count-
+invariant but order-shifted once — validate E2 against an E2 golden,
+never mix goldens across the C/E ↔ E2 boundary. Authority:
+`docs/adr/0011-*.md` + `docs/p12-nvec/` in the SHUD-OpenMP repo.
 
 ### Slurm single-node example
 
