@@ -98,28 +98,43 @@ The output files from the SHUD model is save in `./output/ccw.out`.  The R packa
 
 ## OpenMP parallel build (v1.0.1+)
 
-`make shud_omp` produces a shared-memory OpenMP-parallel binary that
-parallelizes the right-hand-side (RHS) evaluation of the coupled ODE
-system. On `heihe_x4` (40,046 elements, 90-day) it delivers **~1.8× at
-N=8 threads, ~1.95× at N=16**, with A5 hydrology acceptance PASS at every
-thread count (bitwise-equivalent trajectory vs the serial reference).
-Full scaling table in `RELEASE.md` §Scaling profile. Since **v1.1** two
-opt-in build legs go further — up to **≈3.55× vs serial** on the same
-case — see §Config E / E2 below.
+`make shud_omp` produces a shared-memory OpenMP-parallel binary. Since
+**v1.1.1** the default build is **Config E** (OpenMP NVector element-wise
+ops + SHUD serial reduction overrides, on top of StrictOMP RHS) — it
+parallelizes both the right-hand-side (RHS) evaluation *and* CVODE's
+internal vector operations, yet stays **bitwise-identical to the older
+Config C default at every thread count**. On `heihe_x4` (40,046 elements,
+90-day) the RHS layer alone (Config C) delivers **~1.8× at N=8, ~1.95× at
+N=16**; the default Config E adds the NVector layer for **≈2.62× vs serial
+@N16** (1.41× over Config C), and the opt-in Config E2 reaches **≈3.55× vs
+serial**. Every config is A5 hydrology-acceptance PASS. Full scaling table
+in `RELEASE.md` §Scaling profile; config picker below. To get the older
+Serial-NVector Config C binary, opt out with
+`make shud_omp SHUD_USE_OPENMP_NVECTOR=0`.
 
 ### Which build do I want? (quick pick)
 
 | Your situation | Build this | One-line command |
 |---|---|---|
-| First time here / must match previously published results **bit-for-bit** | **Config C** (default) | `make shud_omp` |
-| Want it faster, still **bitwise-identical** to Config C at any thread count | **Config E** (v1.1) | `make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1` |
-| Want the **fastest** run; OK adopting a new (A5-certified) reference once | **Config E2** (v1.1) | `make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1 SHUD_NVEC_DETRED=1` |
+| Default — fast **and** bitwise-identical to the Config C reference at any thread count | **Config E** (default, v1.1.1) | `make shud_omp` |
+| Strict minimal-dependency / serial-NVector debug build (no `nvecopenmp` link) | **Config C** (opt-out) | `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` |
+| Want the **fastest** run; OK adopting a new (A5-certified) reference once | **Config E2** (v1.1) | `make shud_omp SHUD_NVEC_DETRED=1` |
 
 All three are the same physics and the same solver — they differ only in
 which parts of the linear-algebra layer run in parallel and, for E2, the
 (deterministic) order of floating-point summation. Whichever you pick,
 results are **reproducible across thread counts** (run at N=1 today and
 N=16 tomorrow: same output, bit for bit — within that config's lineage).
+
+Since **v1.1.1** the default `make shud_omp` builds **Config E**, not Config
+C. E is bitwise-identical to Config C at every thread count (so nothing you
+validated against Config C changes) and 1.41× faster @N16 — a pure Pareto
+upgrade. If you specifically need the Serial-NVector Config C binary (e.g.
+a strict minimal-dependency build with no `libsundials_nvecopenmp` link, or
+for NVector-layer debugging), opt out with the single flag
+`make shud_omp SHUD_USE_OPENMP_NVECTOR=0`. Config E2 no longer needs all
+three flags — `SHUD_NVEC_DETRED=1` alone suffices under `make shud_omp`
+because `SHUD_NVEC_HYBRID` now defaults on there.
 
 ### Important: threads are OpenMP threads, not MPI processes
 
@@ -134,16 +149,24 @@ for one simulation.
 
 ```bash
 ./configure          # downloads SUNDIALS/CVODE 6.0.0
-make shud_omp        # Config C by default: Serial NVec + StrictOMP RHS
+make shud_omp        # Config E by default (v1.1.1): OpenMP NVec element-wise
+                     #   + serial reduction overrides + StrictOMP RHS
 ```
 
-No compile-time flags required. Optional verification that the build got
-the StrictOMP RHS path (a `SHUD_RHS_THREADS` startup-log string is
-compiled in iff the macro was defined):
+No compile-time flags required. The default is **Config E** since v1.1.1
+(bitwise-identical to the older Config C default, 1.41×@N16 faster). Verify
+the build got the hybrid NVector path (the Config E startup marker is
+compiled in only when the hybrid overrides are active):
 
 ```bash
-strings shud_omp | grep SHUD_RHS_THREADS   # should print at least 1 line
+strings shud_omp | grep "NVEC config: Config E"   # >=1 line for Config E/E2
+strings shud_omp | grep SHUD_RHS_THREADS          # >=1 line: StrictOMP RHS present
 ```
+
+At run time the binary prints one authoritative
+`NVEC config: Config E (serial reduction overrides; DETRED=off)` line — trust
+that over the compiled-in strings (both the E and E2 format strings are
+present in any hybrid binary; only one branch executes).
 
 ### Run — specifying thread count
 
@@ -191,22 +214,28 @@ work that constitutes most of that serial remainder.
 
 ### Config E / E2 — deterministic hybrid NVector (v1.1+, opt-in)
 
-Two additional build legs parallelize CVODE's internal vector operations
+Two build legs parallelize CVODE's internal vector operations
 (element-wise + reductions ≈ 86% of raw CVODE time at N=16 on
-`heihe_x4`). Both are compile-time opt-in; `make shud_omp` alone still
-produces the unchanged Config C default.
+`heihe_x4`). Since **v1.1.1**, **Config E is the default** `make shud_omp`
+build; Config E2 is one extra flag.
 
 ```bash
 # Config E — OpenMP element-wise NVector + serial reduction overrides.
-#            BITWISE-IDENTICAL to Config C at every thread count.
-make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1
+#            DEFAULT since v1.1.1. BITWISE-IDENTICAL to Config C at every
+#            thread count. (Explicit long form still works and is
+#            equivalent: SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1.)
+make shud_omp
 
 # Config E2 — Config E + fixed-tree deterministic parallel reductions
 #             (block size B=4096 via SHUD_NVEC_DETRED_B). Cross-thread
 #             bitwise BY CONSTRUCTION, but a ONE-TIME summation-order
 #             shift vs C/E => new golden lineage (A5-certified:
-#             nse=1.0000 / kge=0.9999 vs Config C).
-make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1 SHUD_NVEC_DETRED=1
+#             nse=1.0000 / kge=0.9999 vs Config C). SHUD_NVEC_HYBRID
+#             now defaults on under shud_omp, so DETRED=1 alone selects E2.
+make shud_omp SHUD_NVEC_DETRED=1
+
+# Config C — Serial-NVector opt-out (strict minimal-dependency / debug).
+make shud_omp SHUD_USE_OPENMP_NVECTOR=0
 ```
 
 Measured on `heihe_x4` (90-day, node-exclusive Xeon, 3-run medians):
@@ -255,10 +284,14 @@ than the scaling table.
 ### Common pitfalls
 
 - **"Set `OMP_NUM_THREADS=16` but wall time didn't change"** — most likely
-  the binary was built with the old default (pre-v1.0.1 `shud_omp` was
-  Config B, without StrictOMP RHS). Run
-  `strings shud_omp | grep SHUD_RHS_THREADS`; if empty, rebuild:
-  `make clean && make shud_omp`.
+  the binary was built with an old default. Pre-v1.0.1 `shud_omp` was
+  Config B (no StrictOMP RHS); pre-v1.1.1 it was Config C (Serial NVector,
+  RHS-only parallelism). Check what you have:
+  `strings shud_omp | grep SHUD_RHS_THREADS` (empty ⇒ pre-v1.0.1, no
+  StrictOMP RHS) and `strings shud_omp | grep "NVEC config: Config E"`
+  (empty ⇒ Config C or older, NVector layer still serial — v1.1.1 default
+  should show it). If either is missing and you want the current default,
+  rebuild: `make clean && make shud_omp`.
 - **"Two nodes together should be faster"** — no. Each node runs an
   independent job. There is no MPI in v1.0.x.
 - **`OMP_NUM_THREADS=64` on a 40-core node** — oversubscription. Threads
@@ -285,8 +318,14 @@ For ADR-0002 A/B/D reproducibility (not for production use):
 ```bash
 make shud                                     # Config A (canonical serial reference)
 make shud_omp SHUD_ENABLE_OPENMP_RHS=0        # Config A/B (serial RHS via shud_omp target)
-make shud_omp SHUD_USE_OPENMP_NVECTOR=1       # Config D (OpenMP NVec + StrictOMP RHS)
-make shud SHUD_ENABLE_OPENMP_RHS=1            # Config C via shud target (equivalent to `make shud_omp` default)
+# Config D (OpenMP NVec WITHOUT hybrid overrides — REFUTED, nondeterministic).
+# Since v1.1.1, SHUD_USE_OPENMP_NVECTOR=1 alone builds Config E (HYBRID
+# defaults on under shud_omp), so Config D must be requested explicitly and
+# is gated behind SHUD_ALLOW_CONFIG_D=1 (build-only smoke; do not run for
+# results):
+make shud_omp SHUD_NVEC_HYBRID=0 SHUD_ALLOW_CONFIG_D=1   # Config D (research/smoke only)
+make shud SHUD_ENABLE_OPENMP_RHS=1            # Config C via shud target (Serial NVec + StrictOMP RHS)
+make shud_omp SHUD_USE_OPENMP_NVECTOR=0       # Config C via shud_omp target (v1.1.1 opt-out)
 ```
 
 See `RELEASE.md` and `docs/p1e/p1e_academic_summary.md` in the outer

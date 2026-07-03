@@ -199,6 +199,25 @@ endif
 #       libsundials_nvecopenmp. Independent of
 #       SHUD_ENABLE_OPENMP_RHS (which gates the in-RHS
 #       parallel-kernel stubs).
+#
+# Release v1.1.1 default flip (user decision post-#441): `make shud_omp`
+# now defaults SHUD_USE_OPENMP_NVECTOR=1 so the default OpenMP binary is
+# Config E (OpenMP NVector element-wise + SHUD serial reduction overrides;
+# paired with SHUD_NVEC_HYBRID?=1 below). Config E is bitwise-identical to
+# Config C at every thread count (G-E1 + PR-N2, single rivqdown SHA across
+# 19 runs) AND 1.41× faster @N16 → a pure Pareto default upgrade, zero
+# golden/CI breakage (E==C bitwise). Escape hatch: the single flag
+# `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` reverts to Config C (Serial
+# NVector; the HYBRID conditional default below is then skipped → 0). All
+# non-shud_omp goals (`make shud`, `shud_asan`, `smoke_configd`) keep the
+# `?= 0` default → Config A/C semantics + CI asan legs unchanged. Same
+# parse-time constraint as SHUD_ENABLE_OPENMP_RHS: `?=` late-evaluates and
+# target-specific vars do NOT reach a parse-time `ifeq`, so MAKECMDGOALS
+# filtering is the correct hook; a CLI `SHUD_USE_OPENMP_NVECTOR=…` still
+# wins via `?=`.
+ifneq (,$(filter shud_omp,$(MAKECMDGOALS)))
+  SHUD_USE_OPENMP_NVECTOR ?= 1
+endif
 SHUD_USE_OPENMP_NVECTOR ?= 0
 ifeq ($(SHUD_USE_OPENMP_NVECTOR),0)
   SHUD_NVEC_OMP_DEFINE :=
@@ -253,10 +272,48 @@ endif
 # SHUD_ENABLE_OPENMP_RHS default-flip, target-specific variables do NOT
 # reach a parse-time `ifeq`, so the guard reads the CLI/`?=` value of
 # SHUD_USE_OPENMP_NVECTOR directly (which the Config E leg sets on the
-# make CLI). `make shud_omp SHUD_NVEC_HYBRID=1` alone (no explicit
-# NVector flag) therefore aborts, which is intended — Config E requires
-# the NVector backend to be explicitly requested.
+# make CLI).
+#
+# Release v1.1.1 default flip (user decision post-#441): under the
+# `shud_omp` goal with SHUD_USE_OPENMP_NVECTOR=1 (its new default there),
+# SHUD_NVEC_HYBRID now defaults to 1 as well → `make shud_omp` builds
+# Config E out of the box (E==C bitwise; 1.41×@N16 Pareto upgrade). The
+# conditional default is nested under the NVECTOR=1 check so the single-
+# flag Config C escape hatch (`make shud_omp SHUD_USE_OPENMP_NVECTOR=0`)
+# leaves HYBRID at its `?= 0` fallback below → Config C, no
+# HYBRID-requires-NVECTOR $(error). All non-shud_omp goals keep `?= 0`.
+# Historical-spec note: PR-N1's "SHUD_NVEC_HYBRID=1 alone aborts loudly"
+# no longer holds — NVECTOR now defaults 1 under shud_omp, so
+# `make shud_omp SHUD_NVEC_HYBRID=1` is just Config E, not an abort. That
+# spec is archived (openspec/changes/archive/2026-07-02-p12-nvec).
+ifneq (,$(filter shud_omp,$(MAKECMDGOALS)))
+  ifeq ($(SHUD_USE_OPENMP_NVECTOR),1)
+    SHUD_NVEC_HYBRID ?= 1
+  endif
+endif
 SHUD_NVEC_HYBRID ?= 0
+# Config D foot-gun guard (v1.1.1). Post-flip, `make shud_omp` defaults
+# both NVECTOR=1 and HYBRID=1 (Config E). A single negative flag
+# `make shud_omp SHUD_NVEC_HYBRID=0` (NVECTOR still defaulting 1) would
+# silently drop to Config D — the REFUTED nondeterministic config
+# (OpenMP NVector WITHOUT the hybrid serial reduction overrides →
+# reduction-order drift, 10–25% cross-thread; design D2 / ADR-0011). In
+# the shud_omp+NVECTOR=1 path HYBRID can only be 0 by explicit CLI (its
+# default here is 1), so fail LOUD unless the researcher explicitly opts
+# in via SHUD_ALLOW_CONFIG_D=1 (build-only smoke / PR-N1 flag-matrix D
+# leg reachability). The guard is scoped to the shud_omp goal so it does
+# NOT fire on the `smoke_configd` target (a different goal that builds a
+# standalone Config D NVector probe by hardcoding the flags in its recipe,
+# never entering this shud_omp+NVECTOR=1 path).
+ifneq (,$(filter shud_omp,$(MAKECMDGOALS)))
+  ifeq ($(SHUD_USE_OPENMP_NVECTOR),1)
+    ifeq ($(SHUD_NVEC_HYBRID),0)
+      ifneq ($(SHUD_ALLOW_CONFIG_D),1)
+$(error Config D (OpenMP NVector without hybrid reduction overrides) is REFUTED for production (reduction-order drift; ADR/design D2). Use SHUD_USE_OPENMP_NVECTOR=0 for Config C, or SHUD_ALLOW_CONFIG_D=1 for build-only smoke.)
+      endif
+    endif
+  endif
+endif
 ifeq ($(SHUD_NVEC_HYBRID),0)
   SHUD_NVEC_HYBRID_DEFINE :=
 else ifeq ($(SHUD_NVEC_HYBRID),1)
@@ -622,7 +679,9 @@ help:
 	@echo "       make all          - clean then build shud (serial)"
 	@echo "       make cvode        - install SUNDIALS/CVODE 6.x to ./InstallSundials"
 	@echo "       make shud         - build serial shud executable"
-	@echo "       make shud_omp     - build OpenMP shud_omp executable"
+	@echo "       make shud_omp     - build OpenMP shud_omp executable (Config E default: OpenMP NVec + serial reduction overrides + StrictOMP RHS; v1.1.1)"
+	@echo "       make shud_omp SHUD_USE_OPENMP_NVECTOR=0 - Config C opt-out (Serial NVec + StrictOMP RHS; strict minimal-dep build)"
+	@echo "       make shud_omp SHUD_NVEC_DETRED=1        - Config E2 (fixed-tree deterministic reductions; re-baselined golden)"
 	@echo "       make shud SHUD_DUMP_RHS=1     - serial build with RHS snapshot hooks compiled in"
 	@echo "       make shud_omp SHUD_DUMP_RHS=1 - OpenMP build with RHS snapshot hooks compiled in"
 	@echo "       make shud SHUD_ENABLE_PROFILE=1     - serial build with wall-clock profile timer compiled in"
@@ -674,27 +733,39 @@ shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
 
-# Release v1.0 — `shud_omp` produces the production Config C binary by
-# default: Serial NVector + StrictOMP RHS (ADR-0002 Path 1 winner,
-# heihe_x4 sp@8 = 1.6–1.7×). The MAKECMDGOALS-conditional default flip
-# above (around SHUD_ENABLE_OPENMP_RHS ?= 1 for shud_omp) means users
-# get the parallel RHS without passing extra flags. Researcher escape
-# hatches:
-#   - `make shud_omp SHUD_ENABLE_OPENMP_RHS=0` → Config A/B (serial RHS)
-#     for A/B/D reproducibility (P1c/d era build).
-#   - `make shud_omp SHUD_USE_OPENMP_NVECTOR=1` → Config D (both OMP);
-#     `SHUD_NVEC_OMP_DEFINE` + `SHUD_NVEC_OMP_LK` handle the link line.
+# Release v1.1.1 — `shud_omp` produces the production Config E binary by
+# default: OpenMP NVector element-wise + SHUD serial reduction overrides,
+# on top of StrictOMP RHS. The two MAKECMDGOALS-conditional default flips
+# above (SHUD_USE_OPENMP_NVECTOR ?= 1 and, nested under it,
+# SHUD_NVEC_HYBRID ?= 1 for the shud_omp goal) mean users get Config E
+# without passing extra flags. Config E is bitwise-identical to Config C
+# at every thread count (G-E1 + PR-N2) and 1.41×@N16 faster — a pure
+# Pareto default upgrade with zero golden/CI breakage (E==C bitwise).
+# SHUD_ENABLE_OPENMP_RHS still defaults 1 under shud_omp (StrictOMP RHS).
+# Researcher escape hatches:
+#   - `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` → Config C (Serial NVector
+#     + StrictOMP RHS; single-flag opt-out — the HYBRID conditional
+#     default is skipped, so no HYBRID-requires-NVECTOR error).
+#   - `make shud_omp SHUD_ENABLE_OPENMP_RHS=0` → serial-RHS variants
+#     (A/B/D-era reproducibility; note NVector still defaults on).
+#   - `make shud_omp SHUD_NVEC_DETRED=1` → Config E2 (fixed-tree
+#     deterministic reductions; HYBRID defaults 1 here so DETRED's
+#     requires-HYBRID guard is already satisfied — no need to spell out
+#     all three flags anymore).
+#   - Config D (OpenMP NVector without hybrid overrides) is REFUTED and
+#     now guarded: `make shud_omp SHUD_NVEC_HYBRID=0` errors unless
+#     SHUD_ALLOW_CONFIG_D=1 is also passed (build-only smoke).
 # The recipe adds:
 #   - $(CXX_OPENMP_CFLAGS)   : -fopenmp (sets _OPENMP compiler builtin)
 #   - $(CXX_OPENMP_LFLAGS)   : -lgomp / -lomp (OpenMP runtime)
-#   - $(SHUD_NVEC_OMP_DEFINE): -DSHUD_USE_OPENMP_NVECTOR=1 iff opted in
-#   - $(SHUD_NVEC_OMP_LK)    : -lsundials_nvecopenmp iff opted in
-# Historical note: pre-release, `shud_omp` hardcoded
-# `-DSHUD_USE_OPENMP_NVECTOR=1` + `-lsundials_nvecopenmp` (P1c/d era
-# Config B semantics). Release v1.0 flip aligns the default OpenMP
-# target with the P1e-endorsed production build.
+#   - $(SHUD_NVEC_OMP_DEFINE): -DSHUD_USE_OPENMP_NVECTOR=1 (default on)
+#   - $(SHUD_NVEC_HYBRID_DEFINE): -DSHUD_NVEC_HYBRID=1 (default on → E)
+#   - $(SHUD_NVEC_OMP_LK)    : -lsundials_nvecopenmp (default on)
+# Recipe body is unchanged from v1.1 — all four tokens are conditional
+# expansions driven by the flag values, so flipping the defaults above is
+# sufficient; no recipe edit was needed.
 shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
-	@echo '...Compiling shud_OpenMP (Config C default: Serial NVec + StrictOMP RHS) ...'
+	@echo '...Compiling shud_OpenMP (Config E default: OpenMP NVec + serial reduction overrides + StrictOMP RHS) ...'
 	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
 	@echo
 	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
