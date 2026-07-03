@@ -103,15 +103,32 @@ parallelizes the right-hand-side (RHS) evaluation of the coupled ODE
 system. On `heihe_x4` (40,046 elements, 90-day) it delivers **~1.8× at
 N=8 threads, ~1.95× at N=16**, with A5 hydrology acceptance PASS at every
 thread count (bitwise-equivalent trajectory vs the serial reference).
-Full scaling table in `RELEASE.md` §Scaling profile.
+Full scaling table in `RELEASE.md` §Scaling profile. Since **v1.1** two
+opt-in build legs go further — up to **≈3.55× vs serial** on the same
+case — see §Config E / E2 below.
+
+### Which build do I want? (quick pick)
+
+| Your situation | Build this | One-line command |
+|---|---|---|
+| First time here / must match previously published results **bit-for-bit** | **Config C** (default) | `make shud_omp` |
+| Want it faster, still **bitwise-identical** to Config C at any thread count | **Config E** (v1.1) | `make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1` |
+| Want the **fastest** run; OK adopting a new (A5-certified) reference once | **Config E2** (v1.1) | `make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1 SHUD_NVEC_DETRED=1` |
+
+All three are the same physics and the same solver — they differ only in
+which parts of the linear-algebra layer run in parallel and, for E2, the
+(deterministic) order of floating-point summation. Whichever you pick,
+results are **reproducible across thread counts** (run at N=1 today and
+N=16 tomorrow: same output, bit for bit — within that config's lineage).
 
 ### Important: threads are OpenMP threads, not MPI processes
 
-SHUD-OpenMP v1.0.x is **single-node shared-memory** parallel. One
-`shud_omp` process fork-joins N OpenMP threads inside the RHS. It does
-**not** use MPI and cannot distribute across nodes. Multi-node domain
-decomposition (P10) is deferred; there is no v1.0.x path to use two
-compute nodes for one simulation.
+SHUD-OpenMP (v1.0.x and v1.1) is **single-node shared-memory** parallel.
+One `shud_omp` process fork-joins N OpenMP threads inside the RHS (and,
+for Config E/E2, inside CVODE's vector operations). It does **not** use
+MPI and cannot distribute across nodes. Multi-node domain decomposition
+(P10) is deferred; there is currently no path to use two compute nodes
+for one simulation.
 
 ### Build
 
@@ -249,6 +266,17 @@ than the scaling table.
 - **Shared-tenant node** — memory bandwidth is a limited resource that
   Amdahl-bound OpenMP workloads spend heavily. Use `--exclusive` or an
   idle node.
+- **"Config E/E2 ignores `OMP_NUM_THREADS`"** (v1.1) — the NVector thread
+  count is read from the **cfg.para `NUM_OPENMP`** field at project load,
+  not from the environment alone. Set `NUM_OPENMP` *and*
+  `OMP_NUM_THREADS` to the same N (see §Config E / E2). A startup log
+  line prints the effective thread count — trust that line.
+- **"E2 output differs from my old golden"** (v1.1) — expected, once.
+  Config E2 changes the (deterministic) summation order, so it is not
+  bit-equal to Config C/E history; it was re-baselined and A5-certified
+  (NSE=1.0000 / KGE=0.9999 vs Config C). Validate E2 runs against an
+  E2-lineage golden; never diff goldens across the C/E ↔ E2 boundary.
+  Config E needs no such care — it is bit-equal to Config C everywhere.
 
 ### Reproducing the P1e A/B/D research configurations
 
