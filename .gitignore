@@ -52,3 +52,5 @@ tests/test_adjacency_fallback.dSYM/
 docs/
 .obsidian/
 .memsearch/
+.claude/
+.coveragerc
