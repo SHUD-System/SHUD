@@ -62,7 +62,7 @@ void Model_Data::LakeInitialize(){
         for (int j = 0; j < NumEle ; j++){
             if(Ele[j].iLake == i + 1){ /* Lake element */
                 lake[i].NumEleLake++;
-                lake[i].area += Ele[i].area;
+                lake[i].area += Ele[j].area;
             }else{
                 for(int k = 0; k < 3; k++){
                     inabr = Ele[j].nabr[k] - 1;
@@ -121,10 +121,10 @@ void Model_Data::LakeInitialize(){
         jj = 0;
         /* RIVER TO LAKE */
         for (int j = 0; j < NumRiv ; j++){
-            if(Riv[j].toLake == i + 1){
+            if(Riv[j].toLake == i){
                 lake[i].iRivIn[ii++] = j;
             }
-            if(Riv[j].frLake == i + 1){
+            if(Riv[j].frLake == i){
                 lake[i].iRivOut[jj++] = j;
             }
         }

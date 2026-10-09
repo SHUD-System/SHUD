@@ -80,3 +80,13 @@ OpenMP CPU acceleration. MODIFICATIONS/ADDITIONS from v2.0 (developed under the 
       - Not applied in the uncoupled mode (`-g`).
 
 The full development record (benchmarks, validation tools, decisions) is in https://github.com/DankerMu/SHUD-OpenMP.
+
+
+## SHUD v2.2.1 (2026.10)
+
+Bug fixes only. The results of the examples are unchanged.
+
+1. Bugs fixed.
+   1. The per-edge flux outputs (`*.eleqsub1-3`, `*.eleqsurf1-3`) are switched on by `DT_QE_SUBX` / `DT_QE_SURFX` but were written at the interval of `DT_QE_SUB` / `DT_QE_SURF`. With `DT_QE_SUB 0` (or `DT_QE_SURF 0`) the model stopped with a data-consistency error. They now use their own interval (`src/ModelData/MD_initialize.cpp`).
+   2. Lake initialization (`src/ModelData/MD_Lake.cpp`): the list of river reaches flowing into a lake was sized with a 0-based lake index and filled with a 1-based one, which wrote beyond the array when lakes have different numbers of inflow reaches; the lake area was summed from the wrong element. Neither value is used by the solver.
+   3. `slope[1]` and `slope[2]` of an element were divided by the distance to the first edge instead of their own edge (`src/classes/Element.cpp`). The field is not used by the solver.
