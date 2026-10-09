@@ -633,3 +633,16 @@ clean:
 	@rm -rf $(LIBSHUD_OBJ_DIR)
 	@echo "Done. (InstallSundials/ preserved)"
 	@echo
+
+# -----------------------------------------------------------------
+# Engineering gates (AGENTS.md, Enforcement Index)
+# -----------------------------------------------------------------
+# Thin entry points; the checks live in tools/ci/ and read their
+# thresholds from constraints.yaml. `make ci` is what the CI runs.
+#   make regress UPDATE=1   rewrite tests/reference/ (local only)
+#   make test UPDATE=1      rewrite tests/io_contract/ (local only)
+#   make pr-gates BASE=ref  checks against a PR base (default origin/master)
+GATES := lint test regress coverage test-guardrails docs-check secrets pr-gates ci install-hooks
+.PHONY: $(GATES)
+lint test regress coverage test-guardrails docs-check secrets pr-gates ci install-hooks:
+	@UPDATE=$(UPDATE) BASE=$(BASE) python3 tools/ci/gate.py $@

@@ -1,0 +1,26 @@
+# Frozen baseline (constraints.yaml -> baseline). Entries may only be removed or lowered.
+# file::function<TAB>complexity ceiling
+src/Equations/cvode_config.cpp::SetCVODE	19
+src/Equations/cvode_config.cpp::get_spgmr_maxl_from_env	20
+src/Equations/sunlinsol_hypre.cpp::SUNLinSol_Hypre	25
+src/Equations/sunlinsol_hypre.cpp::enumerate_row_candidates	36
+src/Equations/sunlinsol_hypre.cpp::lazy_build_hierarchy_from_solve	37
+src/Model/MD_nvec_hybrid.cpp::nvec_hybrid_addr_is_override	22
+src/Model/MD_nvec_prof.cpp::nvp_count_shims_on	42
+src/Model/MD_rhs_core.cpp::Model_Data::rhs_apply	18
+src/Model/MD_rhs_core.cpp::Model_Data::rhs_flux	19
+src/Model/shud.cpp::SHUD	42
+src/Model/shud.cpp::SHUD_uncouple	18
+src/ModelData/MD_Lake.cpp::Model_Data::LakeInitialize	30
+src/ModelData/MD_adjacency.cpp::build_adjacency_lists	41
+src/ModelData/MD_f_uncouple.cpp::Model_Data::f_applyDYi	18
+src/ModelData/MD_initialize.cpp::Model_Data::LoadIC	25
+src/ModelData/MD_initialize.cpp::Model_Data::initialize_output	27
+src/ModelData/MD_readin.cpp::Model_Data::loadinput	28
+src/ModelData/MD_rhs_dump.cpp::init_config	23
+src/ModelData/MD_update.cpp::Model_Data::f_updatei	21
+src/classes/CommandIn.cpp::CommandIn::parse	18
+src/classes/IO.cpp::FileIn::readProject	31
+src/classes/ModelConfigure.cpp::globalCal::getValue	46
+src/classes/ModelConfigure.cpp::globalCal::push	46
+src/classes/Model_Control.cpp::Control_Data::read	48
