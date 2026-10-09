@@ -75,5 +75,8 @@ MODIFICATIONS/ADDITIONS from v2.0. The physics and the input/output file formats
 6. Bugs fixed.
    1. Division by zero in the accumulated-temperature average when the queue is empty (`src/classes/AccTemperature.hpp`).
    2. Memory leaks at the end of a run in `Model_Data`, the lake and the time-series classes; uninitialized pointers in `FloodAlert`, `Model_Data` and the lake classes.
+   3. **Flux outputs were taken from a stale evaluation. This fix changes the results.** The flux arrays written to the output files (`*.rivq*.dat`, `*.eleq*.dat`, `*.elev*.dat`) were whatever the last right-hand-side call inside CVODE had left behind. That call is made at a time later than the output time and on a perturbed state, not on the solution. The fluxes are now evaluated once more on the solution at the output time before they are written (`Model_Data::recompute_for_output`). The evapotranspiration step reads the same cached state (`uYsf`, `uYus`, `uYgw`), so it is corrected as well, and the state variables change slightly as a consequence.
+      - On the `ccw` example (10 days): discharge of individual river reaches changes by up to 13%, the sum over all reaches by 0.3%, the reach with the largest flow by 0.03%; surface lateral flux and infiltration during light rain, which were reported as non-zero, are now zero or much smaller; state variables change by less than 1e-3 m, except at one element (about 4e-3 m).
+      - Not applied in the uncoupled mode (`-g`).
 
 The full development record (benchmarks, validation tools, decisions) is in https://github.com/DankerMu/SHUD-OpenMP.
