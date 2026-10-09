@@ -62,9 +62,13 @@ public:
 class LakeBathymetry{
 public:
     int     nvalue = NA_VALUE;
-    int     *index; /* */
-    double  *yi; /* Lake Stage */
-    double  *ai; /* Top area */
+    // nullptr defaults so partial
+    // construction (e.g. exception mid-InitValue()) leaves dtor `delete[]`
+    // as a defined no-op. Counter-guard (`nvalue > 0`) provides backup; this
+    // makes the class doubly-safe.
+    int     *index = nullptr; /* */
+    double  *yi = nullptr; /* Lake Stage */
+    double  *ai = nullptr; /* Top area */
     LakeBathymetry();
     ~LakeBathymetry();
     void InitValue(int n);
@@ -85,20 +89,26 @@ public:
     int NumEleBank = NA_VALUE;
     int NumRivIn = NA_VALUE;
     int NumRivOut = NA_VALUE;
-    int *iEleLake;
-    int *iEleBank;
-    int *iRivIn;
-    int *iRivOut;
-    int *RivIn;
-    int *RivOut;
+    // nullptr defaults, as in Model_Data.
+    // Counter-guards (`NumEleBank/NumRivIn/NumRivOut
+    // > 0`) in ~_Lake() handle the unallocated case via NA_VALUE=-9999, but
+    // partial-init via readLake() exception mid-alloc leaves later ptrs
+    // indeterminate while earlier counter slots are set. The defaults make
+    // the dtor `delete[]` a defined no-op on any subset of nullptr ptrs.
+    int *iEleLake = nullptr;
+    int *iEleBank = nullptr;
+    int *iRivIn = nullptr;
+    int *iRivOut = nullptr;
+    int *RivIn = nullptr;
+    int *RivOut = nullptr;
     LakeBathymetry bathymetry;
 //    RiverIn *RivIn;
 //    RiverOut *RivOut;
-    
-    double *QEleSurf;
-    double *QEleGW;
-    double *QRivIn;
-    double *QRivOut;
+
+    double *QEleSurf = nullptr;
+    double *QEleGW = nullptr;
+    double *QRivIn = nullptr;
+    double *QRivOut = nullptr;
     
     double yStage;
     

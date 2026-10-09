@@ -1,5 +1,13 @@
 #include "Model_Data.hpp"
 #include "is_sm_et.hpp"
+#include <cassert> /* DEBUG asserts in initialize_hot() */
+#include <cstdio>  /* printf for [NUMA] first-touch tokens */
+
+/* NUMA first-touch gate set in shud.cpp emit_numa_token()
+ * at SHUD() entry. Read here in malloc_EleRiv() to decide whether to
+ * run parallel first-touch loops (1) or skip them (0; OMP_PROC_BIND
+ * unset). */
+extern int g_numa_first_touch_enabled;
 
 Model_Data::Model_Data(){
 }
@@ -12,13 +20,16 @@ Model_Data::~Model_Data(){
     FreeData();
 }
 void Model_Data::TimeSpent(){
-#ifdef _OPENMP_ON
+    /* `omp_get_wtime` is the OpenMP wall-clock
+     * API; available iff `-fopenmp` was passed (which auto-defines
+     * `_OPENMP`). Independent of the SHUD-level feature switches. */
+#ifdef _OPENMP
     double toc = omp_get_wtime();
     double dt = toc - tic;
     screeninfo("\n\tNumber of calls of f function:\t %ld \n", nFCall);
     printf("\n\tTime used by model:\t %.3f seconds.\n", dt);
     screeninfo("\n\nThe successful end. \n\n");
-    
+
 #else
     clock_t toc = (double)clock();
     double dt = (toc - tic) / CLOCKS_PER_SEC;
@@ -27,7 +38,7 @@ void Model_Data::TimeSpent(){
     screeninfo("\n\tTime used by model:\t %.3f seconds.\n", dt);
     screeninfo("\n\nThe successful end. \n\n");
 #endif
-    
+
 }
 void Model_Data::modelSummary(int end){
     char str[MAXLEN];
@@ -45,7 +56,8 @@ void Model_Data::modelSummary(int end){
     screeninfo("\tModel total number of steps(minimum): %d \n", CS.NumSteps);
     sprintf(str,"\tSize of model: \tNcell = %d \tNriver = %d\t NSeg = %d", NumEle, NumRiv, NumSegmt);
     screeninfo(str);
-#ifdef _OPENMP_ON
+    /* Keyed on `_OPENMP`, same as TimeSpent() above. */
+#ifdef _OPENMP
     screeninfo("\n\n\tOpenMP enable. No of threads = %d\n", CS.num_threads);
     screeninfo("\n========================================================\n");
     if (end) {
@@ -77,15 +89,31 @@ void Model_Data::malloc_Y(){
 void Model_Data::malloc_EleRiv(){
     
     /* allocate memory storage to flux terms */
-    QeleSurf    = new double *[NumEle];
-    QeleSub     = new double *[NumEle];
+    /* QeleSurf/QeleSub are one contiguous row-major
+     * `double[NumEle*3]` block per array, not a jagged
+     * `double *[NumEle]` of 3-element rows: that would cost NumEle+1
+     * separate allocations, one indirection on every access and an
+     * unpredictable cache layout. Access is via QeleSurfAt(i,j) /
+     * QeleSubAt(i,j) inline accessors (Model_Data.hpp). Symmetric
+     * single delete[] in MD_readin.cpp Model_Data::FreeData(). */
+    QeleSurf_flat = new double[NumEle * 3];
+    QeleSub_flat  = new double[NumEle * 3];
     QeleSurfTot = new double[NumEle];
     QeleSubTot  = new double[NumEle];
     QoutSurf    = new double[NumEle]; // 5
     
     Qe2r_Surf = new double[NumEle]; //5.1
     Qe2r_Sub  = new double[NumEle]; // 5.2
-    
+    /* Per-edge slots used only when lakeon. Always allocate
+     * (NumEle*3-sized; cheap) so projects without lakes need no
+     * conditional cleanup. Written only inside the lake branches of
+     * fun_Ele_surface / fun_Ele_sub and summed in
+     * rhs_deterministic_gather(). */
+    QeleSurf_lake = new double[NumEle * 3];
+    QeleSub_lake  = new double[NumEle * 3];
+    qEleEvapo_lake = new double[NumEle]; // per-element lake-cell slot
+    qElePrep_lake  = new double[NumEle]; // per-element lake-cell slot
+
     qEleE_IC      = new double[NumEle];
     qEleEvapo      = new double[NumEle];
     qEleTrans      = new double[NumEle];
@@ -144,11 +172,10 @@ void Model_Data::malloc_EleRiv(){
         uYriv = new double[NumRiv];  // 35.1
     }
     
-    for (int i = 0; i < NumEle; i++) {
-        QeleSurf[i] = new double[3];
-        QeleSub[i] = new double[3];
-    }
-    
+    /* QeleSurf_flat / QeleSub_flat need no per-row allocation here:
+     * each is the single contiguous `new double[NumEle*3]` above. */
+
+
     t_prcp  = new double[NumEle];  //
     t_temp  = new double[NumEle];  //
     t_rh    = new double[NumEle];  //
@@ -159,6 +186,217 @@ void Model_Data::malloc_EleRiv(){
     t_lai   = new double[NumEle];  //
     t_mf    = new double[NumEle];  //
 //    t_hc    = new double[NumEle];  //
+
+    /* ElementHotData SoA allocation. Sized NumEle (or
+     * NumEle*3 for flat-3 arrays). Layout mirrors MD_layout.hpp.
+     * NumEle is read at this call site; if NumEle changes after this
+     * call, hot must be reallocated (no such code path exists today).
+     * Free in symmetric order at MD_readin.cpp Model_Data::FreeData(). */
+    hot.nabr_flat       = new int[NumEle * 3];
+    hot.lakenabr_flat   = new int[NumEle * 3];
+    hot.edge_flat       = new double[NumEle * 3];
+    hot.area            = new double[NumEle];
+    hot.z_bottom        = new double[NumEle];
+    hot.z_surf          = new double[NumEle];
+    hot.iSoil           = new int[NumEle];
+    hot.iLC             = new int[NumEle];
+    hot.iMF             = new int[NumEle];
+    hot.iForc           = new int[NumEle];
+    hot.iLake           = new int[NumEle];
+    hot.iBC             = new int[NumEle];
+    hot.iSS             = new int[NumEle];
+    hot.Dist2Nabor_flat = new double[NumEle * 3];
+    hot.Dist2Edge_flat  = new double[NumEle * 3];
+    hot.avgRough_flat   = new double[NumEle * 3];
+    hot.FixPressure     = new double[NumEle];
+    hot.WetlandLevel    = new double[NumEle];
+    hot.RootReachLevel  = new double[NumEle];
+    hot.depression      = new double[NumEle];
+    hot.QBC             = new double[NumEle];
+    hot.QSS             = new double[NumEle];
+    hot.windH           = new double[NumEle];
+    hot.u_qi            = new double[NumEle];
+    hot.u_qex           = new double[NumEle];
+    hot.u_effKH         = new double[NumEle];
+    hot.u_satn          = new double[NumEle];
+    hot.Sy              = new double[NumEle];
+    hot.VegFrac         = new double[NumEle];
+    hot.Albedo          = new double[NumEle];
+    hot.Rough           = new double[NumEle];
+    hot.ImpAF           = new double[NumEle];
+
+    /* Parallel first-touch initialization, so that on NUMA machines
+     * each page is placed near the thread that will use it. THREE
+     * entry points:
+     *   (1) hot.* SoA fields                       (this block, below)
+     *   (2) QeleSurf_flat / QeleSub_flat etc.      (next block)
+     *   (3) _Element AoS Ele[] touch               (last block)
+     * Each is gated by g_numa_first_touch_enabled — when OMP_PROC_BIND
+     * is unset at SHUD() entry the gate stays 0 and ALL three blocks
+     * are skipped, so the run behaves exactly as without first-touch.
+     *
+     * Writes are zero-init (and assignment-back for AoS in entry 3) so
+     * downstream consumers (initialize_hot, LoadIC, RHS) see the same
+     * memory state either way. A "[NUMA] first-touch begin tag=<arr>"
+     * stdout line is printed per site when the gate is on; when it is
+     * off a single "[NUMA] first-touch skipped" line is printed
+     * instead, so `grep '[NUMA] first-touch begin'` finds nothing. */
+    if (g_numa_first_touch_enabled) {
+        /* Entry (1): hot.* SoA arrays. Mirrors the field roster declared
+         * above so every owned array gets a touch. NumEle-sized arrays
+         * iterate i in [0,NumEle); flat3 arrays iterate i in [0,NumEle)
+         * then j in [0,3). schedule(static) keeps the iteration->thread
+         * mapping deterministic across runs at fixed NUM_OPENMP. */
+        printf("[NUMA] first-touch begin tag=hot.soa\n"); fflush(stdout);
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < NumEle; ++i) {
+            hot.area[i]           = 0.0;
+            hot.z_bottom[i]       = 0.0;
+            hot.z_surf[i]         = 0.0;
+            hot.iSoil[i]          = 0;
+            hot.iLC[i]            = 0;
+            hot.iMF[i]            = 0;
+            hot.iForc[i]          = 0;
+            hot.iLake[i]          = 0;
+            hot.iBC[i]            = 0;
+            hot.iSS[i]            = 0;
+            hot.FixPressure[i]    = 0.0;
+            hot.WetlandLevel[i]   = 0.0;
+            hot.RootReachLevel[i] = 0.0;
+            hot.depression[i]     = 0.0;
+            hot.QBC[i]            = 0.0;
+            hot.QSS[i]            = 0.0;
+            hot.windH[i]          = 0.0;
+            hot.u_qi[i]           = 0.0;
+            hot.u_qex[i]          = 0.0;
+            hot.u_effKH[i]        = 0.0;
+            hot.u_satn[i]         = 0.0;
+            hot.Sy[i]             = 0.0;
+            hot.VegFrac[i]        = 0.0;
+            hot.Albedo[i]         = 0.0;
+            hot.Rough[i]          = 0.0;
+            hot.ImpAF[i]          = 0.0;
+            for (int j = 0; j < 3; ++j) {
+                hot.nabr_flat[3*i + j]       = 0;
+                hot.lakenabr_flat[3*i + j]   = 0;
+                hot.edge_flat[3*i + j]       = 0.0;
+                hot.Dist2Nabor_flat[3*i + j] = 0.0;
+                hot.Dist2Edge_flat[3*i + j]  = 0.0;
+                hot.avgRough_flat[3*i + j]   = 0.0;
+            }
+        }
+
+        /* Entry (2): flat3 + NumEle flux scratch arrays allocated above
+         * (QeleSurf_flat / QeleSub_flat / QeleSurf_lake / QeleSub_lake
+         * + the NumEle-sized flux/state scratch arrays). They are
+         * overwritten by RHS evaluations / LoadIC, so a zero touch
+         * here is bitwise-safe. */
+        printf("[NUMA] first-touch begin tag=QeleSurf_flat\n"); fflush(stdout);
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < NumEle; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                QeleSurf_flat[3*i + j] = 0.0;
+                QeleSub_flat[3*i + j]  = 0.0;
+                QeleSurf_lake[3*i + j] = 0.0;
+                QeleSub_lake[3*i + j]  = 0.0;
+            }
+            QeleSurfTot[i]    = 0.0;
+            QeleSubTot[i]     = 0.0;
+            QoutSurf[i]       = 0.0;
+            Qe2r_Surf[i]      = 0.0;
+            Qe2r_Sub[i]       = 0.0;
+            qEleEvapo_lake[i] = 0.0;
+            qElePrep_lake[i]  = 0.0;
+        }
+
+        /* Entry (3): _Element AoS touch. `Ele = new
+         * _Element[NumEle]` was executed earlier in MD_readin.cpp
+         * during loadinput(); here we walk the same NumEle slots once
+         * in a parallel loop so each _Element's memory page is touched
+         * by the consumer thread. The touch is a self-assignment
+         * of one stable scalar field (`Ele[i].index` was already set
+         * during readin and is read-back-write here), which only
+         * exercises the page without changing any value.
+         *
+         * Bitwise safety: read-modify-write of an already-set int field
+         * with the same value is a no-op for the heap state. */
+        printf("[NUMA] first-touch begin tag=Ele_AoS\n"); fflush(stdout);
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < NumEle; ++i) {
+            int tmp = Ele[i].index;
+            Ele[i].index = tmp;
+        }
+    } else {
+        /* When OMP_PROC_BIND is unset the log MUST NOT contain ANY
+         * "[NUMA] first-touch begin" line so a grep of that exact
+         * pattern reports zero hits. We still emit a single
+         * line per malloc_EleRiv invocation, but it uses the
+         * distinct "first-touch skipped" verb so the grep stays clean. */
+        printf("[NUMA] first-touch skipped: OMP_PROC_BIND unset (3 sites: hot.soa, QeleSurf_flat, Ele_AoS)\n");
+        fflush(stdout);
+    }
+}
+
+void Model_Data::initialize_hot() {
+    /* Populate ElementHotData SoA from _Element AoS.
+     * Bitwise contract: every SoA value matches the AoS source EXACTLY
+     * (assignment-only; no rounding or cast loss). Called from
+     * Model_Data::initialize() AFTER element AoS load is complete and
+     * BEFORE any RHS dispatch. Dynamic fields (u_qi, u_qex, u_effKH,
+     * u_satn) are seeded here from current Ele[i] values; subsequent
+     * writes via Ele[i].updateElement / Flux_Infiltration / etc. are
+     * propagated by sync_hot_dynamic(i) at each call site. */
+    for (int i = 0; i < NumEle; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            hot.nabr_flat[3*i + j]       = Ele[i].nabr[j];
+            hot.lakenabr_flat[3*i + j]   = Ele[i].lakenabr[j];
+            hot.edge_flat[3*i + j]       = Ele[i].edge[j];
+            hot.Dist2Nabor_flat[3*i + j] = Ele[i].Dist2Nabor[j];
+            hot.Dist2Edge_flat[3*i + j]  = Ele[i].Dist2Edge[j];
+            hot.avgRough_flat[3*i + j]   = Ele[i].avgRough[j];
+        }
+        hot.area[i]           = Ele[i].area;
+        hot.z_bottom[i]       = Ele[i].z_bottom;
+        hot.z_surf[i]         = Ele[i].z_surf;
+        hot.iSoil[i]          = Ele[i].iSoil;
+        hot.iLC[i]            = Ele[i].iLC;
+        hot.iMF[i]            = Ele[i].iMF;
+        hot.iForc[i]          = Ele[i].iForc;
+        hot.iLake[i]          = Ele[i].iLake;
+        hot.iBC[i]            = Ele[i].iBC;
+        hot.iSS[i]            = Ele[i].iSS;
+        hot.FixPressure[i]    = Ele[i].FixPressure;
+        hot.WetlandLevel[i]   = Ele[i].WetlandLevel;
+        hot.RootReachLevel[i] = Ele[i].RootReachLevel;
+        hot.depression[i]     = Ele[i].depression;
+        hot.QBC[i]            = Ele[i].QBC;
+        hot.QSS[i]            = Ele[i].QSS;
+        hot.windH[i]          = Ele[i].windH;
+        hot.u_qi[i]           = Ele[i].u_qi;
+        hot.u_qex[i]          = Ele[i].u_qex;
+        hot.u_effKH[i]        = Ele[i].u_effKH;
+        hot.u_satn[i]         = Ele[i].u_satn;
+        hot.Sy[i]             = Ele[i].Sy;
+        hot.VegFrac[i]        = Ele[i].VegFrac;
+        hot.Albedo[i]         = Ele[i].Albedo;
+        hot.Rough[i]          = Ele[i].Rough;
+        hot.ImpAF[i]          = Ele[i].ImpAF;
+
+#ifdef DEBUG
+        /* Consistency assertions to catch SoA-vs-AoS drift on DEBUG
+         * builds. A sample of fields is checked, across all elements
+         * (cheap; DEBUG only). */
+        assert(hot.area[i]    == Ele[i].area);
+        assert(hot.u_effKH[i] == Ele[i].u_effKH);
+        assert(hot.iLake[i]   == Ele[i].iLake);
+        assert(hot.VegFrac[i] == Ele[i].VegFrac);
+        assert(hot.Sy[i]      == Ele[i].Sy);
+        for (int j = 0; j < 3; ++j) {
+            assert(hot.nabr_flat[3*i+j] == Ele[i].nabr[j]);
+            assert(hot.edge_flat[3*i+j] == Ele[i].edge[j]);
+        }
+#endif
+    }
 }
 
 void Model_Data::copyCalib(){

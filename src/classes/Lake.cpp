@@ -50,10 +50,15 @@ void LakeBathymetry::read(FILE *fp){
 //    }
 }
 LakeBathymetry::~LakeBathymetry(){
+    // index/yi/ai are `new[]`-allocated in InitValue(), so the
+    // dtor MUST use `delete[]` to properly destruct array elements + free
+    // the array block. Scalar `delete` on `new[]` storage is
+    // UB even if the element type is trivially-destructible. The nullptr
+    // defaults in Lake.hpp guard the unallocated case.
     if(nvalue > 0){
-        delete index;
-        delete yi;
-        delete ai;
+        delete[] index;
+        delete[] yi;
+        delete[] ai;
     }
 }
 double LakeBathymetry::toparea(double y){
@@ -82,16 +87,20 @@ double LakeBathymetry::toparea(double y){
 _Lake::_Lake(){
 }
 _Lake::~_Lake(){
+    // iEleBank/QEleSurf/QEleGW/QRivIn/RivOut are `new[]`-allocated in
+    // readLake() + Initialize(), so they need `delete[]`; scalar `delete`
+    // on `new[]` storage is UB. The nullptr defaults in Lake.hpp
+    // make the counter-guarded `delete[]` doubly-safe.
     if(NumEleBank > 0){
-        delete iEleBank;
-        delete QEleSurf;
-        delete QEleGW;
+        delete[] iEleBank;
+        delete[] QEleSurf;
+        delete[] QEleGW;
     }
     if(NumRivIn > 0){
-        delete QRivIn;
+        delete[] QRivIn;
     }
     if(NumRivOut > 0){
-        delete RivOut;
+        delete[] RivOut;
     }
 }
 void _Lake::Initialize(){

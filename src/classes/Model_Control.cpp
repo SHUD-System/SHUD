@@ -5,6 +5,8 @@
 //
 
 #include "Model_Control.hpp"
+/* No timer header here: ExportResults() is timed by its caller in
+ * shud.cpp (the t_output bucket), not inside this file. */
 void PrintOutDt::defaultmode(){
     int dt = 1440;
     /* Element storage */
@@ -72,9 +74,16 @@ void PrintOutDt::calibmode(int dt ){
 Control_Data::Control_Data(){
 }
 Control_Data::~Control_Data(){
-//    delete Tout;
+    /* Paired with the nullptr default of `Tout` in Model_Control.hpp:
+     * deleting an uninitialized pointer would be UB, but with the
+     * default `delete[] nullptr` is a defined no-op (and any future
+     * writer that uses `new double[N]` will be freed correctly). */
+    delete[] Tout;
 }
 void Control_Data::ExportResults(double t){
+    /* Do not time this function here: the caller's t_output Timer
+     * in shud.cpp already covers the full ExportResults wall time,
+     * so a Timer here would double-count the t_output bucket. */
     for (int i = 0; i < NumPrint; i++){
         PCtrl[i].PrintData(dt, t);
     }
@@ -95,8 +104,13 @@ void Control_Data::updateSimPeriod(double day0, double day1){
 void Control_Data::read(const char *fn){
     char    str[MAXLEN];
     char    optstr[MAXLEN];
-#ifdef _OPENMP_ON
-    num_threads = omp_get_max_threads();; /*Default number of threads for OpenMP*/
+    /* Guarded by the standard `_OPENMP` compiler builtin
+     * (auto-defined by `-fopenmp`). The intent here is
+     * "if the build has the OpenMP runtime, query the default thread
+     * count"; this is independent of SHUD_USE_OPENMP_NVECTOR (N_Vector
+     * backend) and SHUD_ENABLE_OPENMP_RHS (RHS execution policy). */
+#ifdef _OPENMP
+    num_threads = omp_get_max_threads(); /*Default number of threads for OpenMP*/
 #else
     num_threads = 0;
 #endif
@@ -301,30 +315,6 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
         tau = 1.;
     }
 }
-void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux){
-    StartTime = st;
-    NumVar  = n;
-    PrintVar = new double*[NumVar];
-    buffer  = new double[NumVar];
-    icol    = new double[NumVar];
-    strcpy(filename, s);
-    if(dt == 0 ){
-        myexit(ERRCONSIS);
-    }
-    Interval = dt;
-    for(int i=0; i<NumVar; i++){
-        icol[i] = (double) (i + 1);
-        PrintVar[i] = &(x[i][j]);
-//        *(PrintVar[i]) = 0.0;
-        buffer[i] = 0.0;
-    }
-    if(iFlux){
-        tau = 1440.;
-    }else{
-        tau = 1;
-    }
-}
-
 void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlux, int *flag_IO){
     StartTime = st;
     strcpy(filename, s);
@@ -364,7 +354,42 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
     }
 }
 
-void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux, int *flag_IO){
+/* Flat-array InitIJ overloads.
+ *
+ * PrintVar[i] aliases slot (i, j) of the flat `double[n*3]` block:
+ * writes go through QeleSurfAt(i, j) ≡ _flat[3*i + j] and reads
+ * through *PrintVar[k] see the same storage, so the output is the
+ * same as it would be with a jagged `double**` layout.
+ *
+ * Only the flat-array form exists; the call sites are in
+ * MD_initialize.cpp (`...InitIJ(..., QeleSub_flat, j, ...)` etc.).
+ * Do not add `double**` overloads of these two entry points. */
+void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt,
+                        double *x_flat, int j, int iFlux){
+    StartTime = st;
+    NumVar  = n;
+    PrintVar = new double*[NumVar];
+    buffer  = new double[NumVar];
+    icol    = new double[NumVar];
+    strcpy(filename, s);
+    if(dt == 0 ){
+        myexit(ERRCONSIS);
+    }
+    Interval = dt;
+    for(int i=0; i<NumVar; i++){
+        icol[i] = (double) (i + 1);
+        PrintVar[i] = &(x_flat[3*i + j]);
+        buffer[i] = 0.0;
+    }
+    if(iFlux){
+        tau = 1440.;
+    }else{
+        tau = 1;
+    }
+}
+
+void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt,
+                        double *x_flat, int j, int iFlux, int *flag_IO){
     StartTime = st;
     strcpy(filename, s);
     if(dt == 0 ){
@@ -386,19 +411,19 @@ void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt, double **x, int j
     int k = 0;
     for(int i = 0; i < n; i++){
         if(flag_IO[i]){ /* IO is TRUE*/
-            PrintVar[k] = &(x[i][j]);
+            PrintVar[k] = &(x_flat[3*i + j]);
             icol[k] = (double) (i + 1);
             buffer[k] = 0.0;
             k++;
         }
     }
-    
     if(iFlux){
         tau = 1440.;
     }else{
         tau = 1;
     }
 }
+
 Print_Ctrl::~Print_Ctrl(){
     if(PrintVar != NULL ) delete[] PrintVar;
     if(buffer != NULL ) delete[] buffer;

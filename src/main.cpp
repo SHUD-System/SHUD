@@ -1,6 +1,6 @@
 /*******************************************************************************
  * File        : main.cpp                                                      *
- * Version     : June, 2022 (SHUD v2.0)                                         *
+ * Version     : October, 2026 (SHUD v2.2)                                      *
  * Function    : SHUD (Simulator for Hydrologic Unstructured Domains)          *
  * Website     : https://www.shud.xyz/
  * Maintainer  : Lele Shu (lele.shu@gmail.com)

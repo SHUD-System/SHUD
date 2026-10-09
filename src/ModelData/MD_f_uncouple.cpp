@@ -102,7 +102,7 @@ void Model_Data:: f_loop4(double t){
             QrivUp[iDownStrm] += - QrivDown[i];
         }
     }
-//    PassValue();
+//    rhs_deterministic_gather();
 }
 void Model_Data:: f_loop5(double t){
 }
@@ -112,9 +112,10 @@ void Model_Data::f_applyDY_gw(double *DY, double t){
     for (int i = 0; i < NumEle; i++) {
         area = Ele[i].area;
         QeleSubTot[i] = Qe2r_Sub[i];
+        /* Flat read via accessor. */
         for (int j = 0; j < 3; j++) {
-//            checkExchangeValue(QeleSub, i, j, Ele[i].nabr[j]-1, Ele[i].nabrToMe[j]-1);
-            QeleSubTot[i] += QeleSub[i][j];
+//            checkExchangeValue(QeleSub_flat, i, j, Ele[i].nabr[j]-1, Ele[i].nabrToMe[j]-1);
+            QeleSubTot[i] += QeleSubAt(i, j);
         }
         DY[i] = (qEleRecharge[i] - qEleExfil[i] - QeleSubTot[i] / area );
         if(uYsf[i] < EPSILON){ /* NO ponding water*/
@@ -159,8 +160,9 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
         for (int i = 0; i < NumEle; i++) {
             area = Ele[i].area;
             QeleSurfTot[i] = Qe2r_Surf[i];
+            /* Flat read via accessor. */
             for (int j = 0; j < 3; j++) {
-                QeleSurfTot[i] += QeleSurf[i][j];
+                QeleSurfTot[i] += QeleSurfAt(i, j);
             }
             DY[i] = qEleNetPrep[i] - qEleInfil[i] + qEleExfil[i] - QeleSurfTot[i] / area;
             if(Ele[i].iSS > 0){ // SS in Landusrface

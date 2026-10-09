@@ -22,8 +22,10 @@ public:
     void    readDimensions();
     void    read_csv();
     void    tsd_interpolation(double t);
+    // thread-safe read-only after movePointer; zero-order hold; no shared write
     double  getX(double t, int column);
     void    applyCalib(double prcp, double temp);
+    // single-thread mutate; MUST be called outside any RHS parallel region
     void    movePointer(double t);
     void    initialize(int n);
     void    checkValue(int icol, double xmin, double xmax, const char *varname);
@@ -36,7 +38,10 @@ private:
     int eof;
     int iNow, iNext;
     int nQue = 0;
-    double *ts[MAXQUE + 1];
+    // Brace-init nullptr defaults so the
+    // dtor `delete[] ts[i]` loop is safe on partial-init via exception
+    // mid-ctor (deleting nullptr is a defined no-op in C++03+).
+    double *ts[MAXQUE + 1] = {nullptr};
     int pRing[MAXQUE + 1];
     
     //    void    buildfn(std::string fforc);

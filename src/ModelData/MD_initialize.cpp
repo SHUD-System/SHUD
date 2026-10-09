@@ -1,10 +1,26 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <stdio.h>  /* printf for the [NUMA] first-touch message */
 #include "ModelConfigure.hpp"
 #include "IO.hpp"
 #include "functions.hpp"
 #include "Model_Data.hpp"
+#include "MD_adjacency.hpp"  /* build_adjacency_lists(), called from
+                              * Model_Data::initialize() AFTER
+                              * malloc_EleRiv + entity-table population so
+                              * RivSeg / Riv / Ele arrays + counts are
+                              * present. The lists are built once here
+                              * and read by rhs_deterministic_gather(). */
+
+/* NUMA first-touch gate; see Model_Data.cpp for its semantics. The IC
+ * arrays are filled serially in LoadIC(), so LoadIC() ends with an
+ * extra parallel touch that moves the page residency of the 8
+ * Element-indexed yEle* IC arrays from the master thread to the
+ * worker threads. NumRiv-indexed `yRivStg` and NumLake-indexed
+ * `yLakeStg` are not re-touched: the per-river / per-lake counts are
+ * small enough that they fit in a few pages. */
+extern int g_numa_first_touch_enabled;
 
 void Model_Data::LoadIC(){
     for (int i = 0; i < NumEle; i++) {
@@ -109,6 +125,32 @@ void Model_Data::LoadIC(){
         yEleSnowCanopy[i] = Ele[i].VegFrac * yEleSnow[i];
     }
     Sub2Global(yEleSurf, yEleUnsat, yEleGW, yRivStg, yLakeStg, NumEle, NumRiv, NumLake);
+
+    /* NUMA first-touch: re-touch the IC arrays
+     * that were just populated by the serial switch above so their
+     * Linux NUMA-page residency moves from the master thread to the
+     * worker threads that will own those slots in parallel RHS. The
+     * read-then-write self-assignment is a no-op for the heap state
+     * (bitwise-safe at NUM_OPENMP=1: schedule(static) makes thread 0
+     * the sole iterator, so the write order is identical to the
+     * serial baseline). */
+    if (g_numa_first_touch_enabled) {
+        printf("[NUMA] first-touch begin tag=LoadIC\n"); fflush(stdout);
+#pragma omp parallel for schedule(static)
+        for (int i = 0; i < NumEle; ++i) {
+            double v0 = yEleIS[i];          yEleIS[i] = v0;
+            double v1 = yEleSnow[i];        yEleSnow[i] = v1;
+            double v2 = yEleSurf[i];        yEleSurf[i] = v2;
+            double v3 = yEleUnsat[i];       yEleUnsat[i] = v3;
+            double v4 = yEleGW[i];          yEleGW[i] = v4;
+            double v5 = yEleSnowGrnd[i];    yEleSnowGrnd[i] = v5;
+            double v6 = yEleSnowCanopy[i];  yEleSnowCanopy[i] = v6;
+            double v7 = yEleWetFront[i];    yEleWetFront[i] = v7;
+        }
+    } else {
+        printf("[NUMA] first-touch skipped: OMP_PROC_BIND unset (1 site: LoadIC)\n");
+        fflush(stdout);
+    }
 }
 void Model_Data::SetIC2Y(N_Vector udata){
     /* PUT the values into CV_Y */
@@ -238,6 +280,20 @@ void Model_Data::initialize(){
     initializeLake();
     malloc_Y();
     read_cfgout(pf_in->file_cfgout);
+    /* Build the 7 deterministic-gather adjacency lists.
+     * AFTER initializeLake() so NumLake is finalized; AFTER malloc_Y()
+     * is harmless (lists don't depend on Y state). Lists are read-only
+     * post-build and are consumed by rhs_deterministic_gather(). The
+     * fallback path + assert booleans are exposed via MD_adjacency.hpp
+     * and exercised by tests/test_adjacency_fallback.cpp. */
+    build_adjacency_lists(this);
+    /* Populate ElementHotData SoA from _Element AoS.
+     * MUST happen AFTER all element AoS load (geometry / soil-geol /
+     * landcover / IC) and BEFORE any RHS dispatch. RHS hot path reads
+     * the SoA copy; sync_hot_dynamic(i) keeps the dynamic subset
+     * (u_qi / u_qex / u_effKH / u_satn) in sync across each writer
+     * call. See MD_layout.hpp. */
+    initialize_hot();
 }
 void Model_Data:: initialize_output (){
     int ip = 0;
@@ -268,17 +324,22 @@ void Model_Data:: initialize_output (){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_subTot, CS.dt_Qe_sub, QeleSubTot, 1, io_ele);
     }
     if (CS.dt_Qe_subx > 0){
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub0, CS.dt_Qe_sub, QeleSub, 0, 1, io_ele);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub1, CS.dt_Qe_sub, QeleSub, 1, 1, io_ele);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub2, CS.dt_Qe_sub, QeleSub, 2, 1, io_ele);
+        /* InitIJ takes the flat-array `double *` overload; PrintCtrl
+         * stores `&(QeleSub_flat[3*i + j])`, with j picking the
+         * column of the row-major NumEle x 3 array; see comment in
+         * Model_Control.cpp InitIJ flat-overload. */
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub0, CS.dt_Qe_sub, QeleSub_flat, 0, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub1, CS.dt_Qe_sub, QeleSub_flat, 1, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub2, CS.dt_Qe_sub, QeleSub_flat, 2, 1, io_ele);
     }
     if (CS.dt_Qe_surf > 0){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_surfTot, CS.dt_Qe_surf, QeleSurfTot, 1, io_ele);
     }
     if (CS.dt_Qe_surfx > 0){
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf0, CS.dt_Qe_surf, QeleSurf, 0, 1, io_ele);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf1, CS.dt_Qe_surf, QeleSurf, 1, 1, io_ele);
-        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf2, CS.dt_Qe_surf, QeleSurf, 2, 1, io_ele);
+        /* Flat-overload as for ele_Q_sub above. */
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf0, CS.dt_Qe_surf, QeleSurf_flat, 0, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf1, CS.dt_Qe_surf, QeleSurf_flat, 1, 1, io_ele);
+        CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf2, CS.dt_Qe_surf, QeleSurf_flat, 2, 1, io_ele);
     }
     if (CS.dt_Qe_rsub > 0){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_rsub, CS.dt_Qe_rsub, Qe2r_Sub, 1, io_ele);

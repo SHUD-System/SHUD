@@ -24,3 +24,33 @@ forcing
 rAnalysis/test.R
 *.*.swp
 *.DS_Store
+
+# SUNDIALS 6.0.0 download and install made by ./configure
+InstallSundials/
+cvode.tar.gz
+cvode-6.0.0/
+shud_omp
+shud_omp.dSYM/
+
+# make shud_asan
+shud_asan
+shud_asan.dSYM/
+
+# make smoke_configd
+tests/s1d_configd_nvec_smoke
+tests/s1d_configd_nvec_smoke.dSYM/
+
+# make test_adjacency_fallback
+tests/test_adjacency_fallback
+tests/test_adjacency_fallback.dSYM/
+
+# make libshud.a
+/libshud.a
+/_libshud_obj/
+
+# Local notes and editor/tool state, not part of the repository
+docs/
+.obsidian/
+.memsearch/
+.claude/
+.coveragerc

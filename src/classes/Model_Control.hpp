@@ -38,9 +38,16 @@ public:
     void    PrintData (double dt, double t);
     void    setHeader(const char *s);
     void    Init(long st, int n, const char *s, int dt, double *x, int iFlux);
-    void    InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux);
     void    Init(long st, int n, const char *s, int dt, double *x, int iFlux, int *flag);
-    void    InitIJ(long st, int n, const char *s, int dt, double **x, int j, int iFlux, int *flag);
+    /* Flat-array InitIJ overloads for the flattened
+     * QeleSurf/QeleSub arrays. `x_flat` is a contiguous
+     * `double[n*3]` block in row-major order at(i,j) ↔
+     * x_flat[3*i + j]; `j` (0..2) picks the column the PrintCtrl
+     * slot reads. Used by MD_initialize.cpp for ele_Q_sub{0,1,2}
+     * and ele_Q_surf{0,1,2} files. There are no `double**`
+     * (jagged-array) InitIJ overloads. */
+    void    InitIJ(long st, int n, const char *s, int dt, double *x_flat, int j, int iFlux);
+    void    InitIJ(long st, int n, const char *s, int dt, double *x_flat, int j, int iFlux, int *flag);
 private:
     void    fun_printASCII(double t, double dt);
     void    fun_printBINARY(double t, double dt);
@@ -119,7 +126,11 @@ public:
     double StartTime = 0.;      /* Start time of simulation [min]*/
     double EndTime = 14400;     /* End time of simulation [min]*/
     double dt = 1;
-    double *Tout;
+    /* nullptr default so the dtor's `delete[]` is a defined no-op
+     * when this field is never allocated. `Tout` is currently unused
+     * (no assignment anywhere in src/); the nullptr default +
+     * delete[] pair is kept defensively for any future writer. */
+    double *Tout = nullptr;
     int NumPrint = 0;;
     int exfiltration = 0;
     Print_Ctrl PCtrl[100];

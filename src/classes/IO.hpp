@@ -137,7 +137,11 @@ public:
     char Calib_bak[MAXLEN];
     
     //Time steps
-    FILE *fid_time;
+    /* nullptr default. fid_time is opened by fopen() in
+     * updateFilePath() (IO.cpp). The dtor closes
+     * it under nullptr guard so unallocated FileOut instances are safe
+     * and successfully-opened streams release their underlying FD. */
+    FILE *fid_time = nullptr;
     char File_Time[MAXLEN];
     
     // Flood Warnings
@@ -146,6 +150,9 @@ public:
     char obs_sim[MAXLEN];
     
     FileOut();
+    /* Closes the fid_time FILE* opened by updateFilePath() so the
+     * stream + FD are not leaked. Idempotent under nullptr guard. */
+    ~FileOut();
     void setsuffix(const char *s);
     void setOutFilePath( char *outpath, char * prjname);
     void updateFilePath();

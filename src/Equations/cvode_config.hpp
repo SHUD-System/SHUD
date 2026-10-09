@@ -21,7 +21,23 @@
 
 /*==========cvode flags===============*/
 int check_flag(void *flagvalue, const char *funcname, int opt);
-void PrintFinalStats(void *cvode_mem);
+
+/* PrintFinalStats — query SUNDIALS for the final CVODE stat counters
+ * (nfe, nfeLS, nni, nli, nsetups, netf, ...) and print them.
+ *
+ * The original signature (`void *cvode_mem`) prints to stdout only and
+ * is kept as an inline back-compat wrapper.
+ *
+ * The two-argument signature (`void *cvode_mem, FILE *fout`) ALSO
+ * writes a machine-parsable key=value file to `fout` when
+ * `fout != NULL`. stdout output is the same either way. When
+ * `fout == NULL` the two signatures behave identically — this lets
+ * the driver (src/Model/shud.cpp) persist the stats in the output
+ * directory without affecting callers that only print. */
+void PrintFinalStats(void *cvode_mem, FILE *fout);
+inline void PrintFinalStats(void *cvode_mem) {
+    PrintFinalStats(cvode_mem, NULL);
+}
 
 // void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS); // CVODE 5.X
 void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUNLinearSolver &LS, SUNContext &sunctx); // CVODE 6.X

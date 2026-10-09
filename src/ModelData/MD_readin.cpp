@@ -524,24 +524,27 @@ void Model_Data::read_bcLake2(const char *fn){
     tsd_lqBC.read_csv();
 }
 void Model_Data::FreeData(){
-    
-    for (int i = 0; i < NumEle; i++) {
-        delete[] QeleSurf[i] ;
-        delete[] QeleSub[i] ;
-    }
-    
+
+    /* QeleSurf_flat / QeleSub_flat are single contiguous blocks:
+     * one `delete[] QeleSurf_flat` releases all NumEle*3 doubles,
+     * symmetric to the allocation in malloc_EleRiv(). */
+
     delete[]    io_ele;
     delete[]    io_riv;
     delete[]    io_lake;
-    
-    delete[]    QeleSurf;
-    delete[]    QeleSub;
+
+    delete[]    QeleSurf_flat;
+    delete[]    QeleSub_flat;
     delete[]    QeleSurfTot;
     delete[]    QeleSubTot;
     delete[]    QoutSurf; //5
     
     delete[]    Qe2r_Surf; // 5.1
     delete[]    Qe2r_Sub; // 5.2
+    delete[]    QeleSurf_lake; // per-edge slot
+    delete[]    QeleSub_lake;  // per-edge slot
+    delete[]    qEleEvapo_lake; // per-element slot
+    delete[]    qElePrep_lake;  // per-element slot
     
     delete[]    qElePrep;
     delete[]    qEleTF;
@@ -629,20 +632,70 @@ void Model_Data::FreeData(){
     delete[] Riv_Type;
     delete[] rivNode;
     
+    /* ElementHotData SoA delete, symmetric to
+     * Model_Data::malloc_EleRiv() alloc order. Must precede `delete[] Ele`
+     * because hot is a struct of pointers (no pointer-into-Ele dependency,
+     * but keep clean ordering). */
+    delete[] hot.nabr_flat;
+    delete[] hot.lakenabr_flat;
+    delete[] hot.edge_flat;
+    delete[] hot.area;
+    delete[] hot.z_bottom;
+    delete[] hot.z_surf;
+    delete[] hot.iSoil;
+    delete[] hot.iLC;
+    delete[] hot.iMF;
+    delete[] hot.iForc;
+    delete[] hot.iLake;
+    delete[] hot.iBC;
+    delete[] hot.iSS;
+    delete[] hot.Dist2Nabor_flat;
+    delete[] hot.Dist2Edge_flat;
+    delete[] hot.avgRough_flat;
+    delete[] hot.FixPressure;
+    delete[] hot.WetlandLevel;
+    delete[] hot.RootReachLevel;
+    delete[] hot.depression;
+    delete[] hot.QBC;
+    delete[] hot.QSS;
+    delete[] hot.windH;
+    delete[] hot.u_qi;
+    delete[] hot.u_qex;
+    delete[] hot.u_effKH;
+    delete[] hot.u_satn;
+    delete[] hot.Sy;
+    delete[] hot.VegFrac;
+    delete[] hot.Albedo;
+    delete[] hot.Rough;
+    delete[] hot.ImpAF;
+
     /* free mesh, read_mesh */
     delete[] Ele;
     delete[] Node;
-    
+
     /* free soil, read_soil */
     delete[] Soil;
     /* free geol, read_geol */
     delete[] Geol;
     /* free lc, read_lc */
     delete[] LandC;
-    
+
     /* free forcing data */
     delete[] tsd_weather;
-    
+
+    /* These five pointer members default to nullptr in Model_Data.hpp
+     * and are dynamically allocated by Model_Data::malloc_EleRiv()
+     * (AccT_surf/AccT_sub/t_sph) and MD_Lake.cpp::initializeLake()
+     * (lake/y2LakeArea). `delete[] nullptr` is a defined no-op, so the
+     * unconditional form is safe even when allocation never ran (e.g.
+     * NumLake==0 path). `delete[] lake` also runs the lake[] dtor
+     * chain (`_Lake::~_Lake()` + `LakeBathymetry::~LakeBathymetry()`). */
+    delete[] AccT_surf;
+    delete[] AccT_sub;
+    delete[] lake;
+    delete[] y2LakeArea;
+    delete[] t_sph;
+
     /* MD::initialize() */
     delete flood;
 }

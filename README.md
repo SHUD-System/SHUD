@@ -81,6 +81,22 @@ make shud
 
 If you don't use `gcc`, you may edit the *Makefile* before compiling.
 
+Another compiler can also be passed to make, e.g. `make shud CXX=clang++`.
+
+An experimental algebraic-multigrid linear solver ([hypre](https://github.com/hypre-space/hypre) BoomerAMG) can be built in with `HYPRE=1`. It is not needed for normal use and is off by default. It requires hypre, an MPI library and OpenBLAS:
+
+```
+# macOS (Homebrew); the default paths in the Makefile match
+brew install hypre open-mpi openblas
+make shud HYPRE=1
+
+# Ubuntu / Debian
+sudo apt install libhypre-dev libopenmpi-dev libopenblas-dev
+make shud HYPRE=1 HYPRE_INCDIR=/usr/include/hypre HYPRE_LIBDIR=/usr/lib/$(uname -m)-linux-gnu OPENBLAS_LIBDIR=
+```
+
+For other installations set `HYPRE_INCDIR`, `HYPRE_LIBDIR`, `MPI_INCDIR` and `OPENBLAS_LIBDIR` on the `make` command line. The solver is then selected at run time with the environment variable `SHUD_LINSOL=amg`.
+
 **Step 3: Run the North Fork Cache Creek Watershed example**
 
 ```
@@ -94,5 +110,35 @@ The screen looks shoud be:
 
 The output files from the SHUD model is save in `./output/ccw.out`.  The R package, SHUDtoolbox, helps to load the input/output files of SHUD. More details about prepare SHUD data, model input/output and visualization is available in SHUD website (https://www.shud.xyz) and help information of SHUDtoolbox.
 
+---
 
+## OpenMP parallel build
 
+`make shud_omp` builds a multi-threaded version of the model for one
+compute node (OpenMP; no MPI). Its results are bit-for-bit the same at
+every thread count.
+
+```
+./configure
+make shud_omp
+```
+
+Set the number of threads in **both** places, to the same value:
+
+- `NUM_OPENMP` in `input/<project>/<project>.cfg.para`
+- the environment, before running:
+
+```
+export OMP_NUM_THREADS=8
+export SHUD_RHS_THREADS=8
+export OMP_PROC_BIND=close
+export OMP_PLACES=cores
+./shud_omp ccw
+```
+
+Use at most the number of physical cores. Small projects, including the
+examples in `input/`, gain little; on a 40,046-element mesh the model ran
+about 2.6 times faster than `./shud` with 16 threads.
+
+Build variants, a Slurm example, measured performance and common problems
+are in [`OpenMP_Guide.md`](OpenMP_Guide.md).

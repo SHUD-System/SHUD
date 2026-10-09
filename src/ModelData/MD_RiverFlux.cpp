@@ -21,7 +21,11 @@ void Model_Data::Flux_RiverDown(double t, int i){
             CSarea = Riv[i].u_CSarea;
             R = (Perem <= 0.) ? 0. : (CSarea / Perem);
             QrivDown[i] = ManningEquation(CSarea, n, R, s);
-            QLakeRivIn[Riv[i].toLake] += QrivDown[i];  /* Positive = river to Lake */
+            /* QLakeRivIn[Riv[i].toLake] is NOT accumulated here: it is
+             * shared by every river draining to the same lake. This
+             * function writes only its own QrivDown[i], so rivers can
+             * run in parallel; rhs_deterministic_gather() sums
+             * QrivDown -> QLakeRivIn (per-lake aggregate). */
     }else if (iDown >= 0) {
         sMean = (Riv[i].BedSlope + Riv[iDown].BedSlope) * 0.5 ;
         Distance =  Riv[i].Dist2DownStream;
@@ -104,9 +108,11 @@ void Model_Data::fun_Seg_surface(int iEle, int iRiv, int i){
     QsegSurf[i] = WeirFlow_jtoi(Ele[iEle].z_surf, isf,
                            Ele[iEle].z_surf - Riv[iRiv].depth, uYriv[iRiv],
                            Ele[iEle].z_surf + Riv[iRiv].zbank, RivSeg[i].Cwr, RivSeg[i].length, Ele[iEle].depression);
-    QrivSurf[iRiv]    +=  QsegSurf[i]; // Positive from River to Element
-    Qe2r_Surf[iEle]   += -QsegSurf[i]; // Positive from Element to River
-    
+    /* QrivSurf[iRiv] and Qe2r_Surf[iEle] are NOT accumulated here.
+     * rhs_deterministic_gather() (MD_rhs_core.cpp) zeroes them and
+     * re-accumulates the same sums from QsegSurf, so adding here
+     * would double count. Only QsegSurf[i] is written. */
+
 #ifdef DEBUG
     CheckNANi(QsegSurf[i], i, "River Flux Surface (Functopm:f_Segement_surface)");
 #endif
@@ -118,8 +124,10 @@ void Model_Data::fun_Seg_sub( int iEle, int iRiv, int i){
                              Ele[iEle].u_effKH, Riv[iRiv].KsatH,  
                              RivSeg[i].length,Riv[iRiv].BedThick);
     QsegSub[i] *= fu_Sub[iEle];
-    QrivSub[iRiv] += QsegSub[i];
-    Qe2r_Sub[iEle] += -QsegSub[i];
+    /* QrivSub[iRiv] and Qe2r_Sub[iEle] are NOT accumulated here, for
+     * the same reason as in fun_Seg_surface: rhs_deterministic_gather()
+     * zeroes them and re-accumulates from QsegSub. fun_Seg_sub only
+     * computes QsegSub[i] (no accumulator side-effects). */
 #ifdef DEBUG
     CheckNANi(QsegSub[i], i, "River Flux Sub(Functopm:fun_Seg_sub)");
 #endif

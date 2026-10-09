@@ -7,11 +7,16 @@
 //
 
 #include "Model_Data.hpp"
+/* updateforcing() and ET() carry no profiling Timer of their own.
+ * The `t_forcing_io` / `t_ET` buckets are timed by the RAII Timers
+ * that wrap `MD->updateforcing(t)` and `MD->ET(t, tnext)` in the
+ * shud.cpp main loop; a second Timer in here would add the same span
+ * to the same bucket again and report more time than the wall clock. */
 void Model_Data::updateforcing(double t){
     int i;
-#ifdef _OPENMP_ON
-#pragma omp for
-#endif
+    /* Plain serial loop: updateforcing() is called from the
+     * single-threaded main loop, outside any `omp parallel` region,
+     * so a bare `#pragma omp for` here would have no effect. */
     for (i = 0; i < NumForc; i++){
         tsd_weather[i].movePointer(t);
     }
@@ -19,26 +24,34 @@ void Model_Data::updateforcing(double t){
     tsd_LAI.movePointer(t);
 //    tsd_RL.movePointer(t);
     for(i = 0; i < NumEle; i++){
+        /* updateElement writes Ele[i].u_effKH / u_satn
+         * / Kmax / u_deficit / u_theta / u_satKr / u_phius / u_effkInfi
+         * (member method on AoS); sync_hot_dynamic(i) refreshes the SoA
+         * mirror of the subset that the RHS reads afterwards. */
         Ele[i].updateElement(uYsf[i], uYus[i], uYgw[i]);
+        sync_hot_dynamic(i);
         tReadForcing(t,i);
     }
 }
 void Model_Data::tReadForcing(double t, int i){
-    int idx = Ele[i].iForc - 1;
+    /* Ele[i].{iForc, z_surf, iLC, iMF, Albedo, FixPressure, iLake,
+     * windH} are read from the SoA mirror. tsd_weather / tsd_LAI /
+     * tsd_MF are not per-element state and are accessed directly. */
+    int idx = hot.iForc[i] - 1;
     double etp, ra, rs, t0, hc, U2, Uz, Zmeasure, lai;
     double GroundHeatFlux, RG;
     t_prcp[i] = tsd_weather[idx].getX(t, i_prcp) * gc.cPrep;
     t0= tsd_weather[idx].getX(t, i_temp);
-    t_temp[i] = TemperatureOnElevation(t0, Ele[i].z_surf, tsd_weather[idx].xyz[2]) +  gc.cTemp;
-    t_lai[i] = tsd_LAI.getX(t, Ele[i].iLC) * gc.cLAItsd ;
+    t_temp[i] = TemperatureOnElevation(t0, hot.z_surf[i], tsd_weather[idx].xyz[2]) +  gc.cTemp;
+    t_lai[i] = tsd_LAI.getX(t, hot.iLC[i]) * gc.cLAItsd ;
     lai = t_lai[i];
-    t_mf[i] = tsd_MF.getX(t, Ele[i].iMF) * gc.cMF / 1440.;  /*  [m/day/C] to [m/min/C].
+    t_mf[i] = tsd_MF.getX(t, hot.iMF[i]) * gc.cMF / 1440.;  /*  [m/day/C] to [m/min/C].
                                                             1.6 ~ 6.0 mm/day/C is typical value in USDA book
                                                             Input is 1.4 ~ 3.0 mm/d/c */
-    t_rn[i] = tsd_weather[idx].getX(t, i_rn) * (1 - Ele[i].Albedo);
+    t_rn[i] = tsd_weather[idx].getX(t, i_rn) * (1 - hot.Albedo[i]);
     Uz = t_wind[i] = (fabs(tsd_weather[idx].getX(t, i_wind) ) + 0.001); // +.001 voids ZERO.
     t_rh[i] = tsd_weather[idx].getX(t, i_rh);
-//    t_hc[i] = tsd_RL.getX(t, Ele[i].iLC);
+//    t_hc[i] = tsd_RL.getX(t, hot.iLC[i]);
 //    t_hc[i] = max(t_hc[i], CONSt_hc);
     /* Precipitation  */
     t_prcp[i]   = t_prcp[i] * 0.001 / 1440. ; // [mm d-1] to [m min-1]
@@ -50,17 +63,17 @@ void Model_Data::tReadForcing(double t, int i){
      t_rh  [0-1] ;
      */
     t_rh[i]     = min(max(t_rh[i], CONST_RH), 1.0); // [value is b/w 0~1 ]
-    
+
     qElePrep[i] = t_prcp[i];
     double lambda = LatentHeat(t_temp[i]);                      // eq 4.2.1  [MJ/kg]
-    double Gamma = PsychrometricConstant(Ele[i].FixPressure, lambda); // eq 4.2.28  [kPa C-1]
+    double Gamma = PsychrometricConstant(hot.FixPressure[i], lambda); // eq 4.2.28  [kPa C-1]
     double es = VaporPressure_Sat(t_temp[i]);                   // eq 4.2.2 [kpa]
     double ea = es * t_rh[i];   // [kPa]
     double ed = es - ea ;  // [kPa]
     double Delta = SlopeSatVaporPressure(t_temp[i], es);        // eq 4.2.3 [kPa C-1]
-    double rho = AirDensity(Ele[i].FixPressure, t_temp[i]);;    // eq 4.2.4 [kg m-3]
+    double rho = AirDensity(hot.FixPressure[i], t_temp[i]);;    // eq 4.2.4 [kg m-3]
     /* R - G in the PM equation.*/
-    if(Ele[i].iLake > 0 ){
+    if(hot.iLake[i] > 0 ){
         GroundHeatFlux = 0.;
         RG = t_rn[i];
     }else{
@@ -71,9 +84,9 @@ void Model_Data::tReadForcing(double t, int i){
         }
     }
     RG = t_rn[i] - GroundHeatFlux;
-    U2 = WindProfile(2.0, t_wind[i], Ele[i].windH, 0., ROUGHNESS_WATER); // [m s-1]
+    U2 = WindProfile(2.0, t_wind[i], hot.windH[i], 0., ROUGHNESS_WATER); // [m s-1]
     qPotEvap[i] = gc.cETP * PET_PM_openwater(Delta, Gamma, lambda, RG, ed, U2) * 60.; // eq 4.2.30
-    if(Ele[i].iLake > 0){        /* Open-water */
+    if(hot.iLake[i] > 0){        /* Open-water */
         qPotTran[i] = gc.cETP * 0.;
         etp = qPotEvap[i];
     }else if(lai <= 0.){        /* Bare soiln */
@@ -98,54 +111,56 @@ void Model_Data::tReadForcing(double t, int i){
 //        CheckNANi(ra, i, "Aerodynamic Resistance");
         rs = BulkSurfaceResistance(lai);  // eq 4.2.22 & 4.2.25  [s m-1]
         qPotTran[i] = gc.cETP * PET_Penman_Monteith(RG, rho, ed, Delta, ra, rs, Gamma, lambda) * 60.;// eq 4.2.27
-        etp = qPotTran[i] * Ele[i].VegFrac + qPotEvap[i] * (1. - Ele[i].VegFrac);
+        etp = qPotTran[i] * hot.VegFrac[i] + qPotEvap[i] * (1. - hot.VegFrac[i]);
         CheckNANi(qPotTran[i], i, "qPotTran[i]");
     }
     qEleETP[i] = etp;
 }
 void Model_Data::ET(double t, double tnext){
-    double  T=NA_VALUE,  LAI=NA_VALUE, MF =NA_VALUE, prcp = NA_VALUE;
-    double  snFrac, snAcc, snMelt, snStg;
-    double  icAcc, icEvap, icStg, icMax, vgFrac;
+    /* Not timed here; the caller in shud.cpp owns the t_ET Timer (see
+     * the comment above updateforcing()). */
     double  DT_min = tnext - t;
-    double  ta_surf, ta_sub;
-    int i;
-#ifdef _OPENMP_ON
-#pragma omp for
-#endif
-    for(i = 0; i < NumEle; i++) {
-        T = t_temp[i];
-        prcp = t_prcp[i];
+    /* Plain serial loop, called outside any `omp parallel` region.
+     * All element-local scalars (T, LAI, MF, prcp, snFrac, snAcc,
+     * snMelt, snStg, icAcc, icEvap, icStg, icMax, vgFrac, ta_surf,
+     * ta_sub, and the loop index i) are declared at use inside the
+     * for body, so each iteration touches only its own element.
+     * DT_min is the only shared value and is loop-invariant. */
+    for(int i = 0; i < NumEle; i++) {
+        double T = t_temp[i];
+        double prcp = t_prcp[i];
         /* Snow Accumulation */
-        MF = t_mf[i];
-        snStg = yEleSnow[i];
+        double MF = t_mf[i];
+        double snStg = yEleSnow[i];
         /* Snow Accumulation/Melt Calculation*/
-        snFrac  = FrozenFraction(T, Train, Tsnow);
-        
+        double snFrac = FrozenFraction(T, Train, Tsnow);
+
         if(CS.cryosphere){
             AccT_surf[i].push(T, t);
             AccT_sub[i].push(T, t);
-            ta_surf = AccT_surf[i].getACC();
-            ta_sub  = AccT_sub[i].getACC();
+            double ta_surf = AccT_surf[i].getACC();
+            double ta_sub  = AccT_sub[i].getACC();
             fu_Sub[i] = 1. - FrozenFraction(ta_sub, AccT_sub_max, AccT_sub_min);
             fu_Surf[i] = 1. - FrozenFraction(ta_surf, AccT_surf_max, AccT_surf_min);
         }else{
             fu_Sub[i] = 1.;
             fu_Surf[i] = 1.;
         }
-        
-        snAcc = snFrac * prcp;
-        snMelt = (T > To ? (T - To) * MF : 0.);    /* eq. 7.3.14 in Maidment */
+
+        double snAcc = snFrac * prcp;
+        double snMelt = (T > To ? (T - To) * MF : 0.);    /* eq. 7.3.14 in Maidment */
         snMelt = min(max(0., snStg / DT_min), max(0., snMelt));
 //        CheckNonNegative(snMelt, i, "Snow Melting");
         snStg += (snAcc - snMelt) * DT_min;
-        
+
         /* Interception */
-        LAI = t_lai[i];
-        icStg = yEleIS[i];
-        vgFrac = Ele[i].VegFrac;
+        double LAI = t_lai[i];
+        double icStg = yEleIS[i];
+        /* Ele[i].VegFrac SoA read. */
+        double vgFrac = hot.VegFrac[i];
+        double icAcc, icEvap;
         if(LAI > ZERO){
-            icMax = gc.cISmax * IC_MAX * LAI;
+            double icMax = gc.cISmax * IC_MAX * LAI;
             icAcc = min(prcp - snAcc, max(0., (icMax - icStg) / DT_min) );
             icEvap = min(max(0., icStg / DT_min), qPotEvap[i]);
         }else{
@@ -153,7 +168,7 @@ void Model_Data::ET(double t, double tnext){
             icEvap = 0.;
         }
         icStg += (icAcc - icEvap) * DT_min;
-        
+
         /* Update the storage value and net precipitaion */
         yEleIS[i] = icStg * vgFrac;
         yEleSnow[i] = snStg;
@@ -165,15 +180,19 @@ void Model_Data::ET(double t, double tnext){
     }
 }
 void Model_Data::f_etFlux(int i, double t){
+    /* Ele[i].{VegFrac, ImpAF, iSoil, u_satn, WetlandLevel,
+     * RootReachLevel} are read from the SoA mirror. The Soil[idx]
+     * lookup uses the Soil array itself (not per-element state); only
+     * the `iSoil - 1` selector comes from the SoA. */
     double Es = 0., Eu = 0., Tu = 0., Eg = 0., Tg = 0.;
-    double va = Ele[i].VegFrac, vb = 1. - Ele[i].VegFrac;
-    double pj = 1. - Ele[i].ImpAF;
-    iBeta[i] = SoilMoistureStress(Soil[(Ele[i].iSoil - 1)].ThetaS, Soil[(Ele[i].iSoil - 1)].ThetaR, Ele[i].u_satn);
+    double va = hot.VegFrac[i], vb = 1. - hot.VegFrac[i];
+    double pj = 1. - hot.ImpAF[i];
+    iBeta[i] = SoilMoistureStress(Soil[(hot.iSoil[i] - 1)].ThetaS, Soil[(hot.iSoil[i] - 1)].ThetaR, hot.u_satn[i]);
     /* Evaporation from SURFACE ponding water */
     Es = min(max(0., uYsf[i]), qPotEvap[i]) * vb;
     if(Es < qPotEvap[i]){
         /* Some PET is extracted by surface Evaporation, so PET - Es is the effective PET now. */
-        if(uYgw[i] > Ele[i].WetlandLevel){
+        if(uYgw[i] > hot.WetlandLevel[i]){
             /* Evporation from GroundWater, ONLY when gw above wetland level*/
             Eg = min(max(0., uYgw[i]), qPotEvap[i] - Es) * pj * vb;
             Eu = 0.;
@@ -193,7 +212,7 @@ void Model_Data::f_etFlux(int i, double t){
             Tg = Tu = 0.;
             qEleE_IC[i] = qPotTran[i] * pj * va;
         }else{
-            if(uYgw[i] > Ele[i].RootReachLevel){
+            if(uYgw[i] > hot.RootReachLevel[i]){
                 Tg = min(max(0., uYgw[i]), (qPotTran[i] - qEleE_IC[i]) ) * pj * va;
                 Tu = 0.;
             }else{
@@ -212,9 +231,18 @@ void Model_Data::f_etFlux(int i, double t){
     qEleTrans[i] = Tg + Tu;
     qEleEvapo[i] = Eu + Eg + Es;  
     qEleETA[i] = qEleE_IC[i] + qEleEvapo[i] + qEleTrans[i];
+    /* The per-element AET/PET warning is compiled only under
+     * `#ifdef DEBUG`: f_etFlux runs once per element inside rhs_flux,
+     * and an unconditional `printf` here would put a stdout write on
+     * the RHS hot path. Default builds (no -DDEBUG) emit no code
+     * here. The warning only ever goes to stdout, never to the model
+     * output files, so results are the same with or without DEBUG.
+     * This matches how `CheckNANi` is guarded in MD_rhs_core.cpp. */
+#ifdef DEBUG
     if(qEleETA[i] > qEleETP[i] * 2.){
         printf("Warning: More AET(%.3E) than PET(%.3E) on Element (%d).", qEleETA[i], qEleETP[i], i+1);
     }
+#endif
     CheckNonNegative(Es, i, "Es"); // Debug Only
     CheckNonNegative(Eu, i, "Eu");
     CheckNonNegative(Eg, i, "Eg");

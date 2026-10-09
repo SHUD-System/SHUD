@@ -57,8 +57,16 @@ public:
             
         }
     }
-    double getACC(){        
-        return ACC / que.size();
+    double getACC(){
+        /* Defensive divide-zero guard. In the current call graph
+         * (MD_ET.cpp, push() immediately precedes getACC()), the
+         * initial Time_start = -9999. guarantees the very first
+         * push(x, tnow) call enqueues — for any tnow >= -8559, the
+         * (tnow - Time_start) >= 1440 condition holds — so the empty-queue
+         * path is unreachable and the guard does not change results.
+         * It guards against future call-graph changes that might
+         * invoke getACC() before any push; an empty queue returns 0.0. */
+        return que.empty() ? 0.0 : ACC / que.size();
     }
 };
 #endif /* AccTemperature_hpp */
