@@ -16,7 +16,8 @@ shud.*
 Build
 DerivedData
 *.xcodeproj
-.github
+# local-only workflow, not part of the repository
+.github/workflows/gh-pr-review-gate.yml
 SHUD.*
 .Rproj.user
 .DS_Store
@@ -52,5 +53,14 @@ tests/test_adjacency_fallback.dSYM/
 docs/
 .obsidian/
 .memsearch/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/pre-push-checks/
 .coveragerc
+
+# Engineering gates (make ci): tool virtualenv and coverage data
+.ci-venv/
+*.gcno
+*.gcda
+__pycache__/

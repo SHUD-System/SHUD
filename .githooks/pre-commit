@@ -1,0 +1,3 @@
+#!/bin/sh
+# Size, naming and secret checks on the staged files. Enable with `make install-hooks`.
+exec python3 "$(git rev-parse --show-toplevel)/tools/ci/gate.py" precommit

@@ -1,0 +1,215 @@
+# constraints.yaml — machine-readable engineering constraints
+# Canonical source of every threshold, pattern and baseline used by the gates
+# in tools/ci/. The gates read this file at run time; do not hardcode copies.
+# Human-readable rules: AGENTS.md. Levels: advice < review-only < warn < block < gate.
+
+strictness_profile:
+  schema_version: "3.6.0"
+  level: "L3"
+  chosen_by_user: true
+  downgrades:
+    - control: structured_logging
+      profile_default: required
+      chosen: not-implemented
+      reason: "Run logs are read by people and parsed by external scripts; changing their format breaks users"
+    - control: release_pipeline
+      profile_default: automated
+      chosen: manual-tags
+      reason: "Releases are rare and tagged by hand"
+    - control: integration_tests_real_db
+      profile_default: required
+      chosen: not-applicable
+      reason: "No database"
+    - control: e2e_tests
+      profile_default: required
+      chosen: example-regression
+      reason: "Command-line model: the ccw regression run is the end-to-end test"
+    - control: contract_tests
+      profile_default: required
+      chosen: io-snapshot
+      reason: "No API: command-line options and output file list are snapshot-tested instead"
+    - control: tdd_mode
+      profile_default: required
+      chosen: required-by-change-type
+      reason: "Red-green is enforced for bug fixes and conservation/numerical changes; a new physical closure has no known answer to assert first"
+    - control: coverage_scope
+      profile_default: per-file
+      chosen: global
+      reason: "Coverage comes from one example run; a per-file gate needs unit tests that do not exist yet"
+    - control: dead_code_pre_commit
+      profile_default: pre-commit + CI
+      chosen: CI
+      reason: "cppcheck needs the whole source tree and takes too long for a commit hook"
+
+generated_sections:
+  agents_md:
+    - title: "Code Canonicality"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Project Identity"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Stack & Versions"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Directory Map"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Development Workflow"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Verification Matrix"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Important Development Notes"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Conventions"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Code Review Self-Check"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Critical Paths"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Agent Operating Rules"
+      owner: "eng-init"
+      template_version: "3.6.0"
+    - title: "Enforcement Index"
+      owner: "eng-init"
+      template_version: "3.6.0"
+  preserve_unknown_sections: true
+
+code_canonicality:
+  forbidden_suffixes:
+    description: "File and directory names ending in these suffixes are rejected"
+    pattern: "(_v[0-9]+|_new|_old|_backup|_temp|_copy|_final|_real|_improved|_refactored|_fixed|_legacy|_deprecated)$"
+    enforced_by: "tools/ci/static_checks.py (make lint, pre-commit)"
+  scratchpad_directories:
+    description: "Directories that must never be committed"
+    paths: [tmp, scratch, backup, _old, deprecated, archive, wip]
+    enforced_by: "tools/ci/static_checks.py (make lint, pre-commit)"
+
+size_limits:
+  max_file_lines:
+    value: 800
+    severity: "block"
+    enforced_by: "tools/ci/static_checks.py (make lint, pre-commit)"
+  max_complexity:
+    value: 15
+    severity: "block"
+    enforced_by: "lizard via tools/ci/static_checks.py (make lint)"
+  max_pr_diff_lines:
+    value: 400
+    severity: "block"
+    excluded_prefixes: [tests/reference/, tests/io_contract/, tools/ci/baseline/]
+    enforced_by: "tools/ci/pr_checks.py (make pr-gates); label diff-limit-exempt skips it"
+
+testing:
+  min_line_coverage:
+    value: 80
+    scope: "global"
+    severity: "block"
+    enforced_by: "gcovr via tools/ci/runtime_checks.py (make coverage); floor is baseline.coverage_percent until 80 is reached"
+  tdd_mode:
+    value: "required-by-change-type"
+    description: "A change under src/ must change tests/; evidence required per change type is in AGENTS.md"
+  forbid_mock_of_system_under_test:
+    value: true
+
+anti_drift:
+  duplicate_code_threshold_percent:
+    value: 3.0
+    severity: "block"
+    enforced_by: "lizard -Eduplicate via tools/ci/static_checks.py (make lint)"
+  dead_code:
+    severity: "block"
+    enforced_by: "cppcheck unusedFunction via tools/ci/static_checks.py (make lint)"
+
+commits:
+  conventional_commits_required:
+    value: true
+    allowed_types: [feat, fix, refactor, chore, docs, test, ci, build, perf]
+    enforced_by: ".githooks/commit-msg + make pr-gates"
+    agent_co_author_required: true
+
+# Regression run used by `make test`, `make regress` and `make coverage`.
+regression:
+  project: "ccw"
+  days: 3
+  # Allowed difference of the final state against tests/reference/ (metres).
+  # Covers compiler and platform rounding only; a physics change must update the reference.
+  max_abs_m: 0.001
+  rms_m: 0.0001
+
+# Machine-readable mirror of the AGENTS.md Verification Matrix.
+verification:
+  surfaces:
+    static:
+      command: "make lint"
+      evidence: "exit-code+gate-output"
+      required_at: "L2+"
+    unit:
+      command: "make test"
+      evidence: "exit-code+gate-output"
+      required_at: "L2+"
+    cli:
+      command: "make regress"
+      evidence: "bitwise serial/OpenMP agreement + reference comparison"
+      required_at: "L2+"
+    coverage:
+      command: "make coverage"
+      evidence: "line coverage percentage"
+      required_at: "L2+"
+    guards:
+      command: "make test-guardrails"
+      evidence: "per-guard reject/accept table"
+      required_at: "L2+"
+    docs:
+      command: "make docs-check"
+      evidence: "exit-code+gate-output"
+      required_at: "L3+"
+    secrets:
+      command: "make secrets"
+      evidence: "exit-code"
+      required_at: "L3+"
+    change:
+      command: "make pr-gates"
+      evidence: "exit-code+gate-output"
+      required_at: "L3+"
+    all:
+      command: "make ci"
+      evidence: "exit-code+per-gate PASS lines"
+      required_at: "L2+"
+  enforced_by: "check_rendered_harness.py matrix-to-target check + CI"
+
+exemptions:
+  entries: []
+  enforced_by: "gates skip exempted paths"
+
+# Violations that existed when the gates were introduced (frozen at Q1.4b).
+# TEMPORARY: delete each entry when its count reaches 0 (coverage: when it reaches
+# testing.min_line_coverage.value). Counts may only go down; raising one is a
+# profile downgrade and needs an entry in strictness_profile.downgrades.
+baseline:
+  mode: "freeze"
+  rev: "1e6423f"
+  counts:
+    size_violations: 4
+    complexity_violations: 24
+    duplicate_code: 3.19
+    dead_code: 40
+  # Line coverage of src/ from the regression run. gcov counts lines differently
+  # per compiler, so there is one floor per platform.
+  coverage_percent:
+    darwin: 55.2
+    linux: 56.1
+  enforced_by: "tools/ci/baseline/*.txt compared by make lint; make coverage"
+
+iteration_gates:
+  max_fix_cycles: 3
+  checkpoint_commit_at_green: true
+  test_weakening_forbidden: true
+  one_task_one_branch: true
+  enforced_by: "AGENTS.md Agent Operating Rules (review-only)"

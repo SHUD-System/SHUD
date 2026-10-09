@@ -1,0 +1,6 @@
+# Frozen baseline (constraints.yaml -> baseline). Entries may only be removed or lowered.
+# path<TAB>line ceiling
+src/Equations/sunlinsol_hypre.cpp	1167
+src/Model/MD_nvec_hybrid.cpp	849
+src/Model/MD_rhs_core.cpp	868
+src/Model/shud.cpp	819

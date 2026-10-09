@@ -1,0 +1,103 @@
+name: CI
+
+# Runs the engineering gates (AGENTS.md, Enforcement Index). Each job calls the
+# same make target a developer runs locally. Branch protection should require
+# only the "All checks passed" job.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  static:
+    name: Static gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck python3-venv
+      - name: Lint (size, naming, complexity, duplication, dead code)
+        run: make lint
+      - name: Documentation references
+        run: make docs-check
+      - name: Guardrail self-test
+        run: make test-guardrails
+      - name: Change-scoped gates (tests with src, docs with build, diff size, commit subjects)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          DIFF_LIMIT_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'diff-limit-exempt') && '1' || '0' }}
+        run: make pr-gates BASE=${{ github.event.pull_request.base.sha }}
+
+  build-test:
+    name: Build, tests, regression, coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y g++ make cmake wget python3-venv
+      - name: Cache SUNDIALS built by ./configure
+        uses: actions/cache@v4
+        with:
+          path: InstallSundials
+          key: sundials-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('configure') }}
+      - name: Build SUNDIALS
+        run: test -f InstallSundials/lib/libsundials_cvode.a || ./configure
+      - name: Self-tests and input/output contract
+        run: make test
+      - name: Regression (serial/OpenMP bit-identity, reference results)
+        run: make regress
+      - name: Line coverage
+        run: make coverage
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+      - name: Scan
+        run: make secrets
+
+  # Branch protection requires ONLY this check. GitHub treats a skipped
+  # required check as passing, so `if: always()` and the explicit test for
+  # `skipped` are both load-bearing.
+  all-checks-passed:
+    name: All checks passed
+    if: always()
+    needs:
+      - static
+      - build-test
+      - secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Fail on any failed, cancelled, or skipped required job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          if echo "$NEEDS" | grep -Eq '"result": "(failure|cancelled|skipped)"'; then
+            echo "::error::A required job failed, was cancelled, or was skipped."
+            exit 1
+          fi

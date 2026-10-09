@@ -1,0 +1,36 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (C/C++)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y g++ make cmake wget
+      - name: Cache SUNDIALS built by ./configure
+        uses: actions/cache@v4
+        with:
+          path: InstallSundials
+          key: sundials-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('configure') }}
+      - name: Build SUNDIALS
+        run: test -f InstallSundials/lib/libsundials_cvode.a || ./configure
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          build-mode: manual
+      - name: Build SHUD
+        run: make shud
+      - uses: github/codeql-action/analyze@v3
