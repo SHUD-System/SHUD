@@ -92,7 +92,7 @@ make shud HYPRE=1
 
 # Ubuntu / Debian
 sudo apt install libhypre-dev libopenmpi-dev libopenblas-dev
-make shud HYPRE=1 HYPRE_INCDIR=/usr/include/hypre HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu OPENBLAS_LIBDIR=
+make shud HYPRE=1 HYPRE_INCDIR=/usr/include/hypre HYPRE_LIBDIR=/usr/lib/$(uname -m)-linux-gnu OPENBLAS_LIBDIR=
 ```
 
 For other installations set `HYPRE_INCDIR`, `HYPRE_LIBDIR`, `MPI_INCDIR` and `OPENBLAS_LIBDIR` on the `make` command line. The solver is then selected at run time with the environment variable `SHUD_LINSOL=amg`.

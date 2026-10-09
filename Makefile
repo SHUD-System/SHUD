@@ -5,7 +5,7 @@
 # SHUD model is a heritage of Penn State Integrated Hydrologic Model (PIHM).
 # -----------------------------------------------------------------
 # Prerequisites:
-#   - SUNDIALS 6.0.x installed at $(SUNDIALS_DIR) via ./configure
+#   - SUNDIALS 6.x installed at $(SUNDIALS_DIR) (./configure installs 6.0.0)
 #   - For OpenMP on macOS: `brew install libomp`
 #   - For OpenMP on Linux: GCC with libgomp
 # `make help` lists the targets and options. OpenMP_Guide.md explains
@@ -380,8 +380,10 @@ HYPRE_LIBDIR ?= /opt/homebrew/lib
 # MPI_INCDIR — location of mpi.h. The hypre headers include it although
 # SHUD calls no MPI function.
 #   macOS (Homebrew): hypre is built without MPI; the variable is unused.
-#   Ubuntu (apt)    : libopenmpi-dev, /usr/lib/x86_64-linux-gnu/openmpi/include
-MPI_INCDIR ?= /usr/lib/x86_64-linux-gnu/openmpi/include
+#   Ubuntu (apt)    : libopenmpi-dev, /usr/lib/<arch>-linux-gnu/openmpi/include
+#                     (found automatically from `uname -m`)
+MULTIARCH_DIR := /usr/lib/$(shell uname -m)-linux-gnu
+MPI_INCDIR ?= $(MULTIARCH_DIR)/openmpi/include
 
 # OPENBLAS_LIBDIR — location of the OpenBLAS library. Homebrew installs
 # it outside the default linker path (/opt/homebrew/opt/openblas/lib),
@@ -411,7 +413,7 @@ RPATH = '-Wl,-rpath,$(LIB_SUN)'
 # linker requires it on the command line ("DSO missing from command line"
 # error). Mac brew openmpi disabled C++ bindings (libmpi_cxx not shipped).
 # Auto-detect via wildcard.
-MPI_CXX_LIB ?= $(if $(wildcard /usr/lib/x86_64-linux-gnu/libmpi_cxx.so*),-lmpi_cxx)
+MPI_CXX_LIB ?= $(if $(wildcard $(MULTIARCH_DIR)/libmpi_cxx.so*),-lmpi_cxx)
 
 # HYPRE_CK is part of INCLUDES and HYPRE_LK part of LK_FLAGS, so every
 # recipe picks them up. Both are empty when HYPRE=0.
@@ -437,8 +439,9 @@ LK_DYLN  = "LD_LIBRARY_PATH=$(LIB_SUN)"
 # -----------------------------------------------------------------
 # SUNDIALS version and installation check
 # -----------------------------------------------------------------
-# - Version 6.0.x is required; 6.1 and later are rejected. The patterns
-#   are anchored so that 60 or 600 does not pass as 6.
+# - Major version 6 is required (tested with 6.0.0, 6.1.1, 6.4.1 and
+#   6.7.0; ./configure installs 6.0.0). The pattern is anchored so that
+#   60 or 600 does not pass as 6.
 # - The libraries are checked too, to catch an installation where the
 #   headers exist but the libraries were never built.
 SUNDIALS_CFG_H = $(SUNDIALS_DIR)/include/sundials/sundials_config.h
@@ -448,9 +451,7 @@ check_sundials:
 	@test -f $(SUNDIALS_CFG_H) || \
 	  (echo "ERROR: $(SUNDIALS_CFG_H) not found; run ./configure first"; exit 2)
 	@grep -Eq '^#define SUNDIALS_VERSION_MAJOR 6$$' $(SUNDIALS_CFG_H) || \
-	  (echo "ERROR: SUNDIALS major != 6 in $(SUNDIALS_CFG_H); SHUD requires 6.0.x"; exit 2)
-	@grep -Eq '^#define SUNDIALS_VERSION_MINOR 0$$' $(SUNDIALS_CFG_H) || \
-	  (echo "ERROR: SUNDIALS minor != 0; SHUD requires 6.0.x; re-run ./configure to pin to 6.0.0"; exit 2)
+	  (echo "ERROR: SUNDIALS major != 6 in $(SUNDIALS_CFG_H); SHUD requires SUNDIALS 6.x"; exit 2)
 	@ls $(SUNDIALS_DIR)/lib/libsundials_cvode.* >/dev/null 2>&1 || \
 	  (echo "ERROR: libsundials_cvode.* not found under $(SUNDIALS_DIR)/lib; SUNDIALS install is incomplete; re-run ./configure"; exit 2)
 	@ls $(SUNDIALS_DIR)/lib/libsundials_nvecserial.* >/dev/null 2>&1 || \

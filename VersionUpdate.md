@@ -51,7 +51,7 @@ MODIFICATIONS/ADDITIONS from v2.0. The physics and the input/output file formats
    4. The former OpenMP code path (`src/ModelData/MD_f_omp.cpp`) is removed. `make shud_omp` now builds the new one.
    5. Internal changes that serve the above: the RHS is reorganized into `src/Model/MD_rhs_core.cpp`, the element data used by the RHS are stored as contiguous arrays (`src/ModelData/MD_layout.hpp`), and the element/river/lake neighbour lists are built once at start (`src/ModelData/MD_adjacency.cpp`).
 2. Build.
-   1. `./configure` installs SUNDIALS/CVODE 6.0.0 into `./InstallSundials` (before: `~/sundials`), and does nothing if it is already there. The Makefile checks for version 6.0.x and stops otherwise. Use `make SUNDIALS_DIR=...` for another location.
+   1. `./configure` installs SUNDIALS/CVODE 6.0.0 into `./InstallSundials` (before: `~/sundials`), and does nothing if it is already there. The Makefile requires SUNDIALS major version 6 (tested with 6.0.0, 6.1.1, 6.4.1 and 6.7.0) and stops otherwise. Use `make SUNDIALS_DIR=...` for another location.
    2. The compiler flags are fixed to `-O2 -g -ffp-contract=off -fno-fast-math -std=c++14` (before: `-O3 -g -std=c++14`). `-ffast-math`, `-Ofast` and `-funsafe-math-optimizations` are rejected, because they break the reproducibility of the results.
    3. `HYPRE=1` builds an experimental hypre BoomerAMG linear solver and links hypre, MPI and OpenBLAS (paths: `HYPRE_INCDIR`, `HYPRE_LIBDIR`, `MPI_INCDIR`, `OPENBLAS_LIBDIR`). Off by default; the default build needs only SUNDIALS.
    4. Options of `make shud_omp`:

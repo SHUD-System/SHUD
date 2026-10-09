@@ -162,8 +162,8 @@ that accumulates floating-point values:
 build and the serial-vector build holds because, on each tested compiler,
 the SHUD loop and the library function happen to compile to the same
 sequence of floating-point operations. It is not guaranteed by the language
-or by the flags. It has been verified on Apple clang / ARM and on
-GCC 13 / x86_64. After any change of compiler, compiler version, compiler
+or by the flags. It has been verified on Apple clang / ARM (macOS) and on
+GCC 13 / x86_64 and GCC 13 / aarch64 (Linux). After any change of compiler, compiler version, compiler
 flags, target architecture or SUNDIALS build options, verify it again:
 build `make shud_omp` and `make shud_omp SHUD_USE_OPENMP_NVECTOR=0`, run the
 same project with both at several thread counts, and compare the checksums
@@ -172,6 +172,17 @@ of the output files. They must all be equal.
 Bit-identity across thread counts within one build does not depend on any
 of this; it follows from the fixed order of the serial loops (default build)
 or of the fixed tree (fastest build).
+
+## SUNDIALS versions
+
+The audit above was made on 6.0.0. Versions 6.1.1, 6.4.1 and 6.7.0 were
+checked as well: `N_VNewEmpty_OpenMP` fills the same slots plus
+`nvgetlocallength`, `nvprint` and `nvprintfile`, none of which accumulates,
+and the number of `reduction(` and `omp critical` sites in
+`nvector_openmp.c` is unchanged. With each of these versions the `ccw`
+example (10 days, Apple clang / ARM) gives output files identical to those
+of 6.0.0, and identical between the serial build and the OpenMP builds at
+2 and 8 threads. A new major version needs the audit to be repeated.
 
 ## Records
 
