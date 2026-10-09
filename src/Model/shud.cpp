@@ -39,7 +39,8 @@
  * lives on the RHS f() path. */
 #include "MD_nvec_hybrid.hpp"
 /* SUNLinSol_Hypre_DrainTelemetry + SUNLinSolFree on shutdown. The
- * wrapper is link-always (cvode_config.cpp dispatches via SHUD_LINSOL);
+ * wrapper's functions always exist (stubs when built without
+ * `HYPRE=1`; cvode_config.cpp dispatches via SHUD_LINSOL);
  * the drain is a per-Solve telemetry ring drained to TSV at process
  * shutdown when $SHUD_TELEMETRY_TSV is set. SUNLinSolFree releases the
  * wrapper's HypreContent (Hypre handles + ring buffer). On

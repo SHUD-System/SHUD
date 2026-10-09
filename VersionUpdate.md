@@ -42,7 +42,7 @@ MODIFICATIONS/ADDITIONS from v1.0
 
 ## OpenMP CPU acceleration (2026.07, tag `cpu-accel-v1.1.1`)
 
-MODIFICATIONS/ADDITIONS from v2.0. The physics and the input/output file formats are unchanged. How to build and run the parallel model is described in `README.md`, section "OpenMP parallel build".
+MODIFICATIONS/ADDITIONS from v2.0. The physics and the input/output file formats are unchanged. How to build and run the parallel model is described in `OpenMP_Guide.md`.
 
 1. Parallel computing.
    1. The right-hand side of the ODE system (fluxes of elements, river segments and lakes) is evaluated in parallel. Shared writes between threads were removed and all cross-element sums are accumulated in a fixed order, so the result does not depend on the number of threads.
@@ -53,14 +53,15 @@ MODIFICATIONS/ADDITIONS from v2.0. The physics and the input/output file formats
 2. Build.
    1. `./configure` installs SUNDIALS/CVODE 6.0.0 into `./InstallSundials` (before: `~/sundials`), and does nothing if it is already there. The Makefile checks for version 6.0.x and stops otherwise. Use `make SUNDIALS_DIR=...` for another location.
    2. The compiler flags are fixed to `-O2 -g -ffp-contract=off -fno-fast-math -std=c++14` (before: `-O3 -g -std=c++14`). `-ffast-math`, `-Ofast` and `-funsafe-math-optimizations` are rejected, because they break the reproducibility of the results.
-   3. **New link dependencies: hypre, MPI and OpenBLAS** are required by every build, including `make shud`. Paths are set with `HYPRE_INCDIR`, `HYPRE_LIBDIR`, `MPI_INCDIR`, `OPENBLAS_LIBDIR`.
+   3. `HYPRE=1` builds an experimental hypre BoomerAMG linear solver and links hypre, MPI and OpenBLAS (paths: `HYPRE_INCDIR`, `HYPRE_LIBDIR`, `MPI_INCDIR`, `OPENBLAS_LIBDIR`). Off by default; the default build needs only SUNDIALS.
    4. Options of `make shud_omp`:
       - (none): parallel RHS, parallel element-wise vector operations, serial sums. Output is bit-identical to the serial-vector build.
       - `SHUD_NVEC_DETRED=1`: sums are parallel too, in a fixed tree. Fastest. Output is identical at every thread count, but not bit-identical to the other builds.
       - `SHUD_USE_OPENMP_NVECTOR=0`: serial vectors; only the RHS is parallel.
       - `SHUD_ENABLE_OPENMP_RHS=0`: serial RHS.
       - `SHUD_NVEC_HYBRID=0`: refused unless `SHUD_ALLOW_CONFIG_D=1`, because the output would depend on the number of threads.
-   5. New targets: `make shud_asan` (AddressSanitizer + UndefinedBehaviorSanitizer build), `make libshud.a`, and the self-tests `make smoke_configd`, `make test_adjacency_fallback`.
+   5. A plain `make` builds the serial model (`make all`).
+   6. New targets: `make shud_asan` (AddressSanitizer + UndefinedBehaviorSanitizer build), `make libshud.a`, and the self-tests `make smoke_configd`, `make test_adjacency_fallback`.
 3. Run.
    1. `NUM_OPENMP` in `.cfg.para` sets the number of threads of the CVODE vector layer.
    2. The environment variable `SHUD_RHS_THREADS` sets the number of threads of the RHS. If it is not set, `NUM_OPENMP` is used (`OMP_NUM_THREADS` in the serial-vector build).
@@ -70,7 +71,7 @@ MODIFICATIONS/ADDITIONS from v2.0. The physics and the input/output file formats
 5. Options for development and diagnosis. All are off by default, and the model output is the same as without them unless noted.
    1. Build options: `SHUD_DUMP_RHS=1` (snapshots of the RHS; controlled at run time by `SHUD_DUMP_OUTPUT_DIR`, `SHUD_DUMP_CASE_ID`, `SHUD_DUMP_SITE`, `SHUD_DUMP_FNAME_SUFFIX`, `SHUD_DUMP_T_VALUES`, `SHUD_DUMP_T_TOL`), `EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS` (more keys in `cvode_stats.txt`), `SHUD_ENABLE_PROFILE=1` (wall-clock timers, written to `profile_B0.yaml` in the output directory; sources in `tools/profile/`).
    2. Environment variables: `SHUD_NVEC_PROF`, `SHUD_DUMP_CV_Y`, `SHUD_TELEMETRY_TSV`, `SHUD_ADJACENCY_LOG`.
-   3. Experimental solver settings, which **change the results**: `SHUD_LINSOL=amg` (hypre BoomerAMG linear solver in place of SPGMR; tested and not adopted), `SHUD_AMG_TOL`, `SHUD_CVODE_RELTOL`, `SHUD_CVODE_EPSLIN`.
+   3. Experimental solver settings, which **change the results**: `SHUD_LINSOL=amg` (hypre BoomerAMG linear solver in place of SPGMR; needs a build with `HYPRE=1`; tested and not adopted), `SHUD_AMG_TOL`, `SHUD_CVODE_RELTOL`, `SHUD_CVODE_EPSLIN`.
 6. Bugs fixed.
    1. Division by zero in the accumulated-temperature average when the queue is empty (`src/classes/AccTemperature.hpp`).
    2. Memory leaks at the end of a run in `Model_Data`, the lake and the time-series classes; uninitialized pointers in `FloodAlert`, `Model_Data` and the lake classes.

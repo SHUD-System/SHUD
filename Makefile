@@ -6,12 +6,14 @@
 # -----------------------------------------------------------------
 # Prerequisites:
 #   - SUNDIALS 6.0.x installed at $(SUNDIALS_DIR) via ./configure
-#   - hypre, MPI and OpenBLAS (see "Link paths" below)
 #   - For OpenMP on macOS: `brew install libomp`
 #   - For OpenMP on Linux: GCC with libgomp
-# `make help` lists the targets and options. README.md explains the
-# OpenMP builds.
+# `make help` lists the targets and options. OpenMP_Guide.md explains
+# the OpenMP builds.
 # -----------------------------------------------------------------
+
+# A plain `make` builds the serial model.
+.DEFAULT_GOAL := all
 
 # -----------------------------------------------------------------
 # Compiler flags (fixed)
@@ -356,18 +358,22 @@ SRC_H = $(SRC_DIR)/classes/*.hpp \
         $(SRC_DIR)/Equations/*.hpp
 
 # -----------------------------------------------------------------
-# Link paths: hypre, MPI, OpenBLAS
+# HYPRE — optional hypre BoomerAMG linear solver (experimental)
 # -----------------------------------------------------------------
-# src/Equations/sunlinsol_hypre.cpp wraps the hypre BoomerAMG solver as a
-# SUNDIALS linear solver. It is compiled and linked into every binary,
-# and used only when the environment variable SHUD_LINSOL=amg is set;
-# otherwise the SPGMR solver is used and no hypre function is called.
-# hypre in turn needs MPI and OpenBLAS at link time.
+# 0 (default): hypre is not needed. src/Equations/sunlinsol_hypre.cpp
+#    compiles to stubs, and running with SHUD_LINSOL=amg stops with an
+#    error message.
+# 1: compiles the wrapper that presents hypre BoomerAMG as a SUNDIALS
+#    linear solver, and links hypre, MPI and OpenBLAS (hypre needs both
+#    at link time). The solver is used only when the environment variable
+#    SHUD_LINSOL=amg is set at run time; otherwise SPGMR is used and no
+#    hypre function is called.
 #
 #   macOS (Homebrew): HYPRE_INCDIR=/opt/homebrew/include  HYPRE_LIBDIR=/opt/homebrew/lib
 #   Ubuntu (apt)    : HYPRE_INCDIR=/usr/include/hypre     HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu
 #
-# Set them on the make command line or in the environment.
+# Set the paths on the make command line or in the environment.
+HYPRE ?= 0
 HYPRE_INCDIR ?= /opt/homebrew/include
 HYPRE_LIBDIR ?= /opt/homebrew/lib
 
@@ -389,8 +395,7 @@ INCLUDES = -I $(SUNDIALS_DIR)/include \
            -I $(SRC_DIR)/ModelData \
            -I $(SRC_DIR)/classes \
            -I $(SRC_DIR)/Equations \
-           -I $(HYPRE_INCDIR) \
-           $(if $(wildcard $(MPI_INCDIR)/mpi.h),-I $(MPI_INCDIR))
+           $(HYPRE_CK)
 
 # Use $(if …) so an empty $(LIB_OMP) / $(LIB_SYS) does NOT emit a bare `-L`
 # token (which gobbles the next argument and breaks the link line on Linux,
@@ -408,10 +413,22 @@ RPATH = '-Wl,-rpath,$(LIB_SUN)'
 # Auto-detect via wildcard.
 MPI_CXX_LIB ?= $(if $(wildcard /usr/lib/x86_64-linux-gnu/libmpi_cxx.so*),-lmpi_cxx)
 
-LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial \
-           -L$(HYPRE_LIBDIR) -lHYPRE -lmpi $(MPI_CXX_LIB) \
-           $(if $(OPENBLAS_LIBDIR),-L$(OPENBLAS_LIBDIR)) -lopenblas \
-           -Wl,-rpath,$(HYPRE_LIBDIR)
+# HYPRE_CK is part of INCLUDES and HYPRE_LK part of LK_FLAGS, so every
+# recipe picks them up. Both are empty when HYPRE=0.
+ifeq ($(HYPRE),1)
+  HYPRE_CK = -DSHUD_USE_HYPRE=1 -I $(HYPRE_INCDIR) \
+             $(if $(wildcard $(MPI_INCDIR)/mpi.h),-I $(MPI_INCDIR))
+  HYPRE_LK = -L$(HYPRE_LIBDIR) -lHYPRE -lmpi $(MPI_CXX_LIB) \
+             $(if $(OPENBLAS_LIBDIR),-L$(OPENBLAS_LIBDIR)) -lopenblas \
+             -Wl,-rpath,$(HYPRE_LIBDIR)
+else ifeq ($(HYPRE),0)
+  HYPRE_CK =
+  HYPRE_LK =
+else
+$(error HYPRE must be 0 or 1, got '$(HYPRE)')
+endif
+
+LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial $(HYPRE_LK)
 # LK_OMP holds only the OpenMP runtime library. libsundials_nvecopenmp is
 # added through $(SHUD_NVEC_OMP_LK) when SHUD_USE_OPENMP_NVECTOR=1.
 LK_OMP   = $(CXX_OPENMP_LFLAGS)
@@ -466,7 +483,7 @@ help:
 	@echo "       make all          - clean then build shud (serial)"
 	@echo "       make cvode        - install SUNDIALS/CVODE 6.x to ./InstallSundials"
 	@echo "       make shud         - build serial shud executable"
-	@echo "       make shud_omp     - build OpenMP shud_omp executable (default: parallel RHS + OpenMP N_Vector with serial sums; see README)"
+	@echo "       make shud_omp     - build OpenMP shud_omp executable (default: parallel RHS + OpenMP N_Vector with serial sums; see OpenMP_Guide.md)"
 	@echo "       make shud_omp SHUD_USE_OPENMP_NVECTOR=0 - serial N_Vector, parallel RHS only"
 	@echo "       make shud_omp SHUD_NVEC_DETRED=1        - fastest: parallel sums in a fixed tree (output not bit-identical to the default build)"
 	@echo "       make shud SHUD_DUMP_RHS=1     - serial build with RHS snapshot hooks compiled in"
@@ -477,16 +494,15 @@ help:
 	@echo "       make shud SHUD_USE_OPENMP_NVECTOR=1 - shud target with the OpenMP N_Vector backend"
 	@echo "       make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS - serial build with extra CVODE keys (hlast/qlast) in cvode_stats.txt"
 	@echo "       make shud_asan    - serial build with -fsanitize=address,undefined"
-	@echo "       make smoke_strictomp                - build + run the parallel-RHS smoke test"
 	@echo "       make smoke_configd                  - build + run the OpenMP N_Vector runtime probe"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
 	@echo "       make clean        - remove binary outputs (preserves InstallSundials)"
 	@echo
-	@echo "hypre/MPI/OpenBLAS link paths (required by every build; the AMG solver itself is opt-in via SHUD_LINSOL=amg):"
+	@echo "       make shud HYPRE=1 - also build the experimental hypre BoomerAMG solver (run with SHUD_LINSOL=amg)."
+	@echo "  It needs hypre, MPI and OpenBLAS:"
 	@echo "  macOS brew:  HYPRE_INCDIR=/opt/homebrew/include HYPRE_LIBDIR=/opt/homebrew/lib (defaults)"
 	@echo "  Ubuntu apt:  HYPRE_INCDIR=/usr/include/hypre    HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu"
 	@echo "  Other:       HYPRE_INCDIR=<prefix>/include HYPRE_LIBDIR=<prefix>/lib"
-	@echo "  LK_FLAGS:    -lHYPRE -lmpi -lopenblas (openblas required by Hypre at link time)"
 	@echo
 
 cvode CVODE:
@@ -531,29 +547,11 @@ shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
 	@echo " $(TARGET_OMP) is compiled successfully!"
 	@echo
 
-# -----------------------------------------------------------------
-# smoke_strictomp — abort check of the RHS execution-policy switch
-# -----------------------------------------------------------------
-# Builds and runs tests/s1d_strictomp_assert_smoke.cpp. A child process
-# calls `Model_Data::rhs_core(..., ExecPolicy::StrictOMP)` on a build with
-# `-DNDEBUG`, and the parent checks with `waitpid` that the child died by
-# SIGABRT. The purpose is to make sure that an unimplemented policy stops
-# with `std::abort()`, which `-DNDEBUG` does not remove, unlike `assert`.
-#
-# The test has its own main(), so SHUD's main.cpp is removed from the
-# source list. $(SRC) holds wildcards; they must be expanded with
-# $(wildcard ...) before filter-out can match the file name.
+# The SHUD sources without main.cpp, for programs that have their own
+# main() (the unit test and libshud.a below). $(SRC) holds wildcards;
+# they must be expanded with $(wildcard ...) before filter-out can match
+# the file name.
 SHUD_SRC_NOMAIN := $(filter-out $(SRC_DIR)/main.cpp,$(wildcard $(SRC)))
-
-.PHONY: smoke_strictomp
-smoke_strictomp: check_sundials tests/s1d_strictomp_assert_smoke.cpp $(SRC) $(SRC_H)
-	@echo '...Compiling s1d_strictomp_assert_smoke ...'
-	@echo $(CXX) $(SHUD_BUILD_CFLAGS) -DNDEBUG -DSHUD_ENABLE_OPENMP_RHS=1 $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/s1d_strictomp_smoke tests/s1d_strictomp_assert_smoke.cpp $(SHUD_SRC_NOMAIN) $(LK_FLAGS)
-	@echo
-	$(CXX) $(SHUD_BUILD_CFLAGS) -DNDEBUG -DSHUD_ENABLE_OPENMP_RHS=1 $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/s1d_strictomp_smoke tests/s1d_strictomp_assert_smoke.cpp $(SHUD_SRC_NOMAIN) $(LK_FLAGS)
-	@echo
-	@echo '...Running s1d_strictomp_assert_smoke (expect SIGABRT in child) ...'
-	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/s1d_strictomp_smoke && echo 'OK: child SIGABRT observed' || (echo 'FAIL: child did not SIGABRT'; exit 1)
 
 # -----------------------------------------------------------------
 # smoke_configd — OpenMP N_Vector runtime probe

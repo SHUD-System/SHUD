@@ -36,10 +36,6 @@ shud_omp.dSYM/
 shud_asan
 shud_asan.dSYM/
 
-# make smoke_strictomp
-tests/s1d_strictomp_smoke
-tests/s1d_strictomp_smoke.dSYM/
-
 # make smoke_configd
 tests/s1d_configd_nvec_smoke
 tests/s1d_configd_nvec_smoke.dSYM/

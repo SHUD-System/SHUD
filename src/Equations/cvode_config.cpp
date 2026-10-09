@@ -410,6 +410,16 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
             sel.sel_name, sel.source);
     fflush(stdout);
 
+#ifndef SHUD_USE_HYPRE
+    if (sel.sel == LINSOL_AMG) {
+        fprintf(stderr,
+                "[shud] FATAL: SHUD_LINSOL=amg, but this binary was built "
+                "without hypre; rebuild with `make ... HYPRE=1`\n");
+        fflush(stderr);
+        exit(EXIT_FAILURE);
+    }
+#endif
+
     /* Hypre runtime probe (defense in depth), AMG path only.
      *
      * We attempt dlopen with multiple candidate library names; if any

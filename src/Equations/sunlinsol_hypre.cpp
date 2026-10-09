@@ -62,6 +62,8 @@
 
 #include "sunlinsol_hypre.h"
 
+#ifdef SHUD_USE_HYPRE
+
 #include <cassert>
 #include <chrono>
 #include <cstdio>
@@ -1138,3 +1140,28 @@ SUNLinSol_Hypre_DrainTelemetry(SUNLinearSolver LS, FILE *out) {
     c->entries_dropped_to_overflow = 0;
     return written;
 }
+
+#else  /* !SHUD_USE_HYPRE */
+
+/* Built without hypre (`make ... HYPRE=0`, the default). SetCVODE refuses
+ * SHUD_LINSOL=amg before it gets here; these stubs only satisfy the
+ * linker and keep the callers free of #ifdefs. */
+extern "C" SUNLinearSolver
+SUNLinSol_Hypre(N_Vector, void *, int, int, SUNContext) {
+    fprintf(stderr,
+            "[shud] FATAL: this binary was built without hypre; "
+            "rebuild with `make ... HYPRE=1`\n");
+    return NULL;
+}
+
+extern "C" int
+SUNLinSol_Hypre_SetStepContext(SUNLinearSolver, long, realtype, long, long) {
+    return 0;
+}
+
+extern "C" int
+SUNLinSol_Hypre_DrainTelemetry(SUNLinearSolver, FILE *) {
+    return 0;
+}
+
+#endif  /* SHUD_USE_HYPRE */
