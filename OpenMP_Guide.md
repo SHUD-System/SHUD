@@ -203,4 +203,5 @@ and fastest builds add.
   [release notes](https://github.com/DankerMu/SHUD-OpenMP/blob/cpu-accel-v1.1.1/RELEASE.md)
   and, for the vector layer, the
   [design decision](https://github.com/DankerMu/SHUD-OpenMP/blob/cpu-accel-v1.1.1/docs/adr/0011-p12-nvec-tier1-verdict-and-tier2-gate.md).
-  The corresponding tag in this repository is `cpu-accel-v1.1.1`.
+  In this repository the work was tagged `cpu-accel-v1.1.1` during development
+  and released as SHUD v2.2.

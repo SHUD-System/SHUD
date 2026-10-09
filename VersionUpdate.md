@@ -40,9 +40,9 @@ MODIFICATIONS/ADDITIONS from v1.0
  
 
 
-## OpenMP CPU acceleration (2026.07, tag `cpu-accel-v1.1.1`)
+## SHUD v2.2 (2026.10)
 
-MODIFICATIONS/ADDITIONS from v2.0. The physics and the input/output file formats are unchanged. How to build and run the parallel model is described in `OpenMP_Guide.md`.
+OpenMP CPU acceleration. MODIFICATIONS/ADDITIONS from v2.0 (developed under the tag `cpu-accel-v1.1.1`). The physics and the input/output file formats are unchanged. How to build and run the parallel model is described in `OpenMP_Guide.md`.
 
 1. Parallel computing.
    1. The right-hand side of the ODE system (fluxes of elements, river segments and lakes) is evaluated in parallel. Shared writes between threads were removed and all cross-element sums are accumulated in a fixed order, so the result does not depend on the number of threads.
