@@ -122,8 +122,8 @@ void _Element::applyGeometry(_Node *Node){
     pz2 = ZOnLine(x3, y3, zmax3, x1, y1, zmax1, px2, py2);
     pz3 = ZOnLine(x1, y1, zmax1, x2, y2, zmax2, px3, py3);
     slope[0] =  (z_surf - pz1)/ d1;
-    slope[1] =  (z_surf - pz2)/ d1;
-    slope[2] =  (z_surf - pz3)/ d1;
+    slope[1] =  (z_surf - pz2)/ d2;
+    slope[2] =  (z_surf - pz3)/ d3;
 }
 void _Element::InitElement(){
     AquiferDepth = z_surf - z_bottom;
