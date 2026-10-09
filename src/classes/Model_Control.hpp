@@ -39,14 +39,13 @@ public:
     void    setHeader(const char *s);
     void    Init(long st, int n, const char *s, int dt, double *x, int iFlux);
     void    Init(long st, int n, const char *s, int dt, double *x, int iFlux, int *flag);
-    /* S5d.2-5a (#179) — flat-array InitIJ overloads for the
-     * QeleSurf/QeleSub flattening. `x_flat` is a contiguous
+    /* Flat-array InitIJ overloads for the flattened
+     * QeleSurf/QeleSub arrays. `x_flat` is a contiguous
      * `double[n*3]` block in row-major order at(i,j) ↔
      * x_flat[3*i + j]; `j` (0..2) picks the column the PrintCtrl
      * slot reads. Used by MD_initialize.cpp for ele_Q_sub{0,1,2}
-     * and ele_Q_surf{0,1,2} files. The legacy `double**` InitIJ
-     * overloads were removed in PR #197 (review A-S1): grep showed
-     * zero remaining callers after the jagged→flat refactor. */
+     * and ele_Q_surf{0,1,2} files. There are no `double**`
+     * (jagged-array) InitIJ overloads. */
     void    InitIJ(long st, int n, const char *s, int dt, double *x_flat, int j, int iFlux);
     void    InitIJ(long st, int n, const char *s, int dt, double *x_flat, int j, int iFlux, int *flag);
 private:
@@ -127,11 +126,10 @@ public:
     double StartTime = 0.;      /* Start time of simulation [min]*/
     double EndTime = 14400;     /* End time of simulation [min]*/
     double dt = 1;
-    /* #401 sub-task 1 — NSDMI nullptr default so the dtor's `delete[]`
-     * is a defined no-op when this field is never allocated. As of
-     * 2026-06-30 `Tout` is a dead field (no assignment anywhere in
-     * src/), but the NSDMI + delete[] pair is kept defensive for any
-     * future writer. */
+    /* nullptr default so the dtor's `delete[]` is a defined no-op
+     * when this field is never allocated. `Tout` is currently unused
+     * (no assignment anywhere in src/); the nullptr default +
+     * delete[] pair is kept defensively for any future writer. */
     double *Tout = nullptr;
     int NumPrint = 0;;
     int exfiltration = 0;

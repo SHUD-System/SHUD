@@ -1,4 +1,5 @@
-/* sunlinsol_hypre.cpp — P8-tune.G0 PR-0 BoomerAMG wrapper.
+/* sunlinsol_hypre.cpp — experimental BoomerAMG (algebraic multigrid)
+ * linear-solver wrapper, enabled with SHUD_LINSOL=amg; off by default.
  *
  * See sunlinsol_hypre.h for the public contract and design rationale.
  *
@@ -15,7 +16,7 @@
  *       topology lookup; passed through opaque `void*` to keep the
  *       header C-friendly).
  *     - ATimes stash from `SetATimes` callback.
- *     - Scale-vectors stash from `SetScalingVectors` (G0 stashes
+ *     - Scale-vectors stash from `SetScalingVectors` (stashed
  *       only, no scale applied to solve).
  *     - Zero-guess flag from `SetZeroGuess`.
  *     - Telemetry ring buffer + drop counter + idempotent
@@ -26,34 +27,34 @@
  *       wrapper differences cumulative counters internally to emit
  *       per-step deltas.
  *
- * - Lazy Setup. CVODE 6.0 SPGMR with `PREC_NONE` issues `nsetups=0`
- *   on keliya 90-day SHORT (PR-0 spike task 1.4). To remain
- *   compatible with this cadence, the AMG hierarchy is built inside
- *   the wrapper's `Solve` callback when the cached handles are NULL,
- *   and reused on subsequent Solves. CVODE-issued Setup callbacks
- *   (if any) trigger an explicit rebuild (design.md D4 baseline
- *   policy).
+ * - Lazy Setup. CVODE may never issue a Setup call to the linear
+ *   solver (`nsetups=0` was observed with SPGMR + `PREC_NONE`). To
+ *   remain compatible with this cadence, the AMG hierarchy is built
+ *   inside the wrapper's `Solve` callback when the cached handles
+ *   are NULL, and reused on subsequent Solves. A CVODE-issued Setup
+ *   callback (if any) destroys the hierarchy so that the next Solve
+ *   rebuilds it.
  *
- * - Probe-derive sparsity. PR-0 spike task 1.1 selects probe-derive
- *   over MD_adjacency reuse: the wrapper at first Solve invokes
- *   `ATimes(A_data, e_i, Av)` for every i in [0, NumY) and reads the
- *   resulting nonzero columns into a per-row IJMatrix. Bandwidth is
- *   not pre-pinned; the wrapper trusts the probe to discover
- *   wherever the Jacobian touches.
+ * - Probe-derive sparsity. The matrix is derived by probing rather
+ *   than from a precomputed adjacency: the wrapper at first Solve
+ *   invokes `ATimes(A_data, e_i, Av)` for every i in [0, NumY) and
+ *   stores the nonzero entries of Av, read at a topology-derived
+ *   set of candidate rows (see enumerate_row_candidates), into
+ *   per-row lists for the IJMatrix.
  *
  * - Telemetry. Hypre 3.1.0 public API does NOT expose
  *   `HYPRE_BoomerAMGGetCycleNumIterations` / `..GetCycleOpCount`
- *   nor `HYPRE_BoomerAMGGetOperatorComplexity` (verified via grep
- *   against `/opt/homebrew/include/HYPRE_parcsr_ls.h` on 2026-06-29
+ *   nor `HYPRE_BoomerAMGGetOperatorComplexity` (checked against the
+ *   Hypre 3.1.0 `HYPRE_parcsr_ls.h`
  *   — only `GetNumIterations` and `GetCumNnzAP` are public). The
  *   wrapper uses `HYPRE_BoomerAMGGetNumIterations` for the per-Solve
  *   iteration count, `HYPRE_BoomerAMGGetCumNnzAP` as the
  *   cycle-complexity proxy (cumulative nonzeros across Setups), and
  *   private-header macros `hypre_ParAMGDataNumLevels` +
  *   `hypre_ParAMGDataAArray` + `hypre_ParCSRMatrixNumNonzeros` to
- *   compute the STATIC operator_complexity per Setup (PR-B #416
- *   Phase 6 P0-2). The `MARKER:AMG_TELEMETRY_REAL` line records
- *   the Hypre release number so PR-B aggregator can disambiguate.
+ *   compute the STATIC operator_complexity per Setup. The
+ *   `MARKER:AMG_TELEMETRY_REAL` line records the Hypre release
+ *   number so tools reading the telemetry can tell which applies.
  *   Future Hypre releases that expose a public OperatorComplexity
  *   API can replace the private-macro path via the
  *   `HYPRE_RELEASE_NUMBER` gate.
@@ -84,7 +85,7 @@
 #include "HYPRE_IJ_mv.h"
 #include "HYPRE_parcsr_ls.h"
 #include "_hypre_utilities.h"  /* HYPRE_RELEASE_NUMBER */
-/* PR-B #416 Phase 6 P0-2: include Hypre private headers for
+/* Include Hypre private headers for
  * operator_complexity derivation. Hypre 3.1.0 PUBLIC API exposes neither
  * HYPRE_BoomerAMGGetOperatorComplexity nor a per-level NNZ accessor; the
  * private hypre_ParAMGData macros + hypre_ParCSRMatrixNumNonzeros macro
@@ -130,7 +131,7 @@
 
 #include "nvector/nvector_serial.h"
 
-/* Telemetry ring-buffer size. Spec requires ≥100k entries. */
+/* Telemetry ring-buffer size; must hold at least 100k Solve entries. */
 static constexpr int HYPRE_TELEMETRY_RING_SIZE = 131072;
 
 namespace {
@@ -145,7 +146,7 @@ struct TelemetryEntry {
     double solve_wall_sec = 0.0;
     long cvode_nli_step = 0;
     long cvode_nfeLS_step = 0;
-    /* PR-B #416 Phase 6 P0-2: per-Setup operator_complexity. Derived in
+    /* Per-Setup operator_complexity. Derived in
      * lazy_build_hierarchy_from_solve from hypre_ParAMGDataAArray +
      * hypre_ParCSRMatrixNumNonzeros (Hypre 3.1.0 public API ABSENT).
      * Carried on every Solve row that follows a Setup rebuild; the value
@@ -186,7 +187,7 @@ struct HypreContent {
     void *atimes_data = nullptr;
     SUNATimesFn atimes_fn = nullptr;
 
-    /* Scale-vectors stash (G0 stashes only). */
+    /* Scale-vectors stash (stashed only, not applied). */
     N_Vector s1 = nullptr;
     N_Vector s2 = nullptr;
 
@@ -223,7 +224,7 @@ struct HypreContent {
     double pending_setup_wall_sec = 0.0;
     int pending_setup_called = 0;
 
-    /* PR-B #416 Phase 6 P0-2: latest measured operator_complexity. Set
+    /* Latest measured operator_complexity. Set
      * by lazy_build_hierarchy_from_solve at every Setup rebuild;
      * carried forward into subsequent Solve telemetry rows until the
      * next Setup. -1.0 sentinel = unavailable. */
@@ -282,14 +283,14 @@ int op_initialize(SUNLinearSolver LS) {
      * application-side MPI_Init call exists.
      *
      * Use MPI_Init_thread(NULL, NULL, MPI_THREAD_FUNNELED, ...) rather
-     * than the legacy stack-argv MPI_Init pattern:
+     * than the older stack-argv MPI_Init pattern:
      *   - NULL-argv is legal per MPI-3 §8.7 (Implementations MUST accept
      *     NULL pointers for argc/argv to MPI_Init / MPI_Init_thread).
      *   - MPI_THREAD_FUNNELED is the minimum thread support level that
-     *     allows nested OMP `parallel` regions in the same process; shud_omp
-     *     wraps OMP_NUM_THREADS=1 on the AMG path, but the funneled mode
-     *     also covers the SPGMR-baseline-and-AMG-build-up code paths that
-     *     coexist before/after this Initialize call. */
+     *     allows OMP `parallel` regions in the same process; the AMG
+     *     path is meant to run with OMP_NUM_THREADS=1, but the funneled
+     *     mode also covers OpenMP code that runs before/after this
+     *     Initialize call. */
     int mpi_already = 0;
     MPI_Initialized(&mpi_already);
     if (!mpi_already) {
@@ -302,8 +303,9 @@ int op_initialize(SUNLinearSolver LS) {
         c->wrapper_inited_mpi = true;
     }
 
-    /* HYPRE init API split across releases (see p8tune.F
-     * boomeramg_setup_solve.cpp L646). Mac brew 3.1.0 = 30100. */
+    /* HYPRE init API split across releases: HYPRE_Initialize from
+     * 3.0 (release number 30000), HYPRE_Init before. Mac brew
+     * 3.1.0 = 30100. */
 #if defined(HYPRE_RELEASE_NUMBER) && HYPRE_RELEASE_NUMBER >= 30000
     HYPRE_Initialize();
 #else
@@ -312,10 +314,10 @@ int op_initialize(SUNLinearSolver LS) {
     c->wrapper_inited_hypre = true;
 
     /* Hypre 3.1.0 does not expose a portable thread-pin API. We rely on
-     * the caller (sbatch script / shell) to export OMP_NUM_THREADS=1
-     * before starting SHUD. We CAN, however, attest honestly to the
-     * runtime OMP state so PR-A smoke runner can refuse to accept
-     * suspected over-subscription. */
+     * the caller (job script / shell) to export OMP_NUM_THREADS=1
+     * before starting SHUD. We CAN, however, report the runtime OMP
+     * state in the log so that a run with suspected
+     * over-subscription can be detected and rejected. */
     int omp_max = 1;
 #ifdef _OPENMP
     omp_max = omp_get_max_threads();
@@ -334,7 +336,7 @@ int op_initialize(SUNLinearSolver LS) {
     return SUNLS_SUCCESS;
 }
 
-/* op_setup behavior (G0 spec amendment):
+/* op_setup behavior:
  *   - Destroy any prior AMG hierarchy + IJMatrix + IJVector handles.
  *   - Set the pending-setup flag and accumulate the destroy wall.
  *   - DO NOT clone any N_Vector here — we don't have access to a
@@ -367,8 +369,8 @@ int op_setup(SUNLinearSolver LS, SUNMatrix /*A*/) {
 
 /* Topology-restricted ATimes probe.
  *
- * SHUD state vector layout (see SHUD/src/ModelData/Model_Data.cpp L86
- * + SHUD/src/Equations/functions.hpp L83-99):
+ * SHUD state vector layout (see src/ModelData/Model_Data.cpp
+ * + src/Equations/functions.hpp):
  *
  *   NumY = 3 * NumEle + NumRiv + NumLake
  *   indices [0          .. NumEle)        — surface  (yEleSurf)
@@ -395,9 +397,8 @@ int op_setup(SUNLinearSolver LS, SUNMatrix /*A*/) {
  *    × small constant). We allocate 32 candidate slots per column as
  *   a safety overcount.
  *
- * Total ATimes calls per Setup: O(NumY) — one probe per column.
- * For heihe_x4 (NumY ~124k) this is ~124k probes; for heihe_x16
- * (NumY ~485k) it is ~485k probes — manageable within G0 wall budget.
+ * Total ATimes calls per Setup: O(NumY) — one probe per column
+ * (e.g. ~124k probes for a mesh with NumY ~124k).
  *
  * Per row, we read out only the topology-derived candidate row set
  * (<= 32 candidates), NOT all NumY rows. */
@@ -461,12 +462,9 @@ static void enumerate_row_candidates(const HypreContent *c, HYPRE_BigInt col,
                 }
             }
         }
-        /* River coupling: not topology-restricted from element side
-         * without per-element river metadata; we conservatively allow
-         * any river row in the candidate set IF this element has a
-         * downstream river edge. The exact mapping is non-trivial; for
-         * G0 we additionally allow all river rows for this column if
-         * the element sits adjacent to NumRiv > 0 (PR-A may tighten). */
+        /* River coupling: no river rows are pushed for an element
+         * column, because the element-to-river mapping is not
+         * available here without per-element river metadata. */
         /* Skip explicit per-river enumeration here — the wrapper relies
          * on cross-element infiltration symmetry: if element i couples
          * to river j, the river-row probe (below) picks up the
@@ -567,8 +565,9 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
         return SUNLS_MEM_FAIL;
     }
 
-    /* Topology-restricted probe. Per spec REQ-G0 "total ATimes calls
-     * per Setup MUST be O(NumY × bw_effective) not O(NumY²)".
+    /* Topology-restricted probe: one ATimes call per column, and
+     * the readout work per Setup must stay O(NumY × bw_effective),
+     * not O(NumY²).
      *
      * For each column `col`, derive the small candidate row set from
      * SHUD's mesh topology (see enumerate_row_candidates), invoke
@@ -668,12 +667,13 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
     HYPRE_BoomerAMGSetCoarsenType(c->amg, c->coarsen_type);
     HYPRE_BoomerAMGSetMaxIter(c->amg, 100);
     HYPRE_BoomerAMGSetTol(c->amg, 1e-8);
-    /* PR-X1: optional Hypre solve tolerance override for RCA on
-     * G0 ncfn=100138 (issue #412 NO-GO). When SHUD_AMG_TOL is set
-     * to a value in (0, 1), it overrides the 1e-8 default above
-     * via a second SetTol call (Hypre semantics: last setter wins).
-     * env unset → no override, preserves G0 PR-0 default behavior
-     * exactly (bitwise default-compat invariant). */
+    /* Optional Hypre solve tolerance override, for investigating
+     * nonlinear convergence failures on the AMG path. When
+     * SHUD_AMG_TOL is set to a value in (0, 1), it overrides the
+     * 1e-8 default above via a second SetTol call (Hypre semantics:
+     * last setter wins).
+     * Malformed or out-of-range input is fatal. env unset → no
+     * override; the 1e-8 default stays in effect. */
     {
         const char* env_tol = std::getenv("SHUD_AMG_TOL");
         if (env_tol && env_tol[0] != '\0') {
@@ -690,8 +690,8 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
                 "[shud-amg] PR-X1 hook: HYPRE_BoomerAMGSetTol(%.3e) applied\n",
                 tol);
         }
-        /* env unset → default-compat: do NOT call SetTol again, the
-         * 1e-8 default above stays in effect (preserves G0 default). */
+        /* env unset → do NOT call SetTol again, the 1e-8 default
+         * above stays in effect. */
     }
     HYPRE_BoomerAMGSetPrintLevel(c->amg, 0);
 #if HYPRE_RELEASE_NUMBER >= 22300
@@ -708,7 +708,7 @@ static int lazy_build_hierarchy_from_solve(HypreContent *c, N_Vector b_template)
     c->pending_setup_wall_sec += std::chrono::duration<double>(t1 - t0).count();
     c->pending_setup_called = 1;
 
-    /* PR-B #416 Phase 6 P0-2: derive operator_complexity from Hypre
+    /* Derive operator_complexity from Hypre
      * internals. Hypre 3.1.0 PUBLIC API exposes neither
      * HYPRE_BoomerAMGGetOperatorComplexity nor a per-level NNZ accessor.
      * Private macros (gated behind HYPRE_RELEASE_NUMBER >= 22300 to
@@ -821,7 +821,7 @@ int op_solve(SUNLinearSolver LS, SUNMatrix /*A*/, N_Vector x, N_Vector b,
     HYPRE_BoomerAMGGetCumNnzAP(c->amg, &cum_nnz_AP);
 #else
     /* Hypre < 2.23 (e.g., Ubuntu 22.04 libhypre-dev 2.22.1) lacks
-     * GetCumNnzAP. PR-B aggregator must treat cum_nnz_AP == -1.0 as
+     * GetCumNnzAP. Telemetry readers must treat cum_nnz_AP == -1.0 as
      * "unsupported on this Hypre release" and skip cycle_complexity. */
     cum_nnz_AP = -1.0;
 #endif
@@ -873,7 +873,7 @@ int op_solve(SUNLinearSolver LS, SUNMatrix /*A*/, N_Vector x, N_Vector b,
     e.solve_wall_sec = solve_wall_sec;
     e.cvode_nli_step = c->ctx_nli_step;
     e.cvode_nfeLS_step = c->ctx_nfeLS_step;
-    /* PR-B #416 Phase 6 P0-2: stamp per-Setup operator_complexity onto
+    /* Stamp per-Setup operator_complexity onto
      * every Solve row. Value is set at the most-recent Setup rebuild
      * (lazy_build_hierarchy_from_solve) and carried forward; the
      * sentinel -1.0 means unavailable (Hypre <2.23 or build failed). */
@@ -884,8 +884,8 @@ int op_solve(SUNLinearSolver LS, SUNMatrix /*A*/, N_Vector x, N_Vector b,
 
     /* Idempotent MARKER:AMG_TELEMETRY_REAL emission on first
      * successful Solve. Marker documents the HYPRE release used so
-     * PR-B aggregator can attribute the values. The naming is
-     * fixed-format (spec REQ-G0-3). */
+     * telemetry readers can interpret the values. The line format
+     * is fixed because external tools parse it. */
     if (rc == 0 && !c->telemetry_marker_emitted) {
 #if defined(HYPRE_RELEASE_NUMBER)
         const long hypre_release = (long)HYPRE_RELEASE_NUMBER;
@@ -899,7 +899,7 @@ int op_solve(SUNLinearSolver LS, SUNMatrix /*A*/, N_Vector x, N_Vector b,
         c->telemetry_marker_emitted = true;
     }
 
-    /* Map HYPRE return code to SUNLS_* per spec. */
+    /* Map HYPRE return code to SUNLS_*. */
     if (rc == 0) {
         c->last_flag = SUNLS_SUCCESS;
         return SUNLS_SUCCESS;
@@ -924,7 +924,7 @@ int op_numiters(SUNLinearSolver LS) {
 }
 
 realtype op_resnorm(SUNLinearSolver /*LS*/) {
-    /* G0: BoomerAMG-as-direct-solver semantics. No residual norm
+    /* BoomerAMG-as-direct-solver semantics. No residual norm
      * exported. */
     return 0.0;
 }
@@ -1097,12 +1097,11 @@ SUNLinSol_Hypre_DrainTelemetry(SUNLinearSolver LS, FILE *out) {
     }
     HypreContent *c = content_of(LS);
 
-    /* PR-B #416 Phase 6 P0-2: TSV column expansion — added
-     * operator_complexity as column 6 (between hypre_op_count and
-     * setup_wall_sec). Sentinel -1.0 emitted as "NA" so the aggregator's
-     * floating-point parse doesn't trip on a string vs number ambiguity.
-     * Aggregator parse_telemetry_tsv shifts: setup_wall is now col 7,
-     * solve_wall is col 8. */
+    /* TSV columns: operator_complexity is column 6 (between
+     * hypre_op_count and setup_wall_sec), so setup_wall_sec is
+     * column 7 and solve_wall_sec is column 8. The -1.0 sentinel is
+     * emitted as "NA" so a reader cannot mistake it for a measured
+     * value. */
     std::fprintf(out,
         "step_idx\tt_sim\tsetup_called\thypre_iters\thypre_op_count"
         "\toperator_complexity"

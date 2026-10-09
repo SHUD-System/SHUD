@@ -1,13 +1,13 @@
 /* =====================================================================
- * P12-nvec PR-N1 (#443) — Config E hybrid NVector reduction overrides.
+ * Hybrid NVector reduction overrides ("Config E").
  * See MD_nvec_hybrid.hpp for the design rationale, hard rules, aliasing
  * note, and bitwise-equivalence guarantee.
  *
- * The whole translation unit is compiled ONLY under SHUD_NVEC_HYBRID, so
- * a default (Config C) build sees an empty TU → preprocessor-identical to
- * pre-change. The install/assert symbols still exist for the linker via
- * the no-op fallback at the bottom of this file so shud.cpp can call them
- * unconditionally under the `#ifdef SHUD_USE_OPENMP_NVECTOR` block.
+ * The implementation is compiled ONLY under SHUD_NVEC_HYBRID, so a build
+ * without it (serial `make shud`, or `make shud_omp
+ * SHUD_USE_OPENMP_NVECTOR=0`) gets only the no-op fallbacks at the bottom
+ * of this file, which keep the install/assert symbols available to the
+ * linker so shud.cpp can call them unconditionally.
  * ===================================================================== */
 
 #include "MD_nvec_hybrid.hpp"
@@ -27,12 +27,13 @@
  * SHUD_NVEC_NOOPT — force each reduction body to a scalar, FMA-preserving
  * fold that bit-matches the vendored SUNDIALS *_Serial reductions.
  *
- * WHY THIS EXISTS (the G-E1 bitwise gate needs it on Apple clang / ARM):
+ * WHY THIS EXISTS (bitwise equality with Config C needs it on Apple
+ * clang / ARM):
  * Config C's reference reductions are the SUNDIALS library serial
  * functions (N_VDotProd_Serial / N_VWSqrSumLocal_Serial / ...). Whether a
  * SHUD-compiled generic-API serial loop bit-matches them is PLATFORM-
  * DEPENDENT, because the divergence is driven by two codegen choices that
- * SHUD's `-ffp-contract=off` (B0 IEEE-754 lockdown) forces on us:
+ * SHUD's `-ffp-contract=off` (Makefile base flags) forces on us:
  *
  *   (1) FMA contraction. The vendored library carries no -ffp-contract
  *       flag, so its default contraction produces a fused multiply-add for
@@ -45,17 +46,17 @@
  *       SIMD lanes → a different (pairwise/tree) summation order than the
  *       library's sequential scalar loop.
  *
- * Measured (unit sweep, keliya/heihe-shaped data, override vs library):
+ * Measured (unit sweep of 5000 cases, override vs library):
  *   - Apple clang / ARM (Mac): the vendored lib emits scalar `fmadd`;
  *     our -ffp-contract=off override emits non-FMA and (at -O2) vectorizes
  *     → dot diverges 4785/5000, wsqrsum 1819/5000 (~1 ULP). BOTH knobs
  *     matter: -ffp-contract=on ALONE still diverges (still vectorized,
  *     1823/5000); scalar+FMA together (or optnone) → 0/5000.
- *   - x86_64 / gcc (server + CI): the gcc-built lib emits scalar non-FMA
+ *   - x86_64 / gcc: the gcc-built lib emits scalar non-FMA
  *     (`mulsd`+`addsd`); gcc at -O2 -ffp-contract=off produces the SAME
  *     scalar non-FMA fold → the plain override ALREADY matches, 0/5000,
- *     with or without this attribute (verified by disassembly + sweep on
- *     the server gcc-13 toolchain, .review-evidence/.../gcc_spot_leg/).
+ *     with or without this attribute (verified by disassembly + sweep
+ *     with gcc-13).
  *
  * THE FIX. `optnone` on clang does BOTH: it disables vectorization AND
  * discards the function-level -ffp-contract=off (restoring the default
@@ -66,22 +67,23 @@
  * So SHUD_NVEC_NOOPT is REQUIRED on clang/ARM and correctness-INERT on
  * gcc/x86 — safe on both, validated on both.
  *
- * This is NOT a spec-approach change: the bodies remain plain serial loops
- * over the generic API (N_VGetArrayPointer / N_VGetLength), with NO
- * N_V*_Serial call and NO content-struct macro. The attribute only
- * constrains codegen (scalar + default contraction), not the source logic.
+ * The bodies remain plain serial loops over the generic API
+ * (N_VGetArrayPointer / N_VGetLength), with NO N_V*_Serial call and NO
+ * content-struct macro. The attribute only constrains codegen (scalar +
+ * default contraction), not the source logic.
  *
- * FRAGILITY (the honest statement): correctness of the bitwise-to-Config-C
- * guarantee rests on a per-compiler codegen coincidence — on clang the
+ * FRAGILITY: correctness of the bitwise-to-Config-C guarantee rests on a
+ * per-compiler codegen coincidence — on clang the
  * `optnone`-restores-contraction side effect, on gcc the fact that -O2
  * -ffp-contract=off already yields the library's scalar non-FMA fold. It
  * does NOT rest on the library being rebuilt at a different -O level. If a
  * future toolchain changes either the library's contraction default or
- * clang's optnone contraction behaviour, the G-E1 SHA gate (Mac clang +
- * the PR-N2 server gcc matrix + CI GCC) is the backstop that catches the
- * regression. The copy-into-Serial + library-call alternative is
- * spec-PROHIBITED here (no N_V*_Serial in overrides), so this codegen pin
- * is the spec-compliant path.
+ * clang's optnone contraction behaviour, the guarantee breaks silently;
+ * only comparing Config E output against a Config C run (bit-for-bit, on
+ * both clang and gcc) catches it. Copying into a Serial vector and calling
+ * the library reduction is not an option (see the hard rules in the
+ * header: no N_V*_Serial on OpenMP-content vectors), hence this codegen
+ * pin.
  * ------------------------------------------------------------------- */
 #if defined(__clang__)
 /* clang: optnone disables vectorization AND drops the fn-level
@@ -325,14 +327,13 @@ SHUD_NVEC_NOOPT static int shud_dotprodmultilocal(int nvec, N_Vector x, N_Vector
 }
 
 /* =====================================================================
- * P12-nvec PR-N3 (#445) — Config E2: fixed-tree deterministic reductions.
+ * Config E2: fixed-tree deterministic reductions.
  *
- * COMPILE-TIME-SELECTABLE ALTERNATIVE to the Tier-1 serial overrides above
- * (spec tier2-det-reduction "SHUD_NVEC_DETRED build wiring"): the whole
- * block is `#ifdef SHUD_NVEC_DETRED`, so with the flag off this TU is
- * byte-for-byte the Config E install and revert = a build-flag flip.
+ * COMPILE-TIME-SELECTABLE ALTERNATIVE to the plain serial overrides above:
+ * the whole block is `#ifdef SHUD_NVEC_DETRED`, so with the flag off this
+ * TU is exactly the Config E install and revert = a build-flag flip.
  *
- * WHY A TREE AT ALL. Config E's Tier-1 fold is a single sequential
+ * WHY A TREE AT ALL. Config E's plain serial fold is a single sequential
  * left-to-right accumulation — already bitwise across thread counts (there
  * is no parallel accumulation left), which is exactly why it is SLOW: the
  * reduction cannot use the OpenMP NVector's threads. Config E2 restores
@@ -351,22 +352,21 @@ SHUD_NVEC_NOOPT static int shud_dotprodmultilocal(int nvec, N_Vector x, N_Vector
  *      halved array, repeat until one value remains. Pure function of the
  *      block COUNT (hence of NY and B). Same tree for N=1 and N=16.
  *
- * CODEGEN PIN (load-bearing — spec "serial in-block accumulation in index
- * order"). The in-block fold below carries SHUD_NVEC_NOOPT for the SAME
- * reason the Tier-1 bodies do: at -O2 the clang/gcc vectorizer would
- * interleave the per-block accumulation across SIMD lanes. That stays
- * deterministic, but it VIOLATES the spec letter ("serial in index order")
- * and — because the Tier-1 reference for the A4 report is the scalar-FMA
- * fold — would also shift the in-block ulp. Reusing the existing NOOPT pin
- * (clang optnone / gcc O0+no-tree-vectorize) keeps every block a scalar
- * sequential fold on both toolchains, so the ONLY order change vs Config E
- * is the cross-block tree combine (measured by the A4 report, certified by
- * A5). The tree-combine helper is tiny and scalar; it carries the pin too.
+ * CODEGEN PIN (load-bearing: each block must be accumulated serially in
+ * index order). The in-block fold below carries SHUD_NVEC_NOOPT for the
+ * SAME reason the plain serial bodies do: at -O2 the clang/gcc vectorizer
+ * would interleave the per-block accumulation across SIMD lanes. That
+ * stays deterministic, but it is no longer the scalar fold the plain
+ * serial bodies produce, so the in-block rounding would shift too.
+ * Reusing the existing NOOPT pin (clang optnone / gcc
+ * O0+no-tree-vectorize) keeps every block a scalar sequential fold on
+ * both toolchains, so the ONLY order change vs Config E is the
+ * cross-block tree combine. The tree-combine helper is tiny and scalar;
+ * it carries the pin too.
  *
- * NEUMAIER. Implemented plain first (design D4 / spec: "decide FROM the
- * measured A4 ulp evidence"). SHUD_NVEC_DETRED_NEUMAIER compiles the
- * compensated in-block fold + compensated combine; left at 0 unless the
- * A4 report demands it. The PR records the decision + its ulp basis.
+ * NEUMAIER. The default is plain summation. SHUD_NVEC_DETRED_NEUMAIER=1
+ * compiles the compensated in-block fold + compensated combine; leave it
+ * at 0 unless the measured ulp difference vs Config E calls for it.
  * ------------------------------------------------------------------- */
 #ifdef SHUD_NVEC_DETRED
 
@@ -376,7 +376,7 @@ SHUD_NVEC_NOOPT static int shud_dotprodmultilocal(int nvec, N_Vector x, N_Vector
 /* Checked allocation of the `nb`-entry block-partial array. On failure we
  * ABORT LOUDLY rather than fall back to a serial fold: a fallback would
  * compute a DIFFERENT summation order and silently break the cross-thread
- * determinism contract (the whole point of Config E2). nb is bounded (heihe_x4
+ * determinism contract (the whole point of Config E2). nb is small (e.g.
  * NY≈120k → nb≈31 → ~248 bytes at B=4096), so a failure here is effectively
  * system OOM, not an E2-specific condition — abort, never order-shift silently. */
 static realtype *det_alloc_partials(sunindextype nb)
@@ -392,16 +392,16 @@ static realtype *det_alloc_partials(sunindextype nb)
 }
 
 /* Fixed compile-time block size B, independent of thread count. Overridable
- * on the make CLI (-DSHUD_NVEC_DETRED_B=256) for the forced-small-B
- * determinism leg (spec: production B=4096 ≥ keliya NY degenerates to a
- * single block → the tree combine is untested unless a smaller B forces
- * ≥ 4 blocks / ≥ 2 combine levels). */
+ * on the make CLI (-DSHUD_NVEC_DETRED_B=256) for testing: a project with
+ * NY ≤ 4096 degenerates to a single block at the default B, so the tree
+ * combine is untested unless a smaller B forces ≥ 4 blocks / ≥ 2 combine
+ * levels. */
 #ifndef SHUD_NVEC_DETRED_B
 #  define SHUD_NVEC_DETRED_B 4096
 #endif
 
-/* Neumaier (Kahan-Babuska) compensation — off by default; enabled only if
- * the A4 ulp report demands it (decision recorded in the PR). */
+/* Neumaier (Kahan-Babuska) compensation — off by default (see the
+ * NEUMAIER note above). */
 #ifndef SHUD_NVEC_DETRED_NEUMAIER
 #  define SHUD_NVEC_DETRED_NEUMAIER 0
 #endif
@@ -469,7 +469,7 @@ SHUD_NVEC_NOOPT static realtype det_dotprod(N_Vector x, N_Vector y)
   realtype *xd = N_VGetArrayPointer(x);
   realtype *yd = N_VGetArrayPointer(y);
   sunindextype nb = det_nblocks(N);
-  if (nb <= 1) {                       /* degenerate: identical to Tier-1 fold */
+  if (nb <= 1) {                       /* degenerate: identical to plain serial fold */
     realtype sum = ZERO, c = ZERO;
     for (sunindextype i = 0; i < N; i++) DET_ADD(sum, c, xd[i] * yd[i]);
     return sum + (SHUD_NVEC_DETRED_NEUMAIER ? c : ZERO);
@@ -604,19 +604,18 @@ SHUD_NVEC_NOOPT static int det_dotprodmultilocal(int nvec, N_Vector x, N_Vector 
  * install(): overwrite each populated reduction slot (and its aliased
  * `*local` sibling) with the serial override. Element-wise slots are left
  * untouched (stay stock OpenMP). We overwrite unconditionally — the
- * OpenMP backend always populates these slots (see the PR-N1 runtime slot
- * probe + docs/p12-nvec/nvec_reduction_audit.md) — but guard on non-NULL
+ * OpenMP backend always populates these slots (see
+ * OpenMP_NVector_Determinism.md) — but guard on non-NULL
  * defensively so a future ops-table change cannot install a bogus pointer
  * into a NULL slot. Writing the standard AND the `*local` slot closes the
  * aliasing hazard: the stock pointers are identical, so leaving one slot
  * would keep a stock parallel body reachable.
  *
- * P12-nvec PR-N3 (#445): under SHUD_NVEC_DETRED the SUMMATION slots resolve
- * to the fixed-tree det_* bodies (via the DET_SUM macro); non-summation
- * slots (min/maxnorm/invtest/constrmask/minquotient) always use the Tier-1
- * serial bodies — they carry no combine order to fix and are already
- * cross-thread deterministic. With the flag off, DET_SUM(FN) == shud_FN, so
- * install() is byte-identical to Config E.
+ * Under SHUD_NVEC_DETRED the SUMMATION slots get the fixed-tree det_*
+ * bodies; non-summation slots (min/maxnorm/invtest/constrmask/minquotient)
+ * always use the plain serial bodies — they carry no combine order to fix
+ * and are already cross-thread deterministic. With the flag off, install()
+ * is exactly Config E.
  * ------------------------------------------------------------------- */
 #ifdef SHUD_NVEC_DETRED
 #  define DET_SUM(TIER1, DETRED) (DETRED)
@@ -630,9 +629,9 @@ void nvec_hybrid_install(N_Vector v)
   if (v == NULL || v->ops == NULL) return;
   N_Vector_Ops o = v->ops;
 
-  /* standard reductions — summation slots go through DET_SUM (fixed-tree
-   * det_* under E2, plain serial shud_* under E); non-summation slots
-   * (maxnorm/min/invtest/constrmask/minquotient) always Tier-1 serial. */
+  /* standard reductions — summation slots get the fixed-tree det_* body
+   * under E2 and the plain serial shud_* body under E; non-summation slots
+   * (maxnorm/min/invtest/constrmask/minquotient) are always plain serial. */
 #ifdef SHUD_NVEC_DETRED
   HYB_SET(o->nvdotprod,      det_dotprod);
   HYB_SET(o->nvwrmsnorm,     det_wrmsnorm);
@@ -679,8 +678,8 @@ void nvec_hybrid_install(N_Vector v)
 #endif
 
   /* fused / vector-array reductions are NULL by default (SHUD never calls
-   * N_VEnable*Ops) → nothing to override; HYB_SET no-ops on the NULL slots
-   * if a future config enables them it must extend this list + the audit. */
+   * N_VEnable*Ops) → nothing to override; HYB_SET no-ops on the NULL slots.
+   * A future config that enables them must extend this list. */
 
 #ifdef SHUD_NVEC_DETRED
   fprintf(stdout,
@@ -700,8 +699,8 @@ void nvec_hybrid_install(N_Vector v)
 #endif
 }
 
-/* P12-nvec PR-N3 (#445) — Config E2 identity accessors for the startup
- * banner + evidence log (declared in the header; hybrid build). */
+/* Config E2 identity accessors for the startup banner (declared in the
+ * header; hybrid build). */
 int nvec_hybrid_detred_active(void)
 {
 #ifdef SHUD_NVEC_DETRED

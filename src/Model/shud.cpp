@@ -15,52 +15,45 @@
 #include "TimeSeriesData.hpp"
 #include "FloodAlert.hpp"
 #include "CommandIn.hpp"
-/* P11-osc PR-D1 (#434) — env-gated (strict `=1`) CVODE stepping diagnostics.
- * Default-off: when neither SHUD_DIAG_DT=1 nor SHUD_DIAG_OSC=1 is set, every
- * hook below is a no-op and the default hot path is byte-identical (keliya
- * B0 SHA gate). Reads ONLY the accepted CVODE state vector — never the uY*
- * RHS scratch globals (source-audit spec). */
+/* Env-gated (strict `=1`) CVODE stepping diagnostics. Default-off: when
+ * neither SHUD_DIAG_DT=1 nor SHUD_DIAG_OSC=1 is set, every hook below is a
+ * no-op and the default hot path is unchanged. Reads ONLY the accepted
+ * CVODE state vector — never the uY* RHS scratch globals. */
 #include "MD_osc_diag.hpp"
-/* P12-nvec PR-N0 (#442) — env-gated (strict `=1`) NVector op-share
- * profiler. Default-off: when SHUD_NVEC_PROF!=1 the ops-table shims are
- * NEVER installed and the coupled-vector creation path is byte-identical
- * (keliya B0 SHA gate). When on, shims are pure delegation (counting +
- * monotonic-ns), so trajectories stay identical; nvec_prof.csv is dumped
- * at run end. Wraps ONLY the coupled udata/du family; the decoupled
- * 5-solver vectors (SHUD_uncouple below) are never wrapped. Composition
- * order: the profiler wraps LAST/OUTERMOST so a future PR-N1 hybrid
- * override (installed on the same vector BEFORE this call) is delegated
- * through. No code here lives on the RHS f() path (f.cpp / MD_rhs_core.cpp
- * untouched). */
+/* Env-gated (strict `=1`) NVector op-share profiler. Default-off: when
+ * SHUD_NVEC_PROF!=1 the ops-table shims are NEVER installed. When on,
+ * shims are pure delegation (counting + monotonic-ns), so trajectories
+ * stay identical; nvec_prof.csv is dumped at run end. Wraps ONLY the
+ * coupled udata/du family; the decoupled 5-solver vectors (SHUD_uncouple
+ * below) are never wrapped. Composition order: the profiler wraps
+ * LAST/OUTERMOST so the hybrid reduction overrides (installed on the same
+ * vector BEFORE this call) are delegated through. No code here lives on
+ * the RHS f() path. */
 #include "MD_nvec_prof.hpp"
-/* P12-nvec PR-N1 (#443) — Config E hybrid NVector serial reduction
- * overrides. nvec_hybrid_install() overwrites the reduction entries of the
+/* Hybrid NVector serial reduction overrides ("Config E").
+ * nvec_hybrid_install() overwrites the reduction entries of the
  * OpenMP-backed ops table with SHUD-owned serial generic-API loops; the
- * whole impl TU is #ifdef SHUD_NVEC_HYBRID (no-op fallbacks otherwise), so
- * default builds are preprocessor-identical. Installed on udata/du right
- * after N_VNew_OpenMP and BEFORE the SHUD_NVEC_PROF wrap (overrides first,
- * shims outermost). No code here lives on the RHS f() path. */
+ * implementation is #ifdef SHUD_NVEC_HYBRID (no-op fallbacks otherwise).
+ * Installed on udata/du right after N_VNew_OpenMP and BEFORE the
+ * SHUD_NVEC_PROF wrap (overrides first, shims outermost). No code here
+ * lives on the RHS f() path. */
 #include "MD_nvec_hybrid.hpp"
-/* P8-tune.G0 PR-B (#411) + PR-0 Phase 7 finding #4 cleanup —
- * SUNLinSol_Hypre_DrainTelemetry + SUNLinSolFree on shutdown. The
+/* SUNLinSol_Hypre_DrainTelemetry + SUNLinSolFree on shutdown. The
  * wrapper is link-always (cvode_config.cpp dispatches via SHUD_LINSOL);
  * the drain is a per-Solve telemetry ring drained to TSV at process
  * shutdown when $SHUD_TELEMETRY_TSV is set. SUNLinSolFree releases the
- * wrapper's HypreContent (Hypre handles + ring buffer) — addresses
- * PR-0 #414 Phase 7 finding #4 process-exit cleanup leak. On
+ * wrapper's HypreContent (Hypre handles + ring buffer). On
  * SHUD_LINSOL=spgmr the drain is a no-op (wrapper not in use; the
  * SPGMR LS is a stock SUNDIALS object and SUNLinSolFree releases that
  * cleanly too — the wrapper's drain probes LS->ops->getid and returns
  * 0 if the handle is not the custom AMG wrapper). */
 #include "sunlinsol_hypre.h"
 
-/* S0-8a / openMP #10 — wall-clock profile timer infrastructure. Header
- * lives in the outer `tools/profile/` directory, sibling to SHUD/. We
- * #ifdef-guard the include so the SHUD submodule on `openmp-baseline`
- * stays self-contained at PROFILE=0 (the only consumer of the timer
- * API — `shud_profile::dump` below — is itself #ifdef-guarded, so the
- * no-op stubs in timer.h are dead weight at PROFILE=0). PROFILE=1
- * builds get the include + -I + impl source via Makefile injection. */
+/* Wall-clock profile timer infrastructure. timer.h lives in
+ * `tools/profile/`; `make ... SHUD_ENABLE_PROFILE=1` adds the define, the
+ * include path and the implementation source. The include is
+ * #ifdef-guarded so normal builds do not need that directory (every use
+ * of the timer API below is itself #ifdef-guarded). */
 #ifdef SHUD_ENABLE_PROFILE
 #include "timer.h"
 #endif
@@ -77,35 +70,29 @@ int global_fflush_mode = 0;
 int global_implicit_mode = 1;
 int global_verbose_mode = 1;
 int lakeon = 0; /* Whether lake module ON(1), OFF(0) */
-/* S5d.3 (#181) — NUMA first-touch gate. 1 = OMP_PROC_BIND was set at
+/* NUMA first-touch gate. 1 = OMP_PROC_BIND was set at
  * startup so threads have a deterministic core affinity and Linux
  * first-touch page policy can route SoA pages to the consumer thread's
- * local NUMA node; 0 = OMP_PROC_BIND unset (design R3 mitigation #2:
- * skip parallel first-touch entirely to keep behaviour deterministic
- * and bitwise-identical to the serial baseline). Set ONCE at SHUD()
+ * local NUMA node; 0 = OMP_PROC_BIND unset (skip parallel first-touch
+ * entirely to keep behaviour deterministic and bitwise-identical to
+ * the serial build). Set ONCE at SHUD()
  * entry from getenv("OMP_PROC_BIND") and read by malloc_EleRiv() /
  * LoadIC() before each parallel first-touch loop. */
 int g_numa_first_touch_enabled = 0;
 using namespace std;
 
-/* S5d.3 (#181) — deterministic NUMA log-token emitter, called once at
- * the start of every SHUD() entry point. Spec L75-77 grep ordering
- * assertion requires "[NUMA] OMP_PROC_BIND=" to appear BEFORE any
- * "[NUMA] first-touch begin" line — that ordering is satisfied by the
+/* Deterministic NUMA log-token emitter, called once at the start of
+ * every SHUD() entry point. The log line "[NUMA] OMP_PROC_BIND=" must
+ * appear BEFORE any "[NUMA] first-touch begin" line (log-parsing tools
+ * rely on this order) — that ordering is satisfied by the
  * call sequence in SHUD()/SHUD_uncouple(): emit_numa_token() ->
  * MD->initialize() (which calls malloc_EleRiv with 3 first-touch
  * sites) -> MD->LoadIC() (1 first-touch site).
  *
- * S5d.4 (#182) — additional stderr WARNING emitted alongside the
- * stdout [NUMA] OMP_PROC_BIND=unset token, satisfying spec
- * s5d-data-layout-soa-numa Scenario "shud.cpp warning 路径生效"
- * (Requirement "线程绑定 run script 与 manifest 字段必填"). The
- * stdout token is preserved unchanged (PR #181 grep ordering gate
- * keeps consuming it from the run log); the new stderr warning is
- * the operator-facing channel matching design D5: program SHALL NOT
- * override OMP_PROC_BIND, only surface its absence as a warning that
- * points at tools/run_omp.sh as the fix. The wording embeds the
- * exact spec phrase so the spec grep assertion is verbatim. */
+ * When OMP_PROC_BIND is unset, a stderr WARNING is emitted alongside
+ * the stdout [NUMA] OMP_PROC_BIND=unset token. The program never
+ * overrides OMP_PROC_BIND itself; it only reports its absence. Both
+ * messages are parsed by external tools, so keep their wording. */
 static void emit_numa_token(void){
     const char *bind = getenv("OMP_PROC_BIND");
     if (bind != NULL && bind[0] != '\0') {
@@ -114,15 +101,12 @@ static void emit_numa_token(void){
     } else {
         printf("[NUMA] OMP_PROC_BIND=unset\n");
         printf("[NUMA] WARNING: OMP_PROC_BIND unset - skipping first-touch optimization for determinism guarantee.\n");
-        /* S5d.4 (#182): stderr WARNING — operator-facing channel.
-         * Spec phrase verbatim: "OMP_PROC_BIND not set, NUMA
-         * first-touch may be ineffective." Append a pointer to the
-         * canonical fix (tools/run_omp.sh) so the user gets a
-         * one-step recovery without consulting docs. */
+        /* stderr WARNING — operator-facing channel; it also names
+         * the fix so the user does not have to consult the docs. */
         fprintf(stderr,
                 "[OMP] WARNING: OMP_PROC_BIND not set, NUMA "
-                "first-touch may be ineffective. Use "
-                "tools/run_omp.sh to set defaults.\n");
+                "first-touch may be ineffective. Set "
+                "OMP_PROC_BIND=close OMP_PLACES=cores (see README.md).\n");
         fflush(stderr);
         g_numa_first_touch_enabled = 0;
     }
@@ -135,10 +119,10 @@ double SHUD(FileIn *fin, FileOut *fout){
     N_Vector    udata;
     N_Vector    du;
 
-    /* S5d.3 (#181) — emit deterministic NUMA log token + set
+    /* Emit the deterministic NUMA log token + set
      * g_numa_first_touch_enabled BEFORE any malloc_EleRiv / LoadIC
-     * call so spec L75-77 grep ordering assertion holds:
-     *   min_line('[NUMA] OMP_PROC_BIND=') < min_line('[NUMA] first-touch begin')
+     * call, so that the "[NUMA] OMP_PROC_BIND=" line precedes every
+     * "[NUMA] first-touch begin" line in the log.
      */
     emit_numa_token();
 
@@ -160,11 +144,9 @@ double SHUD(FileIn *fin, FileOut *fout){
     fout->updateFilePath();
     NY = MD->NumY;
     globalY = new double[NY];
-    /* S1d.2 (openMP #48) — N_Vector backend dispatch is now keyed on
-     * SHUD_USE_OPENMP_NVECTOR (renamed from the legacy
-     * three-concerns-conflated switch). Defaults to OFF → Serial
-     * backend, which is the validation surface for Config A
-     * (bitwise vs B0). When SHUD_USE_OPENMP_NVECTOR=1 the build
+    /* The N_Vector backend is selected by SHUD_USE_OPENMP_NVECTOR.
+     * Undefined (serial `make shud`) → Serial backend. When
+     * SHUD_USE_OPENMP_NVECTOR=1 (default for `make shud_omp`) the build
      * additionally links libsundials_nvecopenmp + pulls in
      * nvector_openmp.h via Macros.hpp. */
 #ifdef SHUD_USE_OPENMP_NVECTOR
@@ -173,20 +155,19 @@ double SHUD(FileIn *fin, FileOut *fout){
     udata = N_VNew_OpenMP(NY, MD->CS.num_threads, sunctx);
     du = N_VNew_OpenMP(NY, MD->CS.num_threads, sunctx);
 #ifdef SHUD_NVEC_HYBRID
-    /* P12-nvec PR-N1 (#443) — Config E: overwrite the reduction entries of
+    /* Config E: overwrite the reduction entries of
      * the OpenMP ops table with SHUD-owned serial loops, IMMEDIATELY after
      * N_VNew_OpenMP and BEFORE CVodeInit (SetCVODE, below) AND before the
-     * SHUD_NVEC_PROF wrap (overrides first, shims outermost — design D1/D2).
+     * SHUD_NVEC_PROF wrap (overrides first, shims outermost).
      * N_VClone (called inside CVodeInit) copies the ops table, so the
      * overrides propagate to every internal temporary. Both udata and du
      * are overridden (idempotent; each write stores a SHUD address).
      * Element-wise ops keep the stock OpenMP parallel implementation. */
     nvec_hybrid_install(udata);
     nvec_hybrid_install(du);
-    /* P12-nvec PR-N3 (#445) — startup config identity line for the E2 binary
-     * marker (spec tier2-det-reduction "binary marker / startup log line").
+    /* Startup line identifying the reduction path of this binary:
      * Config E prints DETRED=off; Config E2 prints the block size + Neumaier
-     * flag so the evidence log unambiguously identifies the reduction path. */
+     * flag, so the run log unambiguously identifies which one was used. */
     if (nvec_hybrid_detred_active())
         fprintf(stdout, "NVEC config: Config E2 (fixed-tree deterministic reductions; B=%d, Neumaier=%d)\n",
                 nvec_hybrid_detred_block_size(), nvec_hybrid_detred_neumaier());
@@ -198,21 +179,21 @@ double SHUD(FileIn *fin, FileOut *fout){
     udata = N_VNew_Serial(NY, sunctx);
     du = N_VNew_Serial(NY, sunctx);
 #endif
-    /* P1e PR-G (#315 / design D3) — StrictOMP RHS startup single-point
-     * thread-count setup. Independent of SHUD_USE_OPENMP_NVECTOR (Config
-     * B's `omp_set_num_threads(MD->CS.num_threads)` above stays untouched
-     * to preserve mode B/D historical NVector parity). Config C (Serial
-     * NVec + StrictOMP RHS) has no other omp_set_num_threads call site
-     * — without this block, `#pragma omp parallel` in MD_rhs_core.cpp
-     * StrictOMP case would default to `omp_get_max_threads()` (TE-1
-     * defect class). `SHUD_RHS_THREADS` env wins; if unset, fall back
-     * to whatever `omp_get_max_threads()` reports (which is itself
-     * driven by `OMP_NUM_THREADS` when set, else the OpenMP runtime
-     * default). In Config D this re-set overrides the Config-B-style
-     * MD->CS.num_threads set above, which is the intended behaviour:
-     * the user wants `SHUD_RHS_THREADS` to be the canonical knob across
-     * Config C/D, while NVector allocation in Config D has already
-     * fixed the NVector-backend thread count at `N_VNew_OpenMP` time. */
+    /* Parallel-RHS thread count, set once at startup. Independent of
+     * SHUD_USE_OPENMP_NVECTOR. With the Serial NVector (Config C) this
+     * is the only omp_set_num_threads call site, i.e. the only place
+     * where the thread count of the `#pragma omp parallel` regions in
+     * MD_rhs_core.cpp is chosen explicitly. `SHUD_RHS_THREADS` env
+     * wins; if unset, fall back to whatever `omp_get_max_threads()`
+     * reports: with the Serial NVector that is `OMP_NUM_THREADS` (or
+     * the OpenMP runtime default), with the OpenMP NVector it is the
+     * cfg.para NUM_OPENMP value set by the
+     * omp_set_num_threads(MD->CS.num_threads) call above. With the
+     * OpenMP NVector an explicit `SHUD_RHS_THREADS` overrides that
+     * call, which is intended:
+     * `SHUD_RHS_THREADS` is the one knob for the RHS in every build,
+     * while the NVector backend's thread count was already fixed at
+     * `N_VNew_OpenMP` time. */
 #if defined(SHUD_ENABLE_OPENMP_RHS)
     {
         const char* shud_rhs_threads_env = getenv("SHUD_RHS_THREADS");
@@ -233,14 +214,13 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->initialize_output();
     MD->PrintInit(fout->Init_bak, 0);
     MD->InitFloodAlert(fout->floodout);
-    /* P12-nvec PR-N0 (#442) — install the NVector op-share profiler shims
-     * on the coupled vectors HERE: after creation (and after any future
-     * SHUD-owned ops-table override, which a PR-N1 hybrid build inserts
-     * above), and BEFORE SetCVODE (which calls CVodeInit → N_VClone
-     * allocates every internal temporary, propagating the shim table).
-     * No-op unless SHUD_NVEC_PROF=1. Wrap both udata and du (same family;
-     * install is idempotent). The clone-propagation smoke assert runs once
-     * on udata so the stdout PASS line is captured in the evidence log. */
+    /* Install the NVector op-share profiler shims on the coupled vectors
+     * HERE: after creation (and after the hybrid ops-table overrides
+     * installed above), and BEFORE SetCVODE (which calls CVodeInit →
+     * N_VClone allocates every internal temporary, propagating the shim
+     * table). No-op unless SHUD_NVEC_PROF=1. Wrap both udata and du (same
+     * family; install is idempotent). The clone-propagation smoke assert
+     * runs once on udata and prints a PASS/FAIL line to stdout. */
     {
 #ifdef SHUD_USE_OPENMP_NVECTOR
 # ifdef SHUD_NVEC_HYBRID
@@ -264,7 +244,7 @@ double SHUD(FileIn *fin, FileOut *fout){
             nvec_prof_clone_carries_shims(udata);
 #ifdef SHUD_USE_OPENMP_NVECTOR
 # ifdef SHUD_NVEC_HYBRID
-            /* PR-N1 task 2.5(a) composition assert: now that the profiler
+            /* Composition assert: now that the profiler
              * shims wrap the already-overridden table, verify each reduction
              * slot holds a shim (≠ stock) whose delegate is the hybrid
              * override address. Runs only in the Config E + PROF combination. */
@@ -284,10 +264,10 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->debugData(fout->outpath);
     MD->gc.write(fout->Calib_bak);
 //    f(t, udata, du, MD); /* Initialized the status */
-    /* P11-osc PR-D1 (#434) — construct + prime the env-gated diagnostics
+    /* Construct + prime the env-gated diagnostics
      * BEFORE the profiled solver-loop scope so header-write / buffer alloc /
-     * initial-state snapshot do not skew t_wall_total (mirrors the existing
-     * "init lives outside this scope" intent). No-op unless SHUD_DIAG_DT=1
+     * initial-state snapshot do not skew t_wall_total (initialization is
+     * kept outside that scope on purpose). No-op unless SHUD_DIAG_DT=1
      * or SHUD_DIAG_OSC=1 (strict `=1`). State read via N_VGetArrayPointer
      * (accepted CVODE state), never the uY* RHS scratch globals. */
     OscDiag diag;
@@ -297,7 +277,7 @@ double SHUD(FileIn *fin, FileOut *fout){
     }
     {
 #ifdef SHUD_ENABLE_PROFILE
-        /* S0-10 / openMP #14 — t_wall_total wraps the main solver loop
+        /* t_wall_total wraps the main solver loop
          * (NumSteps iterations, each with forcing/ET/CVode/summary/
          * ExportResults). Used in dump() to derive t_other = wall_total
          * - (CVODE_raw + forcing + ET + output). Initialization /
@@ -317,7 +297,7 @@ double SHUD(FileIn *fin, FileOut *fout){
             while (t < tnext) {
                 {
 #ifdef SHUD_ENABLE_PROFILE
-                    /* P2a: wrap forcing-file disk I/O + interp. */
+                    /* wrap forcing-file disk I/O + interp. */
                     shud_profile::Timer _t_fr("t_forcing_io");
 #endif
                     MD->updateforcing(t);
@@ -325,7 +305,7 @@ double SHUD(FileIn *fin, FileOut *fout){
                 /* calculate Interception Storage */
                 {
 #ifdef SHUD_ENABLE_PROFILE
-                    /* P2a: ET / canopy / snow physics bucket. */
+                    /* ET / canopy / snow physics bucket. */
                     shud_profile::Timer _t_et("t_ET");
 #endif
                     MD->ET(t, tnext);
@@ -344,7 +324,7 @@ double SHUD(FileIn *fin, FileOut *fout){
                     check_flag(&flag, "CVode", 1);
                 }
             }
-            /* P11-osc PR-D1 (#434): per-interval diagnostic sample at the
+            /* Per-interval diagnostic sample at the
              * accepted CVode-return boundary (t == tnext here; the inner
              * while runs exactly once per SolverStep in CV_NORMAL). Emits
              * one diag_dt_trace.csv row (counter deltas) and folds this
@@ -357,14 +337,15 @@ double SHUD(FileIn *fin, FileOut *fout){
             //            CVODEstatus(mem, udata, t);
             {
 #ifdef SHUD_ENABLE_PROFILE
-                /* P2a: summary() flux post-proc to t_output bucket. */
+                /* summary() flux post-proc to t_output bucket. */
                 shud_profile::Timer _t_out("t_output");
 #endif
                 MD->summary(udata);
             }
-            /* P1e PR-B (#310): SHUD_DUMP_CV_Y=1 env gates per-tout CV_Y state
-             * vector dump. Used by tools/p1e_cv_y_hash to verify cross-build
-             * (mode A/B/C/D) solver-state byte-equality at tout boundary.
+            /* Setting the env var SHUD_DUMP_CV_Y (any value) dumps the CVODE
+             * state vector at every output time. The dumps let different
+             * builds (serial / OpenMP variants) be compared for byte-equal
+             * solver state at each tout boundary.
              * Gated by env var (runtime-toggleable, no recompile required).
              * Disabled by default → no behavior change for normal builds. */
             if (getenv("SHUD_DUMP_CV_Y") != NULL) {
@@ -389,16 +370,15 @@ double SHUD(FileIn *fin, FileOut *fout){
                             "(errno preserved by fopen)\n", cv_y_path);
                 }
             }
-            /* P1e PR-B0 (#323): recompute river/lake/element flux caches
-             * from Y(tout) before ExportResults fires PrintData. Fixes
-             * non-determinism caused by PCtrl reading the side-effect
+            /* Recompute river/lake/element flux caches
+             * from Y(tout) before ExportResults fires PrintData.
+             * Otherwise the output would read the side-effect
              * cache left by CVODE's last internal-step f() at
-             * t_internal != tout (per docs/p1e/p1e_rivqdown_cache_audit.md
-             * + spec p1e-strict-omp-rhs L260-285 + design D5 option 1). */
+             * t_internal != tout, which is not deterministic. */
             MD->recompute_for_output(udata, t);
             {
 #ifdef SHUD_ENABLE_PROFILE
-                /* P2a: ExportResults disk-write to t_output (shared bucket). */
+                /* ExportResults disk-write to t_output (shared bucket). */
                 shud_profile::Timer _t_out2("t_output");
 #endif
                 MD->CS.ExportResults(t);
@@ -406,12 +386,12 @@ double SHUD(FileIn *fin, FileOut *fout){
             MD->flood->FloodWarning(t);
         }
     }
-    /* P11-osc PR-D1 (#434): dump the flip-counter CSVs at run end (no-op
+    /* Dump the flip-counter CSVs at run end (no-op
      * unless SHUD_DIAG_OSC=1). Outside the t_wall_total scope by design. */
     if (diag.any_on()) {
         diag.finish();
     }
-    /* P12-nvec PR-N0 (#442): dump nvec_prof.csv at run end (no-op unless
+    /* Dump nvec_prof.csv at run end (no-op unless
      * SHUD_NVEC_PROF=1). Reads only the per-op global counters, not the
      * vectors, so it is safe to call before/after N_VDestroy; placed here
      * (before free) to mirror the diag.finish() run-end pattern and stay
@@ -426,11 +406,11 @@ double SHUD(FileIn *fin, FileOut *fout){
 #else
         const char *nvec_prof_backend = "serial";
 #endif
-        /* Report the EFFECTIVE OpenMP thread count driving the run (== the
-         * N knob: OMP_NUM_THREADS / SHUD_RHS_THREADS via omp_get_max_threads),
+        /* Report the EFFECTIVE OpenMP thread count driving the run
+         * (OMP_NUM_THREADS / SHUD_RHS_THREADS via omp_get_max_threads),
          * NOT MD->CS.num_threads (the cfg NUM_OPENMP value, which in Config C
          * only governs the unused Serial-NVector thread hint and can differ
-         * from the run's N). Falls back to CS.num_threads when OpenMP is not
+         * from it). Falls back to CS.num_threads when OpenMP is not
          * compiled in (plain serial `make shud`). */
 #if defined(_OPENMP)
         int nvec_prof_nthreads = omp_get_max_threads();
@@ -444,20 +424,20 @@ double SHUD(FileIn *fin, FileOut *fout){
     MD->PrintInit(fout->Init_update, t);
     MD->modelSummary(1);
     /* Free memory.
-     * S1d.2 (openMP #48) — the prior type-specific Serial destroy was
-     * unsafe under SHUD_USE_OPENMP_NVECTOR=1 (it would receive an
-     * N_VNew_OpenMP-allocated vector with a different content layout
-     * and trigger UB; master plan §4.19). The generic `N_VDestroy`
-     * dispatches via the N_Vector ops table and correctly routes to
-     * whichever backend created `v`, so the same call works for both
-     * Serial and OpenMP backends. */
+     * Use the generic `N_VDestroy`, never the type-specific Serial
+     * destroy: under SHUD_USE_OPENMP_NVECTOR=1 the latter would receive
+     * an N_VNew_OpenMP-allocated vector with a different content layout
+     * and trigger UB. The generic `N_VDestroy` dispatches via the
+     * N_Vector ops table and correctly routes to whichever backend
+     * created `v`, so the same call works for both Serial and OpenMP
+     * backends. */
     N_VDestroy(udata);
     N_VDestroy(du);
 
-    /* S0-8a / openMP #10 — persist CVODE final stats next to the SHUD
-     * output dir for the B0 archive script to pick up. stdout printout
-     * inside PrintFinalStats is unchanged (back-compat). fopen failure
-     * is non-fatal: PrintFinalStats(mem, NULL) still prints to stdout. */
+    /* Persist the CVODE final stats to cvode_stats.txt in the output
+     * dir, in addition to the stdout printout inside PrintFinalStats.
+     * fopen failure is non-fatal: PrintFinalStats(mem, NULL) still
+     * prints to stdout. */
     {
         char stats_path[MAXLEN];
         snprintf(stats_path, sizeof(stats_path), "%s/cvode_stats.txt",
@@ -474,11 +454,10 @@ double SHUD(FileIn *fin, FileOut *fout){
         }
     }
 
-    /* S5c-C (#175): nFCall lives in its own file, NOT in cvode_stats.txt.
-     * Per spec scenario "nFCall 独立 channel 上报" + "15-key snapshot 不包含
-     * nFCall". This decouples the free-running SHUD counter from the 15-key
-     * invariance gate. The file is small (1-2 lines) and read by the CI
-     * workflow's nFCall column step + tools/cvode_stats_diff post-checks. */
+    /* nFCall lives in its own file (nfcall.txt), NOT in cvode_stats.txt.
+     * It is SHUD's own free-running count of f() calls, not a CVODE
+     * counter, so it is kept apart from the CVODE statistics that are
+     * compared between runs. */
     {
         char nfcall_path[MAXLEN];
         snprintf(nfcall_path, sizeof(nfcall_path), "%s/nfcall.txt",
@@ -494,7 +473,7 @@ double SHUD(FileIn *fin, FileOut *fout){
         }
     }
 
-    /* P8-tune.G0 PR-B (#411): drain wrapper telemetry ring buffer to
+    /* Drain the wrapper telemetry ring buffer to
      * $SHUD_TELEMETRY_TSV before freeing the LS. Env-var unset / drain
      * file fopen fail / SPGMR (non-AMG wrapper) — all benign no-ops:
      *   - getenv NULL ⇒ skip drain entirely.
@@ -503,7 +482,7 @@ double SHUD(FileIn *fin, FileOut *fout){
      * The wrapper drain writes TSV header + rows, then resets the ring
      * buffer head/tail (idempotent across re-invocations).
      *
-     * PR-B #416 Phase 6 P1-6: drain BEFORE CVodeFree. CVODE 6.0
+     * ORDER: drain BEFORE CVodeFree. CVODE 6.0
      * cvLsFree (CVodeFree teardown path) may touch LS->content during
      * integrator-side cleanup; draining first guarantees the wrapper's
      * HypreContent ring buffer is intact when DrainTelemetry walks it.
@@ -534,20 +513,17 @@ double SHUD(FileIn *fin, FileOut *fout){
     /* Free integrator memory */
     CVodeFree(&mem);
 
-    /* P8-tune.G0 PR-B (#411) + PR-0 #414 Phase 7 finding #4 — release
-     * the SUNLinearSolver (wrapper releases its HypreContent which holds
-     * the Hypre AMG handle + IJ matrix/vector handles + ring buffer;
-     * stock SPGMR LS releases its workspace too). Guarded against the
-     * pre-G0 NULL-default LS case (the wrapper or SPGMR ctor populates
+    /* Release the SUNLinearSolver (wrapper releases its HypreContent
+     * which holds the Hypre AMG handle + IJ matrix/vector handles + ring
+     * buffer; stock SPGMR LS releases its workspace too). Guarded
+     * against a NULL LS (the wrapper or SPGMR ctor populates
      * LS via SetCVODE; if SetCVODE bailed early LS remains NULL). */
     if (LS != NULL) {
         SUNLinSolFree(LS);
     }
 
 #ifdef SHUD_ENABLE_PROFILE
-    /* S0-8a / openMP #10 — dump profile bucket skeleton. #10 ships
-     * infrastructure only; bucket values are all 0.0 until S0-10
-     * adds the actual instrumentation hook points. */
+    /* Dump the profile timer buckets to the output dir. */
     {
         char prof_path[MAXLEN];
         snprintf(prof_path, sizeof(prof_path), "%s/profile_B0.yaml",
@@ -568,9 +544,8 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     N_Vector    u1, u2, u3, u4, u5;
     N_Vector    du1, du2, du3, du4, du5;
 
-    /* S5d.3 (#181) — same NUMA token + gate emit as in SHUD() (kept
-     * symmetric so uncouple-path runs also satisfy the L75-77 grep
-     * ordering assertion). */
+    /* Same NUMA token + gate emit as in SHUD(), so uncouple-path runs
+     * print the "[NUMA]" log lines in the same order. */
     emit_numa_token();
 
     SUNContext sunctx1, sunctx2, sunctx3, sunctx4, sunctx5;
@@ -706,12 +681,12 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
 //    fclose(fp3);
 //    fclose(fp4);
     MD->modelSummary(1);
-    /* Free memory — generic N_VDestroy dispatch (see Coupled-path
-     * comment above for the §4.19 backend-mismatch UB rationale).
-     * Uncouple path currently only ever allocates Serial vectors
-     * (N_VNew_Serial calls below) so the destroy was never strictly
-     * broken; we migrate for consistency + to make future OMP-backend
-     * uncouple support a zero-touch change. */
+    /* Free memory — generic N_VDestroy dispatch (see the comment in
+     * SHUD() above for the backend-mismatch UB rationale).
+     * The uncouple path only ever allocates Serial vectors
+     * (N_VNew_Serial calls above), so a Serial destroy would also be
+     * correct; the generic call is used for consistency and so that an
+     * OpenMP backend here would need no change. */
     N_VDestroy(u1);
     N_VDestroy(u2);
     N_VDestroy(u3);
@@ -724,11 +699,10 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     N_VDestroy(du4);
     N_VDestroy(du5);
 
-    /* S0-8a / openMP #10 — persist CVODE final stats from the surface
-     * solver (mem1) as the representative. We pick mem1 because it is
-     * the driving solver in the uncouple loop and its counters cover
-     * the longest model-time span; mem2..mem5 stats remain on stdout
-     * only (a future schema rev can split per-mem if needed). */
+    /* Persist CVODE final stats from the surface solver (mem1) as the
+     * representative. We pick mem1 because it is the driving solver in
+     * the uncouple loop and its counters cover the longest model-time
+     * span; mem2..mem5 stats are not written to the file. */
     {
         char stats_path[MAXLEN];
         snprintf(stats_path, sizeof(stats_path), "%s/cvode_stats.txt",
@@ -745,12 +719,11 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
         }
     }
 
-    /* S5c-C (#175): nFCall channel emission in the uncouple path. Same
-     * rationale as the main SHUD() path above — single nfcall.txt next
-     * to cvode_stats.txt, NOT a 15-key column. MD->nFCall is the single
-     * global free-running counter (incremented inside f() at Model/f.cpp:61);
-     * f_surf/f_unsat/f_gw/f_river/f_lake increment the alt counters
-     * nFCall1..5 which are NOT shipped per spec (out of scope). */
+    /* Write nfcall.txt in the uncouple path. Same rationale as the main
+     * SHUD() path above — single nfcall.txt next to cvode_stats.txt.
+     * MD->nFCall is the single global free-running counter (incremented
+     * inside f() in f.cpp); f_surf/f_unsat/f_gw/f_river/f_lake increment
+     * the separate counters nFCall1..5, which are NOT written here. */
     {
         char nfcall_path[MAXLEN];
         snprintf(nfcall_path, sizeof(nfcall_path), "%s/nfcall.txt",
@@ -766,11 +739,11 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
         }
     }
 
-    /* P8-tune.G0 PR-B (#411): drain wrapper telemetry from LS1 (the
-     * surface solver — same representative-mem1 rationale as the
-     * cvode_stats.txt emission above). The other LS{2..5} are released
-     * below but their telemetry is not drained (uncouple path is not a
-     * G0 target; G0 covers the implicit / coupled path). */
+    /* Drain wrapper telemetry from LS1 (the surface solver — same
+     * representative-mem1 rationale as the cvode_stats.txt emission
+     * above). The other LS{2..5} are released
+     * below but their telemetry is not drained (the telemetry is meant
+     * for the implicit / coupled path). */
     {
         const char *telemetry_tsv = getenv("SHUD_TELEMETRY_TSV");
         if (telemetry_tsv != NULL && telemetry_tsv[0] != '\0' && LS1 != NULL) {
@@ -799,9 +772,8 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     CVodeFree(&mem4);
     CVodeFree(&mem5);
 
-    /* P8-tune.G0 PR-B (#411) + PR-0 #414 Phase 7 finding #4 — release
-     * all 5 SUNLinearSolvers (each holds either an AMG wrapper context
-     * or stock SPGMR workspace). */
+    /* Release all 5 SUNLinearSolvers (each holds either an AMG wrapper
+     * context or stock SPGMR workspace). */
     if (LS1 != NULL) SUNLinSolFree(LS1);
     if (LS2 != NULL) SUNLinSolFree(LS2);
     if (LS3 != NULL) SUNLinSolFree(LS3);
@@ -809,7 +781,7 @@ double SHUD_uncouple(FileIn *fin, FileOut *fout){
     if (LS5 != NULL) SUNLinSolFree(LS5);
 
 #ifdef SHUD_ENABLE_PROFILE
-    /* S0-8a / openMP #10 — profile bucket dump (uncouple path). */
+    /* Profile bucket dump (uncouple path). */
     {
         char prof_path[MAXLEN];
         snprintf(prof_path, sizeof(prof_path), "%s/profile_B0.yaml",

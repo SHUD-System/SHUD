@@ -62,7 +62,7 @@ public:
 class LakeBathymetry{
 public:
     int     nvalue = NA_VALUE;
-    // P8-tune.F PR-0 (#394) Phase 6 — NSDMI nullptr defaults so partial
+    // nullptr defaults so partial
     // construction (e.g. exception mid-InitValue()) leaves dtor `delete[]`
     // as a defined no-op. Counter-guard (`nvalue > 0`) provides backup; this
     // makes the class doubly-safe.
@@ -89,12 +89,12 @@ public:
     int NumEleBank = NA_VALUE;
     int NumRivIn = NA_VALUE;
     int NumRivOut = NA_VALUE;
-    // P8-tune.F PR-0 (#394) Phase 6 — NSDMI nullptr defaults symmetric to
-    // Model_Data (056a1dc). Counter-guards (`NumEleBank/NumRivIn/NumRivOut
+    // nullptr defaults, as in Model_Data.
+    // Counter-guards (`NumEleBank/NumRivIn/NumRivOut
     // > 0`) in ~_Lake() handle the unallocated case via NA_VALUE=-9999, but
     // partial-init via readLake() exception mid-alloc leaves later ptrs
-    // indeterminate while earlier counter slots are set. NSDMI makes the
-    // dtor `delete[]` defined-no-op on any subset of nullptr ptrs.
+    // indeterminate while earlier counter slots are set. The defaults make
+    // the dtor `delete[]` a defined no-op on any subset of nullptr ptrs.
     int *iEleLake = nullptr;
     int *iEleBank = nullptr;
     int *iRivIn = nullptr;

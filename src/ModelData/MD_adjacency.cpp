@@ -1,14 +1,12 @@
-/* MD_adjacency.cpp — S4 PR-10 (openMP issue #154).
+/* MD_adjacency.cpp
  *
- * Builds 7 B1a deterministic-gather adjacency lists at init time. See
- * MD_adjacency.hpp top-of-file comment for per-list semantics +
- * b0_source references.
+ * Builds the 7 deterministic-gather adjacency lists at init time. See
+ * MD_adjacency.hpp for per-list semantics.
  *
- * PR-10 BUILDS the lists but does NOT YET USE them at runtime. PR-11
- * (S3c) will replace `Model_Data::PassValue_legacy()`'s in-loop gather with
- * `rhs_deterministic_gather()` that iterates by list index. PR-10's
- * bitwise vs B0 guarantee is trivial: init-time-only changes cannot
- * affect runtime output.
+ * The lists are consumed at runtime by
+ * `Model_Data::rhs_deterministic_gather()` and `rhs_flux()`
+ * (MD_rhs_core.cpp), which sum fluxes by iterating each list in its
+ * stored order.
  */
 
 #include "MD_adjacency.hpp"
@@ -47,13 +45,12 @@ bool build_adjacency_lists(Model_Data* MD){
     adjacency_fallback_triggered = false;
 
     /* ---- 3 asserts (id == array_index + 1) ---------------------------- */
-    /* SHUD entity classes use `.index` as the canonical 1-based identifier
-     * (the spec's `id` field). The check verifies the invariant referenced
-     * by master plan §5 L1304-1313. Note: lists are ALWAYS built in
-     * array-index order regardless of assert pass/fail — when the invariant
-     * holds, array-index order == id-sort order; when it fails (theoretical
-     * fallback path), array-index order is the mandated correct ordering
-     * (spec L106-118). */
+    /* SHUD entity classes use `.index` as the canonical 1-based identifier.
+     * The check verifies the invariant `index == array_index + 1`.
+     * Note: lists are ALWAYS built in array-index order regardless of
+     * assert pass/fail — when the invariant holds, array-index order ==
+     * id-sort order; when it fails (theoretical fallback path),
+     * array-index order is still the correct ordering. */
     for (int i = 0; i < MD->NumSegmt; ++i){
         if (MD->RivSeg[i].index != i + 1){
             adjacency_assert_rivseg_pass = false;
@@ -77,10 +74,9 @@ bool build_adjacency_lists(Model_Data* MD){
         }
     }
 
-    /* ---- S4.1 — seg_by_riv -------------------------------------------- */
-    /* B0 source: legacy MD_f.cpp:170-171 (deleted in PR-9 S3a but the
-     * conceptual gather lives on in PassValue_legacy L214-221). Iteration: outer
-     * `for i in [0, NumSegmt)` produces ascending array-index order. */
+    /* ---- seg_by_riv --------------------------------------------------- */
+    /* Iteration: outer `for i in [0, NumSegmt)` produces ascending
+     * array-index order. */
     for (int i = 0; i < MD->NumSegmt; ++i){
         int ir = MD->RivSeg[i].iRiv - 1;
         if (ir >= 0 && ir < MD->NumRiv){
@@ -88,8 +84,8 @@ bool build_adjacency_lists(Model_Data* MD){
         }
     }
 
-    /* ---- S4.2 — seg_by_ele -------------------------------------------- */
-    /* B0 source: legacy MD_f.cpp:172-173. Same outer iteration as S4.1. */
+    /* ---- seg_by_ele --------------------------------------------------- */
+    /* Same outer iteration as seg_by_riv. */
     for (int i = 0; i < MD->NumSegmt; ++i){
         int ie = MD->RivSeg[i].iEle - 1;
         if (ie >= 0 && ie < MD->NumEle){
@@ -97,14 +93,13 @@ bool build_adjacency_lists(Model_Data* MD){
         }
     }
 
-    /* ---- S4.3 — upstream_by_down -------------------------------------- */
-    /* B0 source: legacy MD_f.cpp:177 == PassValue_legacy() L222-226 (post-PR-9).
-     * Macros.hpp:49 `#define iDownStrm Riv[i].down - 1`; predicate
+    /* ---- upstream_by_down --------------------------------------------- */
+    /* Macros.hpp `#define iDownStrm Riv[i].down - 1`; predicate
      * `iDownStrm >= 0` ⇒ skip rivers whose down sentinel is -1 / 0
-     * boundary. Iteration: outer `for i in [0, NumRiv)`. The legacy code
-     * also gated on `Riv[i].toLake <= 0` for the upstream sum (lakes are
-     * accumulated separately by S4.4); we replicate that here so the list
-     * mirrors B0 iteration scope. */
+     * boundary. Iteration: outer `for i in [0, NumRiv)`. A river is
+     * counted as upstream inflow only if `Riv[i].toLake <= 0`; rivers
+     * draining into a lake are accumulated separately via
+     * riv_in_by_lake. */
     for (int i = 0; i < MD->NumRiv; ++i){
         int idown = MD->Riv[i].down - 1;
         if (idown >= 0 && MD->Riv[i].toLake <= 0){
@@ -114,11 +109,9 @@ bool build_adjacency_lists(Model_Data* MD){
         }
     }
 
-    /* ---- S4.4 — riv_in_by_lake ---------------------------------------- */
-    /* B0 source: PassValue_legacy() L237-241 (post-PR-9). The post-PR-9 code uses
-     * `Riv[i].toLake` as a 0-based lake index (no `-1` applied; guard
-     * `Riv[i].toLake >= 0` filters non-lake-bound rivers). Replicate
-     * exactly so the list iteration order matches the runtime gather. */
+    /* ---- riv_in_by_lake ----------------------------------------------- */
+    /* `Riv[i].toLake` is a 0-based lake index (no `-1` applied; guard
+     * `Riv[i].toLake >= 0` filters non-lake-bound rivers). */
     for (int i = 0; i < MD->NumRiv; ++i){
         int ilake = MD->Riv[i].toLake;
         if (ilake >= 0 && ilake < MD->NumLake){
@@ -126,9 +119,9 @@ bool build_adjacency_lists(Model_Data* MD){
         }
     }
 
-    /* ---- S4.5 — ele_by_lake ------------------------------------------- */
-    /* B0 source: rhs_flux L160-161 + L210-213 (post-PR-9). Predicate
-     * `Ele[i].iLake > 0` ⇒ this element is a lake interior cell; bucket
+    /* ---- ele_by_lake -------------------------------------------------- */
+    /* Predicate
+     * `Ele[i].iLake > 0` ⇒ this element is a lake cell; bucket
      * key = iLake - 1 (1-based to 0-based). Outer iteration: array-index
      * ascending. */
     for (int i = 0; i < MD->NumEle; ++i){
@@ -140,9 +133,8 @@ bool build_adjacency_lists(Model_Data* MD){
         }
     }
 
-    /* ---- S4.6 — lake_bank_edge_by_lake -------------------------------- */
-    /* B0 source: PassValue_legacy() L251-258 + L264-271 (post-PR-9 lake-bank
-     * gather pattern). 2-D iteration: outer i ∈ [0, NumEle), inner j ∈
+    /* ---- lake_bank_edge_by_lake --------------------------------------- */
+    /* 2-D iteration: outer i ∈ [0, NumEle), inner j ∈
      * {0,1,2}; predicate `Ele[i].lakenabr[j] - 1 >= 0` ⇒ append (i, j)
      * to bucket key `lakenabr[j] - 1`. */
     for (int i = 0; i < MD->NumEle; ++i){
@@ -154,8 +146,8 @@ bool build_adjacency_lists(Model_Data* MD){
         }
     }
 
-    /* ---- S4.7 — edge_by_ele ------------------------------------------- */
-    /* B0 source: the canonical 3-neighbor loop used inside fun_Ele_* /
+    /* ---- edge_by_ele -------------------------------------------------- */
+    /* Same order as the 3-neighbor loop used inside fun_Ele_* /
      * f_applyDY. Each element gets a fixed-length 3 list; value is the
      * neighbor element index (1-based `nabr[j] - 1`); j = 0 is on the
      * boundary if `nabr[j] == 0`, encoded as -1. */
@@ -167,13 +159,12 @@ bool build_adjacency_lists(Model_Data* MD){
         }
     }
 
-    /* Optional one-shot manifest probe: when SHUD_ADJACENCY_LOG is set
-     * in the env, emit a single line to stderr that tools can grep for
-     * to populate `docs/topology_manifest.yaml` `asserts` rows. Init-time
-     * only — does NOT affect runtime hot-loops; bitwise neutrality
-     * preserved (no stdout, no .dat side-effect). Used in PR-10
-     * verification flow to confirm the 4 Mac cases + qhh all have
-     * `index == i + 1` (asserts pass, no fallback). */
+    /* Optional one-shot diagnostic: when SHUD_ADJACENCY_LOG is set
+     * in the env, emit a single line to stderr with the entity counts
+     * and the assert / fallback status, so a project can be checked for
+     * `index == i + 1` (asserts pass, no fallback). Init-time only —
+     * does NOT affect runtime hot-loops or model output (no stdout, no
+     * .dat side-effect). */
     if (std::getenv("SHUD_ADJACENCY_LOG") != nullptr){
         std::fprintf(stderr,
             "[SHUD_ADJACENCY] NumSegmt=%d NumRiv=%d NumEle=%d NumLake=%d "

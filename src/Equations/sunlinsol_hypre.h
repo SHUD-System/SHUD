@@ -1,32 +1,31 @@
-/* sunlinsol_hypre.h — P8-tune.G0 PR-0 (openspec change
- *   p8tune-g0-instrumented-amg-smoke). Custom SUNDIALS 6.0
- *   `SUNLinearSolver` wrapper around HYPRE's BoomerAMG.
+/* sunlinsol_hypre.h — custom SUNDIALS 6.0 `SUNLinearSolver` wrapper
+ *   around HYPRE's BoomerAMG (algebraic multigrid). Experimental: it
+ *   was evaluated as an alternative to SPGMR and not adopted as the
+ *   default linear solver.
  *
  * Purpose:
  *   Provide a matrix-free iterative LS plug-in for CVODE 6.0 that
  *   uses BoomerAMG as the inner solver. The wrapper exposes the full
  *   15-callback `SUNLinearSolver_Ops` ABI required by SUNDIALS 6.0
- *   (`SHUD/InstallSundials/include/sundials/sundials_linearsolver.h`
- *   L108-127) with NO NULL slots.
+ *   (`sundials/sundials_linearsolver.h`) with NO NULL slots.
  *
  * Activation: opt-in via `SHUD_LINSOL=amg` environment variable. When
  *   the env var is unset OR set to "spgmr" (default), the
  *   `cvode_config.cpp` factory dispatches `SUNLinSol_SPGMR(...)`
- *   instead and this wrapper is never instantiated. The default-path
- *   bit-identical SPGMR baseline (G0-1 anchor) is therefore
- *   preserved.
+ *   instead and this wrapper is never instantiated, so the default
+ *   SPGMR path is unaffected by this code.
  *
- * G0 scope:
- *   - Hardcoded `(interp_type=6, coarsen_type=8)` per spec REQ
- *     "Reject-non-(6,8) constructor guard". G1 may relax.
- *   - Hypre threads pinned to 1 under `shud_omp` (`HYPRE_SetGlobalOptions
- *     "default_thread_count=1"`) — defense-in-depth alongside the
- *     sbatch script `export OMP_NUM_THREADS=1` (design.md D10).
- *   - Setup-call cadence: PR-0 spike (task 1.4) measured CVODE
- *     `nsetups=0` on keliya 90-day SHORT under SPGMR `PREC_NONE`.
- *     The wrapper therefore lazy-builds its AMG hierarchy at the
- *     FIRST `Solve` invocation rather than relying on CVODE-issued
- *     Setup events.
+ * Current limitations:
+ *   - Only `(interp_type=6, coarsen_type=8)` is accepted; the
+ *     constructor rejects any other pair.
+ *   - The wrapper does not pin Hypre's thread count. The caller
+ *     must export `OMP_NUM_THREADS=1` before starting SHUD;
+ *     Initialize only reports the OpenMP state it observes.
+ *   - Setup-call cadence: CVODE may never issue a Setup call to
+ *     the linear solver (`nsetups=0` was observed under SPGMR
+ *     with `PREC_NONE`). The wrapper therefore lazy-builds its
+ *     AMG hierarchy at the FIRST `Solve` invocation rather than
+ *     relying on CVODE-issued Setup events.
  *
  * Telemetry:
  *   - Ring buffer of per-Solve entries
@@ -73,7 +72,7 @@ struct Model_Data_fwd;
  * N_Vector). `MD` is the SHUD topology / state context (passed
  * through via void* so this header doesn't need <Model_Data.hpp>).
  *
- * Hardcoded `(interp_type=6, coarsen_type=8)` per G0 spec; any other
+ * Only `(interp_type=6, coarsen_type=8)` is supported; any other
  * pair returns NULL with stderr error (constructor guard).
  *
  * Returns NULL on:
@@ -90,8 +89,8 @@ SUNLinearSolver SUNLinSol_Hypre(N_Vector y,
                                 int coarsen_type,
                                 SUNContext sunctx);
 
-/* Per-step context plumbing (driver-side telemetry path per PR-0
- * spike task 1.5). SHUD driver loop calls this BEFORE each
+/* Per-step context plumbing (driver-side telemetry path).
+ * A driver loop is expected to call this BEFORE each
  * `CVode(...)` invocation to populate the next ring-buffer entry's
  * per-step context fields. Computes deltas internally against the
  * previous call's cumulative counters. No-op + returns SUNLS_SUCCESS

@@ -1,7 +1,7 @@
 #ifndef MD_OSC_DIAG_HPP
 #define MD_OSC_DIAG_HPP
 /* =====================================================================
- * P11-osc PR-D1 (#434) — env-gated CVODE stepping diagnostics.
+ * Env-gated CVODE stepping diagnostics.
  *
  * Two independent, DEFAULT-OFF diagnostic emitters, both driven from the
  * shud.cpp coupled driver loop at the accepted CVode-return boundary
@@ -14,21 +14,18 @@
  *
  * BITWISE NEUTRALITY: the whole diagnostic path is behind a STRICT `=1`
  * env compare (strcmp == 0). Presence-only or `=0` MUST NOT enable — this
- * is deliberately stricter than the SHUD_DUMP_CV_Y presence-only precedent
- * (shud.cpp), whose block *placement* we reuse but whose predicate we do
- * not. When disabled the constructor sets both flags false and every hook
- * is a no-op, so the default hot path takes zero extra CVodeGet* calls and
- * zero I/O -> standard outputs stay byte-identical (keliya B0 SHA gate).
+ * is deliberately stricter than the presence-only SHUD_DUMP_CV_Y gate in
+ * shud.cpp. When disabled the constructor sets both flags false and every
+ * hook is a no-op, so the default hot path takes zero extra CVodeGet*
+ * calls and zero I/O -> standard outputs stay byte-identical.
  *
- * SOURCE AUDIT (osc-flip-counters spec, scenario "instrumentation location
- * and source audit"): flip detection reads states ONLY as slices of the
+ * STATE SOURCE: flip detection reads states ONLY as slices of the
  * accepted CVODE state vector via N_VGetArrayPointer(udata), layout
- * [sf n1 | us n1 | gw n1 | riv n2 | lake n3] per functions.hpp:83-90 with
+ * [sf n1 | us n1 | gw n1 | riv n2 | lake n3] (see functions.hpp) with
  * n1=NumEle, n2=NumRiv, n3=NumLake. It NEVER touches the uYsf/uYus/uYgw
- * RHS scratch globals (P1e PR-B0 hazard: in the coupled driver those hold
- * the last internal f() trial evaluation at t_internal != tout). No code
- * here lives on the RHS f() call path; f.cpp / MD_rhs_core.cpp are
- * untouched. The lake slice is out of scope (no lake case in the matrix).
+ * RHS scratch globals (in the coupled driver those hold the last internal
+ * f() trial evaluation at t_internal != tout). No code here lives on the
+ * RHS f() call path. The lake slice is not tracked.
  * ===================================================================== */
 
 #include <stdio.h>
@@ -82,8 +79,7 @@ public:
             dt_fp = fopen(path, "w");
             if (dt_fp != NULL) {
                 /* Header row carries project_name + solverstep_min so the
-                 * analyzer derives interval-mean dt without reading cfg.para
-                 * (dt-step-trace spec / design R5). */
+                 * analyzer derives interval-mean dt without reading cfg.para. */
                 fprintf(dt_fp,
                         "# project_name=%s solverstep_min=%.10g\n",
                         project_name, solverstep_min);

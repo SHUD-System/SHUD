@@ -1,26 +1,26 @@
 
 #include "cvode_config.hpp"
-/* S5c-B (#174): RHS 7-bucket + forcing I/O wall-clock timer dumps.
+/* RHS 7-bucket + forcing I/O wall-clock timer dumps.
  * Header is empty under default (SHUD_ENABLE_DIAGNOSTICS undefined). */
 #include "../Model/MD_diagnostics.hpp"
 
-#include <errno.h>   /* errno (SHUD_SPGMR_MAXL strtol parse, p8tune-spgmr-maxl PR-C) */
-#include <stdlib.h>  /* getenv, exit, EXIT_FAILURE (p8tune-g0 PR-0 SHUD_LINSOL) */
-#include <string.h>  /* strcmp (p8tune-g0 PR-0 SHUD_LINSOL) */
-#include <dlfcn.h>   /* dlopen / dlclose (p8tune-g0 PR-0 Hypre runtime probe) */
+#include <errno.h>   /* errno (SHUD_SPGMR_MAXL strtol parse) */
+#include <stdlib.h>  /* getenv, exit, EXIT_FAILURE (SHUD_LINSOL) */
+#include <string.h>  /* strcmp (SHUD_LINSOL) */
+#include <dlfcn.h>   /* dlopen / dlclose (Hypre runtime probe) */
 
-/* P8-tune.G0 PR-0 (openspec change p8tune-g0-instrumented-amg-smoke).
- * BoomerAMG wrapper at SHUD/src/Equations/sunlinsol_hypre.{h,cpp}. */
+/* Experimental BoomerAMG (algebraic multigrid) linear-solver wrapper,
+ * selected at run time with SHUD_LINSOL=amg; off by default. */
 #include "sunlinsol_hypre.h"
 
-/* P8-tune.G0 PR-0 — runtime linear-solver selector enum + factory
- * dispatch. `SHUD_LINSOL` env var picks the inner solver passed to
- * CVODE; default-compat (`unset` OR `=spgmr`) replicates the pre-G0
- * SUNLinSol_SPGMR(udata, PREC_NONE, get_spgmr_maxl_from_env(), sunctx)
- * call site EXACTLY (G0-1 bit-identical anchor). `=amg` opt-in
- * dispatches the SUNLinSol_Hypre wrapper instead. Any other value
+/* Runtime linear-solver selector enum + factory dispatch. The
+ * `SHUD_LINSOL` env var picks the linear solver passed to CVODE.
+ * Unset or `=spgmr` (the default) calls
+ * SUNLinSol_SPGMR(udata, PREC_NONE, get_spgmr_maxl_from_env(), sunctx),
+ * so default results do not depend on the selector. `=amg` opts in to
+ * the experimental SUNLinSol_Hypre wrapper instead. Any other value
  * fatal-exits BEFORE `CVodeCreate`, so no CVODE state is allocated
- * on the error path (auditable: no leak). See design.md §D3. */
+ * on the error path. */
 typedef enum {
     LINSOL_SPGMR = 0,
     LINSOL_AMG = 1,
@@ -64,10 +64,9 @@ static linsol_selection parse_linsol_env(void)
         return linsol_selection{LINSOL_AMG, "amg", "env"};
     }
 
-    /* Unrecognized value — fatal-exit BEFORE CVodeCreate. Spec
-     * REQ-G0 fatal-exit-on-unknown invariant: stderr message names
-     * the offender + the accepted set, exits non-zero, leaves no
-     * CVODE state allocated. */
+    /* Unrecognized value — fatal-exit BEFORE CVodeCreate: the stderr
+     * message names the offender + the accepted set, the process
+     * exits non-zero, and no CVODE state is left allocated. */
     fprintf(stderr,
             "[shud] FATAL: SHUD_LINSOL=%s unrecognized; accepted: spgmr, amg\n",
             env);
@@ -75,20 +74,16 @@ static linsol_selection parse_linsol_env(void)
     exit(EXIT_FAILURE);
 }
 
-/* Factory: SPGMR backend (PRE-G0 path — must produce
- * bit-identical output bytes vs the pre-G0 baseline). Encapsulates
- * the existing SUNLinSol_SPGMR call at the L324 site below; the
- * argument list is preserved byte-for-byte (PREC_NONE +
- * get_spgmr_maxl_from_env() + sunctx). `y` is the same N_Vector
- * the caller previously passed as `udata` — variable renaming
- * does not affect the linker. */
+/* Factory: SPGMR backend (the default path). Wraps the
+ * SUNLinSol_SPGMR call with PREC_NONE + get_spgmr_maxl_from_env() +
+ * sunctx; `y` is the state N_Vector that SetCVODE receives as
+ * `udata`. */
 static SUNLinearSolver create_spgmr_ls(N_Vector y, SUNContext sunctx);
 
-/* Factory: AMG backend via SUNLinSol_Hypre wrapper. Probes the
- * HYPRE runtime via the wrapper constructor (which returns NULL +
- * stderr on missing dylib / runtime init failure). On NULL return
- * the caller fatal-exits per spec REQ-G0 "fatal-exit on AMG
- * factory failure". */
+/* Factory: AMG backend via the SUNLinSol_Hypre wrapper. The wrapper
+ * constructor returns NULL + a stderr message on invalid arguments
+ * or allocation failure; a NULL return is fatal (the factory exits
+ * rather than falling back to SPGMR). */
 static SUNLinearSolver create_amg_ls(N_Vector y, Model_Data *MD,
                                      SUNContext sunctx);
 
@@ -173,11 +168,11 @@ void PrintFinalStats(void *cvode_mem, FILE *fout)
     printf("npe     = %5ld     nps     = %5ld\n", npe, nps);
     printf("ncfn    = %5ld     ncfl    = %5ld\n\n", ncfn, ncfl);
 
-    /* S0-8a / openMP #10 — optional key=value persistence. stdout output
-     * above is unchanged so existing log-scraping continues to work.
-     * Field order is deterministic + machine-parseable; the six fields
-     * required by the b0-archive spec (nfe, nfeLS, nni, nli, nsetups,
-     * netf) lead the file, the remainder follow for completeness. */
+    /* Optional key=value persistence. stdout output above is the same
+     * with or without `fout`, so log-scraping tools keep working.
+     * Field order is deterministic + machine-parseable; the six main
+     * solver counters (nfe, nfeLS, nni, nli, nsetups, netf) lead the
+     * file, the remainder follow for completeness. */
     if (fout != NULL) {
         fprintf(fout, "nfe=%ld\n",     nfe);
         fprintf(fout, "nfeLS=%ld\n",   nfeLS);
@@ -195,16 +190,16 @@ void PrintFinalStats(void *cvode_mem, FILE *fout)
         fprintf(fout, "lenrwLS=%ld\n", lenrwLS);
         fprintf(fout, "leniwLS=%ld\n", leniwLS);
 #ifdef SHUD_ENABLE_DIAGNOSTICS
-        /* S5c-A (#173) — S5c diagnostic channel additions (master plan
-         * §S5c L1365 + spec s5c-solver-diagnostics "接入 SUNDIALS CVODE
-         * stats 7 个 API"). The 5 existing keys above (nst / nfe / netf
-         * / nni / nli) plus these 2 satisfy the spec 7-key contract.
+        /* Diagnostics-only additions: last step size and last method
+         * order, which together with nst / nfe / netf / nni / nli
+         * above give the seven CVODE statistics the diagnostics
+         * build reports.
          *
          * `hlast` / `qlast` are gated behind SHUD_ENABLE_DIAGNOSTICS so
-         * the default build emits the same 15-key snapshot PR-12 froze
-         * (B1a-tag bitwise invariant). Both are SUNDIALS 6.0.0 public
-         * API reads (post-solve, no RHS path mutation) — diagnostics-ON
-         * dat outputs remain bitwise == B1a-tag; only this file's
+         * the default build always emits exactly the 15 keys above.
+         * Both are SUNDIALS 6.0.0 public API reads (post-solve, no
+         * RHS path mutation), so a diagnostics build produces the
+         * same model output as a default build; only this file's
          * trailing key set differs. */
         int qlast;
         realtype hlast;
@@ -215,9 +210,9 @@ void PrintFinalStats(void *cvode_mem, FILE *fout)
         fprintf(fout, "hlast=%.17g\n", (double)hlast);
         fprintf(fout, "qlast=%d\n",    qlast);
 
-        /* S5c-B (#174): RHS 7-bucket + forcing I/O wall-clock dump.
-         * Sum of pct_rhs_* SHALL ∈ [99.5%, 100.5%] per spec scenario
-         * "7 个 bucket 输出完整时间分布". Buckets 0-6 are defined in
+        /* RHS 7-bucket + forcing I/O wall-clock dump. The seven
+         * buckets cover the whole RHS, so the pct_rhs_* values sum
+         * to 100% up to rounding. Buckets 0-6 are defined in
          * MD_diagnostics.hpp; their accumulators live in
          * MD_rhs_core.cpp (g_rhs_timer_ns) and TimeSeriesData.cpp
          * (g_forcing_io_ns). All values are integer nanoseconds — no
@@ -317,20 +312,16 @@ void CVODEstatus(void *cvode_mem, N_Vector u, realtype t){
 //}
 
 
-/* p8tune-spgmr-maxl PR-C (capability spgmr-maxl-env-hook, GitHub #366).
- *
- * Runtime env-var hook for the SPGMR Krylov subspace dimension `maxl`
- * passed to SUNLinSol_SPGMR at L259. Default-unset / "" / "0" / "5" are
- * bit-identical to the prior SHUD 37be0fe production behavior (SUNDIALS
- * docs: maxl <= 0 collapses to the documented default 5; explicit 5 is
- * the default). Opt-in values {10, 15, 20, 30} flow through to SUNDIALS
- * unchanged + emit a stdout provenance line consumed by the PR-D 60-cell
- * sweep aggregator. Any other value (e.g. "7", "50", "foo", "-1") aborts
- * via myexit(ERRCVODE) BEFORE any SPGMR allocation so an invalid sbatch
- * cell fails fast rather than silently overwriting a baseline artifact.
- *
- * See openspec/changes/p8tune-spgmr-maxl/specs/spgmr-maxl-env-hook/spec.md
- * and design.md §D15 Invariant Matrix for the full contract. */
+/* Runtime env-var hook for the SPGMR Krylov subspace dimension `maxl`
+ * passed to SUNLinSol_SPGMR in create_spgmr_ls(). Unset / "" / "0" / "5"
+ * all give the SUNDIALS default behavior (SUNDIALS docs: maxl <= 0
+ * collapses to the documented default 5; explicit 5 is the default).
+ * Opt-in values {10, 15, 20, 30} flow through to SUNDIALS unchanged.
+ * Every non-zero accepted value (5 included) also emits a stdout
+ * provenance line so a run's log records the maxl it used. Any other
+ * value (e.g. "7", "50", "foo", "-1") aborts via myexit(ERRCVODE)
+ * BEFORE any SPGMR allocation, so a mistyped setting in a batch of
+ * runs fails fast instead of silently running with a different maxl. */
 static int get_spgmr_maxl_from_env(void)
 {
     const char *env = getenv("SHUD_SPGMR_MAXL");
@@ -366,15 +357,14 @@ static int get_spgmr_maxl_from_env(void)
     }
 
     /* "0" is documented-equivalent to unset per SUNDIALS 6.0.0 (maxl <= 0
-     * -> default 5). Preserve silent-default bit-identical contract per
-     * design D15 Invariant Matrix regression rows: unset / "" / "0" all
+     * -> default 5). The default stays silent: unset / "" / "0" all
      * suppress the provenance log line. */
     if (val == 0) {
         return 0;
     }
 
-    /* val in {5, 10, 15, 20, 30}: emit provenance line so the PR-D
-     * aggregator can attribute each cell to its maxl value. */
+    /* val in {5, 10, 15, 20, 30}: emit provenance line so each run's
+     * log can be attributed to its maxl value. */
     fprintf(stdout, "[CVODE] SPGMR maxl=%ld pretype=PREC_NONE\n", val);
     fflush(stdout);
     return (int)val;
@@ -382,11 +372,9 @@ static int get_spgmr_maxl_from_env(void)
 
 static SUNLinearSolver create_spgmr_ls(N_Vector y, SUNContext sunctx)
 {
-    /* Mirror the pre-G0 hardcoded SUNLinSol_SPGMR call at the
-     * previous L324 site EXACTLY (PREC_NONE + maxl from env hook +
-     * sunctx). The variable rename `udata` -> `y` is local to this
-     * function and does not change generated code: SUNLinSol_SPGMR
-     * sees the same N_Vector pointer the caller previously passed. */
+    /* Default solver: unpreconditioned SPGMR (PREC_NONE + maxl from
+     * the env hook + sunctx). Changing these arguments changes the
+     * default model results. */
     SUNLinearSolver LS = SUNLinSol_SPGMR(y, PREC_NONE,
                                          get_spgmr_maxl_from_env(),
                                          sunctx);
@@ -397,7 +385,7 @@ static SUNLinearSolver create_spgmr_ls(N_Vector y, SUNContext sunctx)
 static SUNLinearSolver create_amg_ls(N_Vector y, Model_Data *MD,
                                      SUNContext sunctx)
 {
-    /* G0: hardcoded (interp_type=6, coarsen_type=8). The wrapper
+    /* Hardcoded (interp_type=6, coarsen_type=8). The wrapper
      * constructor rejects other pairs with stderr + NULL return. */
     SUNLinearSolver LS = SUNLinSol_Hypre(y, (void *)MD, 6, 8, sunctx);
     if (LS == NULL) {
@@ -413,16 +401,16 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
 
     int flag;
 
-    /* P8-tune.G0 PR-0 — linsol selection parsed BEFORE CVodeCreate
-     * so the fatal-exit-on-unknown invariant holds (no CVODE state
-     * leaked on the error path). Marker line precedes any CVODE
-     * output for log post-mortem ordering. */
+    /* Linear-solver selection is parsed BEFORE CVodeCreate so that
+     * an unrecognized SHUD_LINSOL value exits with no CVODE state
+     * allocated. The marker line precedes any CVODE output so logs
+     * show the selection first. */
     const linsol_selection sel = parse_linsol_env();
     fprintf(stdout, "[shud] linsol=%s source=%s\n",
             sel.sel_name, sel.source);
     fflush(stdout);
 
-    /* P8-tune.G0 PR-0 — Hypre runtime probe (defense in depth).
+    /* Hypre runtime probe (defense in depth), AMG path only.
      *
      * We attempt dlopen with multiple candidate library names; if any
      * succeeds (i.e., the dynamic loader can find Hypre via the binary
@@ -438,13 +426,12 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
      *   - libHYPRE.so.<N>          (Linux soname; Hypre 3.x = libHYPRE.so.0)
      *   - libHYPRE.301.dylib       (Mac versioned, Hypre 3.1.0 brew)
      *   - libHYPRE-3.1.0.so        (Linux versioned-soname form,
-     *                               e.g. server build under
-     *                               /scratch/.../local/hypre-3.1.0/lib)
+     *                               e.g. a CMake build from source)
      *   - libHYPRE.3.1.0.dylib     (Mac versioned-soname form for
      *                               Hypre 3.1.0 brew install)
      *
      * The versioned-soname entries are required because some installs
-     * (e.g. CMake-built Hypre 3.1.0 on Linux server) emit a directly-
+     * (e.g. CMake-built Hypre 3.1.0 on Linux) emit a directly-
      * loadable `libHYPRE-3.1.0.so` filename WITHOUT a `libHYPRE.so`
      * symlink. Probing only the unversioned names misses such installs
      * even though the binary itself links them via DT_NEEDED.
@@ -454,14 +441,13 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
      * the binary's own NEEDED entry. */
     if (sel.sel == LINSOL_AMG) {
         /* Candidate order: most-common-success first, to minimize the
-         * number of negative dlopen probes on the hot path. The server
-         * canonical install emits libHYPRE-3.1.0.so (CMake-built from
-         * source under /scratch/.../local/hypre-3.1.0/lib), and the Mac
+         * number of negative dlopen probes. A Linux CMake build of
+         * Hypre 3.1.0 from source emits libHYPRE-3.1.0.so, and the Mac
          * brew install emits libHYPRE.301.dylib. Unversioned and
-         * SONAME-0 fallbacks follow for atypical installs. */
+         * SONAME-0 fallbacks follow for other installs. */
         const char *candidates[] = {
-            "libHYPRE-3.1.0.so",       /* Linux Hypre 3.1.0 from-source (server canonical) */
-            "libHYPRE.301.dylib",      /* Mac brew Hypre 3.1.0 (Mac canonical) */
+            "libHYPRE-3.1.0.so",       /* Linux Hypre 3.1.0 built from source */
+            "libHYPRE.301.dylib",      /* Mac brew Hypre 3.1.0 */
             "libHYPRE.so",             /* Linux unversioned */
             "libHYPRE.dylib",          /* Mac unversioned */
             "libHYPRE.so.0",           /* Linux SONAME-0 (Hypre 2.x) */
@@ -510,14 +496,14 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     flag = CVodeInit(cvode_mem, f, MD->CS.StartTime, udata);
     check_flag(&flag, "CVodeInit", 1);
 
-    /* PR-Z1: optional CVODE relative tolerance override for P9 upper-bound
-     * spot check under A5 hydrology acceptance. When SHUD_CVODE_RELTOL is
-     * set to a value in (0, 1), it overrides MD->CS.reltol (parsed from
-     * cfg.para) at the CVodeSStolerances call site below. Pattern mirrors
-     * the SHUD_CVODE_EPSLIN hook (L527-560) — strtod parse with strict
+    /* Optional CVODE relative tolerance override for tolerance
+     * sensitivity experiments. When SHUD_CVODE_RELTOL is set to a
+     * value in (0, 1), it overrides MD->CS.reltol (parsed from
+     * cfg.para) at the CVodeSStolerances call site below. Same pattern
+     * as the SHUD_CVODE_EPSLIN hook below — strtod parse with strict
      * range gate + fatal exit on malformed input + stderr provenance
-     * line. env unset → reltol_effective = MD->CS.reltol → bitwise
-     * default-compat invariant (identical to pre-hook behavior). */
+     * line. env unset → reltol_effective = MD->CS.reltol, i.e. the
+     * cfg.para value is used unchanged. */
     double reltol_effective = MD->CS.reltol;
     {
         const char *env_rel = getenv("SHUD_CVODE_RELTOL");
@@ -536,16 +522,15 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
                 "[shud] PR-Z1 hook: CVODE reltol overridden %.4e -> %.4e\n",
                 MD->CS.reltol, rel);
         }
-        /* env unset → default-compat: uses MD->CS.reltol from cfg.para. */
+        /* env unset → uses MD->CS.reltol from cfg.para. */
     }
 
     flag = CVodeSStolerances(cvode_mem, reltol_effective, MD->CS.abstol);
     check_flag(&flag, "CVodeSStolerances", 1);
 
-    /* Factory dispatch (P8-tune.G0 PR-0). Default path
-     * (LINSOL_SPGMR) invokes create_spgmr_ls which calls
-     * SUNLinSol_SPGMR with byte-identical args to the pre-G0 site
-     * — the G0-1 bit-identical anchor depends on this. */
+    /* Factory dispatch. The default path (LINSOL_SPGMR) invokes
+     * create_spgmr_ls; the AMG path is taken only when
+     * SHUD_LINSOL=amg. */
     LS = (sel.sel == LINSOL_AMG)
        ? create_amg_ls(udata, MD, sunctx)
        : create_spgmr_ls(udata, sunctx);
@@ -553,14 +538,14 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
     flag = CVodeSetLinearSolver(cvode_mem, LS, NULL);
     check_flag(&flag, "CVSpilsSetLinearSolver", 1);
 
-    /* PR-X1: optional CVODE linear convergence safety factor override
-     * for RCA on G0 ncfn=100138 (issue #412 NO-GO). When SHUD_CVODE_EPSLIN
-     * is set to a value in (0, 1), it overrides the SUNDIALS default
-     * (0.05) via CVodeSetEpsLin. Pattern mirrors the existing
-     * SHUD_SPGMR_MAXL hook style (L320-381) — strtod parse with strict
-     * range gate + fatal exit on malformed input + stderr provenance
-     * line. env unset → CVODE's default 0.05 preserved exactly
-     * (bitwise default-compat invariant). */
+    /* Optional CVODE linear convergence safety factor override, for
+     * investigating nonlinear convergence failures (e.g. on the
+     * experimental AMG path). When SHUD_CVODE_EPSLIN is set to a
+     * value in (0, 1), it overrides the SUNDIALS default (0.05) via
+     * CVodeSetEpsLin. Same style as the SHUD_SPGMR_MAXL hook above —
+     * strtod parse with strict range gate + fatal exit on malformed
+     * input + stderr provenance line. env unset → CVodeSetEpsLin is
+     * not called, so CVODE's default 0.05 applies. */
     {
         const char *env_eps = getenv("SHUD_CVODE_EPSLIN");
         if (env_eps != NULL && env_eps[0] != '\0') {
@@ -585,7 +570,7 @@ void SetCVODE(void * &cvode_mem, CVRhsFn f, Model_Data *MD,  N_Vector udata, SUN
                 "[shud] PR-X1 hook: CVodeSetEpsLin(%.4f) applied\n",
                 eps_lin);
         }
-        /* env unset → default-compat: CVODE's default (0.05) preserved. */
+        /* env unset → CVODE's default (0.05) stays in effect. */
     }
 
     flag = CVodeSetMinStep(cvode_mem, 1E-6); //Minimum time interval in cvode.dt = t(i) - t(i - 1);

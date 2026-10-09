@@ -102,7 +102,7 @@ void Model_Data:: f_loop4(double t){
             QrivUp[iDownStrm] += - QrivDown[i];
         }
     }
-//    rhs_deterministic_gather();   // PassValue_legacy retired in S3c.3 (PR-11 #155)
+//    rhs_deterministic_gather();
 }
 void Model_Data:: f_loop5(double t){
 }
@@ -112,7 +112,7 @@ void Model_Data::f_applyDY_gw(double *DY, double t){
     for (int i = 0; i < NumEle; i++) {
         area = Ele[i].area;
         QeleSubTot[i] = Qe2r_Sub[i];
-        /* S5d.2-5a (#179) — flat read via accessor. */
+        /* Flat read via accessor. */
         for (int j = 0; j < 3; j++) {
 //            checkExchangeValue(QeleSub_flat, i, j, Ele[i].nabr[j]-1, Ele[i].nabrToMe[j]-1);
             QeleSubTot[i] += QeleSubAt(i, j);
@@ -160,7 +160,7 @@ void Model_Data::f_applyDYi(double *DY, double t, int flag){
         for (int i = 0; i < NumEle; i++) {
             area = Ele[i].area;
             QeleSurfTot[i] = Qe2r_Surf[i];
-            /* S5d.2-5a (#179) — flat read via accessor. */
+            /* Flat read via accessor. */
             for (int j = 0; j < 3; j++) {
                 QeleSurfTot[i] += QeleSurfAt(i, j);
             }

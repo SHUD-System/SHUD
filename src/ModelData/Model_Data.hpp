@@ -20,10 +20,10 @@
 #include "Flux_RiverElement.hpp"
 #include "Macros.hpp"
 #include "AccTemperature.hpp"
-#include "MD_layout.hpp" /* S5d.1 (#178) — ElementHotData SoA */
+#include "MD_layout.hpp" /* ElementHotData SoA */
 using namespace std;
 
-/* ExecPolicy — S1d.1 (openMP #47).
+/* ExecPolicy
  *
  * Selects the execution backend for `Model_Data::rhs_core(Y, DY, t,
  * policy)`. Defined here (rather than in MD_rhs_core.hpp) because
@@ -32,13 +32,16 @@ using namespace std;
  * lived only there). MD_rhs_core.hpp re-exposes it via its own
  * `#include "Model_Data.hpp"`.
  *
- * Design (per openspec/changes/s1-rhs-core-extraction/design.md D7):
+ * Design:
  *   - plain `enum class` + `switch(policy)` inside `rhs_core`
  *   - NO template specialization, NO virtual dispatch (compile-time-
  *     known policy keeps binary size flat + dispatch predictable)
- *   - S1: Serial = real call chain; StrictOMP / ProductionOMP =
- *     `std::abort()` stubs (NOT `assert(false)` — `-DNDEBUG` strips
- *     assert to a no-op and would let execution fall through silently)
+ *   - Serial = plain call chain; StrictOMP = the same chain inside one
+ *     OpenMP parallel region (only compiled with
+ *     SHUD_ENABLE_OPENMP_RHS); ProductionOMP and any policy that is
+ *     not compiled in call `std::abort()` (NOT `assert(false)` —
+ *     `-DNDEBUG` strips assert to a no-op and would let execution
+ *     fall through silently)
  */
 enum class ExecPolicy { Serial, StrictOMP, ProductionOMP };
 
@@ -87,33 +90,26 @@ public:
     int NumMeltF = 0;        /* Number of Melt Factor Time series */
     int NumRivType = 0;        /* Number of River Shape */
     int NumRivNode = 0;
-    /* S5d.2-5a (#179) — io_riv / io_lake are allocated conditionally
-     * in MD_readin.cpp read_cfgout() (NumRiv>0 / NumLake>0). Initialize
-     * to nullptr so FreeData()'s unconditional `delete[]` is a defined
-     * no-op when the case has no river or no lake. The pre-S5d.2-5a
-     * code relied on undefined behavior (delete[] on an uninitialized
-     * pointer) which ASan flags as SEGV at process exit; this NSDMI
-     * defuses the ASan-visible failure mode while preserving the
-     * source-of-truth allocation site in read_cfgout(). io_ele is
-     * always allocated, but initialize for symmetry. */
+    /* io_riv / io_lake are allocated conditionally in MD_readin.cpp
+     * read_cfgout() (NumRiv>0 / NumLake>0). Initialize to nullptr so
+     * FreeData()'s unconditional `delete[]` is a defined no-op when
+     * the project has no river or no lake (delete[] on an
+     * uninitialized pointer is undefined behavior). io_ele is always
+     * allocated, but initialize for symmetry. */
     int *io_ele = nullptr;
     int *io_riv = nullptr;
     int *io_lake = nullptr; /* Wether Export the data of these elements */
     
-    /* P8-tune.F PR-0 (#386) — Default-init heap pointer members to
-     * nullptr so Model_Data::FreeData()'s unconditional `delete[]` /
-     * `delete` chain is a defined no-op when allocation never ran (e.g.
-     * NumY > 100k OOM in malloc_EleRiv mid-loop; ctor short-circuit on
-     * exception). Symmetric to io_ele/io_riv/io_lake NSDMI defaults
-     * added in S5d.2-5a. The default ctor `Model_Data()` is otherwise
-     * empty (Model_Data.cpp:12-13) leaving these fields with
-     * indeterminate values; the second ctor `Model_Data(FileIn*, FileOut*)`
-     * sets only pf_in/pf_out. Production happy-path allocates these in
-     * malloc_EleRiv()/malloc_Y()/MD_Lake.cpp/MD_readin.cpp;
-     * the nullptr default is invisible to that path (assignment overrides).
-     * Bitwise contract: NSDMI default-init does NOT change the writes
-     * that subsequently land in these pointers, so SHUD output bytes
-     * remain neutral vs B0/B1a/B1b baselines. */
+    /* The heap pointer members below default to nullptr so that
+     * Model_Data::FreeData()'s unconditional `delete[]` / `delete`
+     * chain is a defined no-op when allocation never ran (e.g. out of
+     * memory part-way through malloc_EleRiv; ctor short-circuit on
+     * exception). Neither constructor sets them: the default ctor
+     * `Model_Data()` is empty and `Model_Data(FileIn*, FileOut*)` sets
+     * only pf_in/pf_out. They are allocated in
+     * malloc_EleRiv()/malloc_Y()/MD_Lake.cpp/MD_readin.cpp, where the
+     * assignment overrides the default, so the defaults do not affect
+     * model output. */
     _TimeSeriesData *tsd_weather = nullptr;
     _TimeSeriesData tsd_LAI;
 //    _TimeSeriesData tsd_RL;
@@ -137,8 +133,8 @@ public:
     Control_Data CS;
     
     _Element *Ele = nullptr;        /* Store Element Information */
-    /* S5d.1 (#178) — ElementHotData SoA hot field container. See
-     * MD_layout.hpp + docs/s5d_hot_fields.yaml. Populated by
+    /* ElementHotData SoA hot field container. See
+     * MD_layout.hpp. Populated by
      * initialize_hot() called from initialize() AFTER _Element AoS data
      * is fully loaded. Dynamic fields (u_qi, u_qex, u_effKH, u_satn) are
      * resynced by sync_hot_dynamic(i) after each Ele[i].updateElement /
@@ -167,28 +163,25 @@ public:
     double AccT_surf_min = -3;
     
     double WatershedArea = 0.;
-    // P8-tune.F PR-0 (#394) Phase 6 F9 — `ISFactor` and `windH` (top-level
-    // Model_Data) are dead fields: grep across src/ + tools/ shows zero
-    // assignment / dereference / `delete` occurrences (the live wind-height
-    // data flows through `Ele[i].windH` + `hot.windH`; the live ISFactor
-    // logic is inlined elsewhere). NSDMI nullptr is correct but redundant;
-    // removing per cosmetic cleanup.
+    // `ISFactor` and `windH` (top-level Model_Data) are unused fields:
+    // they are never assigned, dereferenced, allocated or freed (the live
+    // wind-height data flows through `Ele[i].windH` + `hot.windH`), so
+    // they carry no nullptr default.
     double *ISFactor;        /* ISFactor is used to calculate ISMax from LAI */
     double *windH;        /* Height at which wind velocity is measured */
     _Lake *lake = nullptr;
     int NumLake = 0;
     double *QoutSurf = nullptr;
 
-    /* S5d.2-5a (#179) — jagged QeleSurf/QeleSub flattened to one
-     * contiguous row-major `double[NumEle*3]` block per array. Index
-     * convention matches MD_layout.hpp flat-3 idiom: at(i,j) ↔
-     * `_flat[3*i + j]`. Access via inline `QeleSurfAt(i,j)` /
-     * `QeleSubAt(i,j)` accessors below; tools/check_manifest/
-     * check_no_bare_flat_index.py enforces hot-path call sites use the
-     * accessor (no bare `_flat[3*i + j]` indices). PrintCtrl IO path
-     * uses the new flat-overload InitIJ(...double *x_flat, int j, ...)
-     * — the per-column file slices are still 1 column out of 3 with
-     * stride 3 across rows; see Model_Control.cpp. */
+    /* QeleSurf/QeleSub are stored as one contiguous row-major
+     * `double[NumEle*3]` block per array. Index convention matches
+     * the MD_layout.hpp flat-3 idiom: at(i,j) ↔ `_flat[3*i + j]`.
+     * Access via the inline `QeleSurfAt(i,j)` / `QeleSubAt(i,j)`
+     * accessors below; hot-path call sites must use the accessor (no
+     * bare `_flat[3*i + j]` indices). The PrintCtrl IO path uses the
+     * flat overload InitIJ(...double *x_flat, int j, ...) — each
+     * output file is 1 column out of 3 with stride 3 across rows; see
+     * Model_Control.cpp. */
     double *QeleSurf_flat = nullptr; /* Overland Flux — flat NumEle*3 */
     double *QeleSub_flat = nullptr;  /* Subsurface Flux — flat NumEle*3 */
     //double ** FluxRiv;    /* River Segment Flux */
@@ -252,20 +245,20 @@ public:
     double *QLakeRivOut = nullptr;
     double *qLakeEvap = nullptr;
     double *qLakePrcp = nullptr;
-    /* S3b (PR-9): per-edge / per-element scratch slots for shared-write
-     * splitting. Element->Lake surface/sub fluxes write to these slots
+    /* Per-edge scratch slots that avoid shared writes to per-lake
+     * totals. Element->Lake surface/sub fluxes write to these slots
      * (size NumEle*3, indexed i*3+j) instead of the racy `QLakeSurf[ilake] += Q`
-     * pattern; PassValue_legacy() then gathers into QLakeSurf/QLakeSub.
-     * Transitional — PR-11 (S3c) will replace the gather with
-     * rhs_deterministic_gather(). */
+     * pattern; rhs_deterministic_gather() then sums them into
+     * QLakeSurf/QLakeSub in a fixed order. */
     double *QeleSurf_lake = nullptr;
     double *QeleSub_lake = nullptr;
-    /* S3b.4 (PR-9): per-element scratch for lake-cell evap/prcp split
-     * (NumEle sized). Lake-cell elements write the pre-divided per-element
-     * contribution; gather (in rhs_flux / f_loop BEFORE the lake clamp)
-     * sums to per-lake qLakeEvap / qLakePrcp. Cannot live in PassValue_legacy
-     * because the lake clamp reads qLakeEvap/qLakePrcp BEFORE PassValue_legacy
-     * is called. */
+    /* Per-element scratch for lake-cell evap/prcp (NumEle sized).
+     * Lake-cell elements write the pre-divided per-element
+     * contribution; a gather in rhs_flux sums it to per-lake
+     * qLakeEvap / qLakePrcp. That gather cannot be part of
+     * rhs_deterministic_gather() because the lake clamp reads
+     * qLakeEvap/qLakePrcp BEFORE rhs_deterministic_gather() is
+     * called. */
     double *qEleEvapo_lake = nullptr;
     double *qElePrep_lake = nullptr;
 
@@ -294,13 +287,13 @@ public:
     /* Model input/output */
     void loadinput();
     void initialize();
-    /* S5d.1 (#178) — populate ElementHotData SoA static fields from
+    /* Populate ElementHotData SoA static fields from
      * _Element AoS. Called from initialize() AFTER all element AoS
      * fields are loaded and BEFORE any RHS dispatch. Dynamic fields
      * (u_*) are seeded here too but get resynced by sync_hot_dynamic(i)
      * after each writer-method call during the RHS hot path. */
     void initialize_hot();
-    /* S5d.1 (#178) — re-sync the four dynamic SoA fields (u_qi, u_qex,
+    /* Re-sync the four dynamic SoA fields (u_qi, u_qex,
      * u_effKH, u_satn) for element i from _Element AoS. Called after
      * Ele[i].updateElement(...) / updateLakeElement() / Flux_Infiltration() /
      * Flux_Recharge(). Inline so default-build emits no call overhead. */
@@ -310,17 +303,16 @@ public:
         hot.u_effKH[i] = Ele[i].u_effKH;
         hot.u_satn[i]  = Ele[i].u_satn;
     }
-    /* S5d.2-5a (#179) — inline accessors for the flattened
+    /* Inline accessors for the flattened
      * QeleSurf_flat / QeleSub_flat arrays. Index convention is
      * row-major: at(i,j) ↔ `_flat[3*i + j]`, matching the
-     * MD_layout.hpp flat-3 idiom. The CI grep gate
-     * tools/check_manifest/check_no_bare_flat_index.py forbids bare
+     * MD_layout.hpp flat-3 idiom. Do not use bare
      * `*_flat[3*i + j]` indexing in the 4 hot-path TUs
      * (MD_ElementFlux.cpp / MD_f.cpp / MD_f_uncouple.cpp / MD_update.cpp)
      * — every read/write
-     * MUST go through these accessors. Rationale (design D3):
+     * MUST go through these accessors. Rationale:
      * (a) one source for the index expression — index-flip bugs
-     * (3*j+i vs 3*i+j) are caught by a single review of the accessor,
+     * (3*j+i vs 3*i+j) are caught by checking the accessor once,
      * not 20 call sites; (b) future SIMD / NUMA tuning lands in one
      * place; (c) DEBUG bounds-check insertion point. The accessors
      * return references so they are usable on both LHS and RHS of
@@ -348,23 +340,20 @@ public:
     
     void summary(N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_Vector u5);
     void summary(N_Vector u);
-    /* P1e PR-B0 (#323): tout-boundary cache refresh — re-run
+    /* Output-time cache refresh — re-run
      * rhs_update + rhs_flux from Y(udata) so PCtrl-aliased output
      * buffers (QrivDown + siblings) reflect Y(tout) state, not the
      * RHS side-effect cache left by CV_NORMAL internal step at
      * t_internal != tout. Called from shud.cpp MainLoop between
-     * summary(udata) and CS.ExportResults(t). See
-     * docs/p1e/p1e_rivqdown_cache_audit.md + design D5. */
+     * summary(udata) and CS.ExportResults(t). */
     void recompute_for_output(N_Vector udata, double t);
     int ScreenPrint(double t, unsigned long it);
     int ScreenPrintu(double t, unsigned long it);
     /* methods in f function */
-    /* P1d.2.0 PR-C0 (#291): f_loop / f_applyDY / f_update declarations
-     * deleted alongside their bodies in MD_f.cpp / MD_update.cpp.
-     * Live counterparts are rhs_flux / rhs_apply / rhs_update declared
-     * below. Uncouple-path siblings (f_loopET, f_loop1..5, f_applyDY_*,
-     * f_applyDYi, f_updatei) survive — still called from f.cpp's
-     * f_surf/f_unsat/f_gw/f_river/f_lake receivers. */
+    /* The coupled path uses rhs_update / rhs_flux / rhs_apply declared
+     * below. The methods here (f_loopET, f_loop1..5, f_applyDY_*,
+     * f_applyDYi, f_updatei) serve the uncoupled path — called from
+     * f.cpp's f_surf/f_unsat/f_gw/f_river/f_lake receivers. */
     void f_loopET(double t);
     void f_loop1(double t);
     void f_loop2(double t);
@@ -379,24 +368,19 @@ public:
     void f_applyDYi(double * DY, double t, int flag);
     void f_updatei(double * Y, double * DY, double t, int flag);
 
-    /* S1a (openMP #44) — pure carry-over of f_update + S1a dispatch
-     * skeleton. S1b (openMP #45) — pure carry-over of f_loop into
-     * rhs_flux. S1c (openMP #46) — pure carry-over of f_applyDY into
-     * rhs_apply; rhs_core() dispatch is now full new-path
-     * (rhs_update + rhs_flux + rhs_apply, zero legacy fallback).
-     * S1d.1 (openMP #47) — rhs_core gains the `ExecPolicy policy`
-     * fourth parameter and switch-dispatches Serial vs OMP stubs;
-     * the prior three-arg `rhs_core(Y, DY, t)` overload is removed.
-     * See SHUD/src/Model/MD_rhs_core.{cpp,hpp}. */
+    /* Coupled-path RHS: rhs_core() runs rhs_update (state update) ->
+     * rhs_flux (flux computation) -> rhs_apply (DY accumulation),
+     * switch-dispatched on the `ExecPolicy policy` argument.
+     * See src/Model/MD_rhs_core.{cpp,hpp}. */
     void rhs_update(double * Y, double * DY, double t);
     void rhs_flux(double t);
     void rhs_apply(double * DY, double t);
     void rhs_core(double * Y, double * DY, double t, ExecPolicy policy);
-    /* S3c.3 (PR-11 #155): unified deterministic gather called from
-     * rhs_flux at the prior PassValue_legacy() call site. Consumes the 7 S4
-     * adjacency lists (PR-10) to perform segment->river/element +
-     * downstream + lake gathers. Body in MD_rhs_core.cpp per design.md
-     * D12. Retires PassValue_legacy() (deleted in same commit). */
+    /* Unified deterministic gather called from rhs_flux.
+     * Iterates the adjacency lists of MD_adjacency.hpp in their fixed
+     * order to perform the segment->river/element, downstream and lake
+     * sums, so results do not depend on the thread count. Body in
+     * MD_rhs_core.cpp. */
     void rhs_deterministic_gather();
     
 //    void updateWF(double dt);

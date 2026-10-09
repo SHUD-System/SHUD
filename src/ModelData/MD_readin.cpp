@@ -525,10 +525,9 @@ void Model_Data::read_bcLake2(const char *fn){
 }
 void Model_Data::FreeData(){
 
-    /* S5d.2-5a (#179) — symmetric single-block free for the flattened
-     * QeleSurf_flat / QeleSub_flat. Old per-row `delete[] QeleSurf[i]`
-     * nested loop deleted; one `delete[] QeleSurf_flat` releases all
-     * NumEle*3 doubles in a single call. */
+    /* QeleSurf_flat / QeleSub_flat are single contiguous blocks:
+     * one `delete[] QeleSurf_flat` releases all NumEle*3 doubles,
+     * symmetric to the allocation in malloc_EleRiv(). */
 
     delete[]    io_ele;
     delete[]    io_riv;
@@ -542,10 +541,10 @@ void Model_Data::FreeData(){
     
     delete[]    Qe2r_Surf; // 5.1
     delete[]    Qe2r_Sub; // 5.2
-    delete[]    QeleSurf_lake; // S3b (PR-9) per-edge slot
-    delete[]    QeleSub_lake;  // S3b (PR-9) per-edge slot
-    delete[]    qEleEvapo_lake; // S3b.4 (PR-9) per-element slot
-    delete[]    qElePrep_lake;  // S3b.4 (PR-9) per-element slot
+    delete[]    QeleSurf_lake; // per-edge slot
+    delete[]    QeleSub_lake;  // per-edge slot
+    delete[]    qEleEvapo_lake; // per-element slot
+    delete[]    qElePrep_lake;  // per-element slot
     
     delete[]    qElePrep;
     delete[]    qEleTF;
@@ -633,7 +632,7 @@ void Model_Data::FreeData(){
     delete[] Riv_Type;
     delete[] rivNode;
     
-    /* S5d.1 (#178) — ElementHotData SoA delete, symmetric to
+    /* ElementHotData SoA delete, symmetric to
      * Model_Data::malloc_EleRiv() alloc order. Must precede `delete[] Ele`
      * because hot is a struct of pointers (no pointer-into-Ele dependency,
      * but keep clean ordering). */
@@ -684,16 +683,13 @@ void Model_Data::FreeData(){
     /* free forcing data */
     delete[] tsd_weather;
 
-    /* #401 sub-task 1 — pre-existing leak chain closure. These five
-     * pointer members have NSDMI nullptr defaults in Model_Data.hpp
+    /* These five pointer members default to nullptr in Model_Data.hpp
      * and are dynamically allocated by Model_Data::malloc_EleRiv()
      * (AccT_surf/AccT_sub/t_sph) and MD_Lake.cpp::initializeLake()
-     * (lake/y2LakeArea) but were absent from FreeData() before
-     * 2026-06-30. `delete[] nullptr` is a defined no-op, so the
+     * (lake/y2LakeArea). `delete[] nullptr` is a defined no-op, so the
      * unconditional form is safe even when allocation never ran (e.g.
-     * NumLake==0 path). lake[] dtor chain (`_Lake::~_Lake()` +
-     * `LakeBathymetry::~LakeBathymetry()`) added in SHUD 1ab61c0 now
-     * becomes reachable from this delete[]. */
+     * NumLake==0 path). `delete[] lake` also runs the lake[] dtor
+     * chain (`_Lake::~_Lake()` + `LakeBathymetry::~LakeBathymetry()`). */
     delete[] AccT_surf;
     delete[] AccT_sub;
     delete[] lake;

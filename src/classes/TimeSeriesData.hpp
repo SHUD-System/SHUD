@@ -22,10 +22,10 @@ public:
     void    readDimensions();
     void    read_csv();
     void    tsd_interpolation(double t);
-    // S5a (#176): thread-safe read-only after movePointer; zero-order hold; no shared write
+    // thread-safe read-only after movePointer; zero-order hold; no shared write
     double  getX(double t, int column);
     void    applyCalib(double prcp, double temp);
-    // S5a (#176): single-thread mutate; MUST be called outside any RHS parallel region
+    // single-thread mutate; MUST be called outside any RHS parallel region
     void    movePointer(double t);
     void    initialize(int n);
     void    checkValue(int icol, double xmin, double xmax, const char *varname);
@@ -38,7 +38,7 @@ private:
     int eof;
     int iNow, iNext;
     int nQue = 0;
-    // P8-tune.F PR-0 (#394) Phase 6 — brace-init nullptr defaults so the
+    // Brace-init nullptr defaults so the
     // dtor `delete[] ts[i]` loop is safe on partial-init via exception
     // mid-ctor (deleting nullptr is a defined no-op in C++03+).
     double *ts[MAXQUE + 1] = {nullptr};

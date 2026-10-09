@@ -25,27 +25,34 @@ rAnalysis/test.R
 *.*.swp
 *.DS_Store
 
-# SUNDIALS 6.0.0 install staging (per ./configure, B0 baseline lock)
+# SUNDIALS 6.0.0 download and install made by ./configure
 InstallSundials/
 cvode.tar.gz
 cvode-6.0.0/
 shud_omp
 shud_omp.dSYM/
 
-# S5d.2-5a (#179) ASan + UBSan build artifacts.
+# make shud_asan
 shud_asan
 shud_asan.dSYM/
 
-# S1d.1 smoke test build artifacts (openMP #47) — binary + debug bundle.
-# Source file tests/s1d_strictomp_assert_smoke.cpp is checked in.
+# make smoke_strictomp
 tests/s1d_strictomp_smoke
 tests/s1d_strictomp_smoke.dSYM/
 
-# S1d.2 smoke test build artifacts (openMP #49) — Config D OpenMP NVector
-# runtime probe; source file tests/s1d_configd_nvec_smoke.cpp is checked in.
+# make smoke_configd
 tests/s1d_configd_nvec_smoke
 tests/s1d_configd_nvec_smoke.dSYM/
 
-# P8-tune.D KLU spike additive carve-out — libshud.a archive + obj dir
+# make test_adjacency_fallback
+tests/test_adjacency_fallback
+tests/test_adjacency_fallback.dSYM/
+
+# make libshud.a
 /libshud.a
 /_libshud_obj/
+
+# Local notes and editor/tool state, not part of the repository
+docs/
+.obsidian/
+.memsearch/

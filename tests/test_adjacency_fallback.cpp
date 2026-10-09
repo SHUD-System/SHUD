@@ -1,26 +1,23 @@
-/* tests/test_adjacency_fallback.cpp — S4 PR-10 (openMP issue #154).
+/* tests/test_adjacency_fallback.cpp
  *
- * Standalone unit test for the `id != index + 1` fallback path inside
- * `build_adjacency_lists()` (MD_adjacency.cpp).
+ * Standalone unit test for the `index != array_index + 1` fallback path
+ * inside `build_adjacency_lists()` (MD_adjacency.cpp).
  *
- * Purpose: enforce the spec contract (s4-adjacency-topology Scenario
- * "三条 assert 在所有 6 case 都 pass + fallback 单测 PASS") that when
- * the `index == array_index + 1` invariant is violated on any entity
- * type, the build sets `adjacency_fallback_triggered = true` AND falls
- * back to the array-index ordering (rather than id-sort) so the
- * adjacency list output remains equivalent to the array-index-ordered
- * expected output.
+ * Checks that when the `index == array_index + 1` invariant is
+ * violated on any entity type, the build sets
+ * `adjacency_fallback_triggered = true` AND still orders every list by
+ * array index (rather than by id), so the adjacency lists equal the
+ * array-index-ordered expected output.
  *
  * Mock strategy:
  *   - construct a `Model_Data` on the heap (`new`); default ctor body is
- *     empty (Model_Data.cpp:4-5), so all members hold their in-class
- *     default values (no UB)
+ *     empty, so all members hold their in-class default values (no UB)
  *   - manually set NumSegmt / NumRiv / NumEle / NumLake on the mock
  *   - manually allocate RivSeg / Riv / Ele arrays (_River / _Element /
  *     RiverSegement default-construct cleanly because of their in-class
  *     `= NA_VALUE` initializers)
  *   - set `.index` fields with a deliberate offset (`= i + 100`) so the
- *     spec's `index == i + 1` assert fires; for each case also set
+ *     `index == i + 1` check fails; for each entity also set
  *     iRiv / iEle / iLake / down / toLake / nabr / lakenabr so the
  *     adjacency lists have a known expected shape
  *   - call `build_adjacency_lists(mock)`; assert
@@ -32,12 +29,9 @@
  *   - destructor invocation: we DO NOT delete the mock — Model_Data's
  *     destructor calls FreeData() which deletes many unrelated arrays
  *     that we have NOT allocated (would UB on uninitialized pointers).
- *     `exit(0)` on success is the canonical pattern (matches
- *     s1d_strictomp_assert_smoke.cpp child-process path).
+ *     The process ends with `std::_Exit()` instead.
  *
- * Build / run: wired via the `test_adjacency_fallback` Makefile target.
- * CI: `.github/workflows/serial-baseline.yml` calls
- *     `make test_adjacency_fallback && ./tests/test_adjacency_fallback`.
+ * Build and run: `make test_adjacency_fallback`.
  */
 
 #include <cassert>
@@ -196,9 +190,9 @@ bool run_fallback_test(){
     bool ok = build_adjacency_lists(mock);
     ExpectedSnapshot e = canonical_expected();
 
-    /* Spec contract: when any entity violates `index == i + 1`, the
-     * corresponding assert boolean flips to false AND the global
-     * fallback flag is set. */
+    /* When any entity violates `index == i + 1`, the corresponding
+     * assert boolean flips to false AND the global fallback flag is
+     * set. */
     CHECK(adjacency_assert_rivseg_pass == e.rivseg_assert_should_be,
           "adjacency_assert_rivseg_pass mismatch");
     CHECK(adjacency_assert_riv_pass == e.riv_assert_should_be,
@@ -238,7 +232,7 @@ bool run_fallback_test(){
 }  /* anonymous namespace */
 
 int main(){
-    std::printf("=== test_adjacency_fallback (S4 PR-10 #154) ===\n");
+    std::printf("=== test_adjacency_fallback ===\n");
 
     if (!run_fallback_test()){
         std::fprintf(stderr, "FAIL: fallback unit test\n");

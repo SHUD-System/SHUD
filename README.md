@@ -79,7 +79,20 @@ make shud
 
 ```
 
-If you don't use `gcc`, you may edit the *Makefile* before compiling.
+To use another compiler, pass it to make, e.g. `make shud CXX=clang++`.
+
+Besides SUNDIALS, the build links [hypre](https://github.com/hypre-space/hypre), an MPI library and OpenBLAS. They are used by an experimental algebraic-multigrid linear solver that is switched off by default, but the libraries must be present to link. Install them before compiling:
+
+```
+# macOS (Homebrew); the default paths in the Makefile match
+brew install hypre open-mpi openblas
+
+# Ubuntu / Debian
+sudo apt install libhypre-dev libopenmpi-dev libopenblas-dev
+make shud HYPRE_INCDIR=/usr/include/hypre HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu
+```
+
+For other installations set `HYPRE_INCDIR`, `HYPRE_LIBDIR`, `MPI_INCDIR` and `OPENBLAS_LIBDIR` on the `make` command line.
 
 **Step 3: Run the North Fork Cache Creek Watershed example**
 
@@ -96,240 +109,206 @@ The output files from the SHUD model is save in `./output/ccw.out`.  The R packa
 
 ---
 
-## OpenMP parallel build (v1.0.1+)
+## OpenMP parallel build
 
-`make shud_omp` produces a shared-memory OpenMP-parallel binary. Since
-**v1.1.1** the default build is **Config E** (OpenMP NVector element-wise
-ops + SHUD serial reduction overrides, on top of StrictOMP RHS) — it
-parallelizes both the right-hand-side (RHS) evaluation *and* CVODE's
-internal vector operations, yet stays **bitwise-identical to the older
-Config C default at every thread count**. On `heihe_x4` (40,046 elements,
-90-day) the RHS layer alone (Config C) delivers **~1.8× at N=8, ~1.95× at
-N=16**; the default Config E adds the NVector layer for **≈2.62× vs serial
-@N16** (1.41× over Config C), and the opt-in Config E2 reaches **≈3.55× vs
-serial**. Every config is A5 hydrology-acceptance PASS. Full scaling table
-in `RELEASE.md` §Scaling profile; config picker below. To get the older
-Serial-NVector Config C binary, opt out with
-`make shud_omp SHUD_USE_OPENMP_NVECTOR=0`.
+`make shud_omp` builds a shared-memory OpenMP binary. It parallelizes two
+layers of the model:
 
-### Which build do I want? (quick pick)
+- the **right-hand side (RHS)** evaluation — the hydrologic fluxes of every
+  element, river segment and lake;
+- the **vector operations inside CVODE** (the SUNDIALS `N_Vector` layer).
 
-| Your situation | Build this | One-line command |
-|---|---|---|
-| Default — fast **and** bitwise-identical to the Config C reference at any thread count | **Config E** (default, v1.1.1) | `make shud_omp` |
-| Strict minimal-dependency / serial-NVector debug build (no `nvecopenmp` link) | **Config C** (opt-out) | `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` |
-| Want the **fastest** run; OK adopting a new (A5-certified) reference once | **Config E2** (v1.1) | `make shud_omp SHUD_NVEC_DETRED=1` |
+It is **single-node** parallelism: one `shud_omp` process runs N OpenMP
+threads. There is no MPI, so a simulation cannot be spread over several
+compute nodes.
 
-All three are the same physics and the same solver — they differ only in
-which parts of the linear-algebra layer run in parallel and, for E2, the
-(deterministic) order of floating-point summation. Whichever you pick,
-results are **reproducible across thread counts** (run at N=1 today and
-N=16 tomorrow: same output, bit for bit — within that config's lineage).
+Results are **reproducible**: for a given build, the output is bit-for-bit
+the same at every thread count.
 
-Since **v1.1.1** the default `make shud_omp` builds **Config E**, not Config
-C. E is bitwise-identical to Config C at every thread count (so nothing you
-validated against Config C changes) and 1.41× faster @N16 — a pure Pareto
-upgrade. If you specifically need the Serial-NVector Config C binary (e.g.
-a strict minimal-dependency build with no `libsundials_nvecopenmp` link, or
-for NVector-layer debugging), opt out with the single flag
-`make shud_omp SHUD_USE_OPENMP_NVECTOR=0`. Config E2 no longer needs all
-three flags — `SHUD_NVEC_DETRED=1` alone suffices under `make shud_omp`
-because `SHUD_NVEC_HYBRID` now defaults on there.
+### Which build do I want?
 
-### Important: threads are OpenMP threads, not MPI processes
+| Build | Command | What runs in parallel | Output compared with serial-vector build |
+|---|---|---|---|
+| **Default** | `make shud_omp` | RHS + element-wise vector operations | bit-identical |
+| **Fastest** | `make shud_omp SHUD_NVEC_DETRED=1` | RHS + all vector operations, including sums and norms | differs in the last bits (see below) |
+| **Serial vectors** | `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` | RHS only | reference |
+| Serial | `make shud` | nothing | — |
 
-SHUD-OpenMP (v1.0.x and v1.1) is **single-node shared-memory** parallel.
-One `shud_omp` process fork-joins N OpenMP threads inside the RHS (and,
-for Config E/E2, inside CVODE's vector operations). It does **not** use
-MPI and cannot distribute across nodes. Multi-node domain decomposition
-(P10) is deferred; there is currently no path to use two compute nodes
-for one simulation.
+All four solve the same equations with the same solver settings. They differ
+only in which loops are threaded and, for the fastest build, in the order in
+which floating-point sums are accumulated.
+
+**Default build.** Vector sums and norms are kept serial, so the result does
+not depend on the thread count and is bit-identical to the serial-vector
+build. Use it unless you need the last bit of speed.
+
+**Fastest build.** Sums and norms are also threaded, using a fixed summation
+tree (blocks of 4096 entries) that does not depend on the thread count. The
+output is therefore still identical at every thread count, but the summation
+order differs from the other builds, so the output is **not bit-identical to
+them**. On the benchmark below the simulated streamflow agrees with the
+serial-vector build to NSE = 1.0000 and KGE = 0.9999. If you keep reference
+outputs for regression testing, keep a separate reference for this build and
+never compare bit-for-bit across the two.
+
+**Serial-vector build.** Does not link `libsundials_nvecopenmp`. Useful as a
+reference and for debugging the vector layer.
+
+At startup the binary reports which variant it is. Trust this line rather
+than your memory of the build command:
+
+```
+NVEC config: Config E (serial reduction overrides; DETRED=off)                     <- default build
+NVEC config: Config E2 (fixed-tree deterministic reductions; B=4096, Neumaier=0)   <- fastest build
+openMP NVector: OFF (Serial backend)                                               <- serial-vector build
+```
+
+The names in these log lines (Config C = serial-vector build, Config E =
+default, Config E2 = fastest) are the labels used in the development records
+linked at the end of this section.
 
 ### Build
 
 ```bash
-./configure          # downloads SUNDIALS/CVODE 6.0.0
-make shud_omp        # Config E by default (v1.1.1): OpenMP NVec element-wise
-                     #   + serial reduction overrides + StrictOMP RHS
+./configure          # installs SUNDIALS/CVODE 6.0.0 into ./InstallSundials
+make shud_omp
 ```
 
-No compile-time flags required. The default is **Config E** since v1.1.1
-(bitwise-identical to the older Config C default, 1.41×@N16 faster). Verify
-the build got the hybrid NVector path (the Config E startup marker is
-compiled in only when the hybrid overrides are active):
+Requirements in addition to those of `make shud`: an OpenMP runtime (`libgomp`
+with GCC on Linux; `brew install libomp` on macOS).
 
-```bash
-strings shud_omp | grep "NVEC config: Config E"   # >=1 line for Config E/E2
-strings shud_omp | grep SHUD_RHS_THREADS          # >=1 line: StrictOMP RHS present
-```
-
-At run time the binary prints one authoritative
-`NVEC config: Config E (serial reduction overrides; DETRED=off)` line — trust
-that over the compiled-in strings (both the E and E2 format strings are
-present in any hybrid binary; only one branch executes).
-
-### Run — specifying thread count
-
-Three environment-variable channels, priority high→low:
-
-| Variable                  | Effect                                                                                                | Recommendation |
-|---------------------------|-------------------------------------------------------------------------------------------------------|:--:|
-| `SHUD_RHS_THREADS=N`      | Canonical RHS thread knob. SHUD reads this directly and calls `omp_set_num_threads(N)` at startup.    | ✓ set explicitly |
-| `OMP_NUM_THREADS=N`       | Standard OpenMP env. Fallback source for `omp_get_max_threads()` when `SHUD_RHS_THREADS` is unset.    | ✓ set to same N |
-| (neither set)             | `omp_get_max_threads()` uses OpenMP runtime default (typically = logical CPU count). Unpredictable.   | ✗ avoid |
-
-Also set thread pinning — without these the OS scheduler bounces threads
-between cores and inflates wall by 10–20%:
-
-```bash
-export OMP_PROC_BIND=close
-export OMP_PLACES=cores
-```
-
-Full runtime example (heihe_x4, 8 threads):
+### Run
 
 ```bash
 export OMP_NUM_THREADS=8
 export SHUD_RHS_THREADS=8
 export OMP_PROC_BIND=close
 export OMP_PLACES=cores
-./shud_omp heihe_x4
+./shud_omp ccw
 ```
 
-### Thread count guidance (measured on `heihe_x4`, node-exclusive Xeon)
+and set the same thread count in the project file `input/ccw/ccw.cfg.para`:
 
-| Scenario                                | Recommended N | Rationale                                                       |
-|-----------------------------------------|:-------------:|-----------------------------------------------------------------|
-| `heihe_x4` sweet spot (ROI vs wall)     | **N=8**       | sp = 1.80×, efficiency 22.6%                                    |
-| `heihe_x4` shortest wall                | N=16          | sp = 1.95×, but only 8% wall gain over N=8; efficiency drops to 12% |
-| Small cases (`keliya`, 484 elements)    | N=1           | OMP overhead > RHS gain at this size; consider `SHUD_SPGMR_MAXL=30` opt-in instead |
-| Thread count > physical core count      | ✗ don't       | Hyperthreads yield no gain and often regress                    |
-| Cross-node distributed                  | ✗ impossible  | Single-node OpenMP only in v1.0.x                               |
-
-Amdahl parallel fraction on `heihe_x4` is ~0.51, so the theoretical
-speedup ceiling is near 2× regardless of thread count. Adding threads
-beyond N=16 will not exceed this. **v1.1 lifts this ceiling** — the
-Config E/E2 opt-in legs below parallelize the CVODE-internal NVector
-work that constitutes most of that serial remainder.
-
-### Config E / E2 — deterministic hybrid NVector (v1.1+, opt-in)
-
-Two build legs parallelize CVODE's internal vector operations
-(element-wise + reductions ≈ 86% of raw CVODE time at N=16 on
-`heihe_x4`). Since **v1.1.1**, **Config E is the default** `make shud_omp`
-build; Config E2 is one extra flag.
-
-```bash
-# Config E — OpenMP element-wise NVector + serial reduction overrides.
-#            DEFAULT since v1.1.1. BITWISE-IDENTICAL to Config C at every
-#            thread count. (Explicit long form still works and is
-#            equivalent: SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1.)
-make shud_omp
-
-# Config E2 — Config E + fixed-tree deterministic parallel reductions
-#             (block size B=4096 via SHUD_NVEC_DETRED_B). Cross-thread
-#             bitwise BY CONSTRUCTION, but a ONE-TIME summation-order
-#             shift vs C/E => new golden lineage (A5-certified:
-#             nse=1.0000 / kge=0.9999 vs Config C). SHUD_NVEC_HYBRID
-#             now defaults on under shud_omp, so DETRED=1 alone selects E2.
-make shud_omp SHUD_NVEC_DETRED=1
-
-# Config C — Serial-NVector opt-out (strict minimal-dependency / debug).
-make shud_omp SHUD_USE_OPENMP_NVECTOR=0
+```
+NUM_OPENMP	8
 ```
 
-Measured on `heihe_x4` (90-day, node-exclusive Xeon, 3-run medians):
+The example projects in `input/` are small (1,147 to 4,773 elements). They
+show how to run the parallel model; do not expect much speedup from them.
 
-| Config @N16 | wall (s) | vs Config C @N16 | vs serial |
-|---|---:|---:|---:|
-| C (default)  | 694 | 1.00× | 1.86× |
-| E            | 492 | 1.41× | 2.62× |
-| E2           | 363 | **1.915×** | **≈3.55×** |
+**The thread count is set in two places, and they must agree.**
 
-Thread-count knob for E/E2: the NVector thread count comes from the
-**cfg.para `NUM_OPENMP`** field (not `OMP_NUM_THREADS` alone) — set both
-to the same N. Note Config E at cfg N=1 runs a 2-thread NVector floor.
-Determinism contract: E == C bitwise everywhere; E2 is thread-count-
-invariant but order-shifted once — validate E2 against an E2 golden,
-never mix goldens across the C/E ↔ E2 boundary. Authority:
-`docs/adr/0011-*.md` + `docs/p12-nvec/` in the SHUD-OpenMP repo.
+| Setting | Where | Controls |
+|---|---|---|
+| `NUM_OPENMP` | `<project>.cfg.para` | threads of the CVODE vector layer (default and fastest builds). If the line is absent, the OpenMP runtime default is used. The example projects in `input/` ship with `NUM_OPENMP 8`. |
+| `SHUD_RHS_THREADS` | environment | threads of the RHS layer. If unset, the RHS uses `NUM_OPENMP` (default and fastest builds) or `OMP_NUM_THREADS` (serial-vector build). |
+| `OMP_NUM_THREADS` | environment | standard OpenMP fallback; set it to the same N. |
 
-### Slurm single-node example
+Changing only `OMP_NUM_THREADS` therefore does **not** change the number of
+threads of the default build — edit `NUM_OPENMP` as well. Two startup lines
+report the thread counts actually used:
+
+```
+openMP NVector: ON. No of Threads = 8
+P1e startup: SHUD_RHS_THREADS=8 -> omp_set_num_threads(8); omp_get_max_threads=8
+```
+
+`OMP_PROC_BIND` and `OMP_PLACES` pin threads to cores. Without pinning the
+operating system moves threads between cores and wall time rises by 10–20%.
+If `OMP_PROC_BIND` is unset, SHUD prints a `[NUMA]` warning and skips its
+NUMA-aware memory initialization.
+
+### How many threads?
+
+- Use at most the number of **physical** cores. Hyper-threads give no gain,
+  and more threads than cores make the run slower.
+- Small projects (a few hundred elements) do not benefit: the threading
+  overhead exceeds the gain. Use `make shud` or one thread.
+- On a shared node, other jobs compete for memory bandwidth and can take
+  away about 30% of the speedup. Reserve the node if you can
+  (`--exclusive` under Slurm).
+
+Slurm example for one node:
 
 ```bash
 #!/bin/bash
-#SBATCH --job-name=shud-heihe_x4
-#SBATCH --partition=CPU
+#SBATCH --job-name=shud
 #SBATCH --nodes=1
-#SBATCH --exclusive             # critical: no memory-bandwidth sharing
+#SBATCH --exclusive
 #SBATCH --ntasks=1              # one shud_omp process
-#SBATCH --cpus-per-task=8       # give it 8 cores
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8       # must equal NUM_OPENMP in <project>.cfg.para
 #SBATCH --time=00:30:00
-#SBATCH --output=slurm-%j.out
 
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export SHUD_RHS_THREADS=${SLURM_CPUS_PER_TASK}
 export OMP_PROC_BIND=close
 export OMP_PLACES=cores
 
-./shud_omp heihe_x4
+./shud_omp ccw
 ```
 
-`--exclusive` matters: on a shared node another tenant's memory
-bandwidth pressure will silently steal ~30% of the speedup. If you can't
-reserve the node exclusively, expect noisier and lower speedup numbers
-than the scaling table.
+### Measured performance
 
-### Common pitfalls
+Benchmark: a Heihe River basin mesh with 40,046 elements, 90 simulated days,
+on a node-exclusive Intel Xeon Gold 6133. This benchmark project is not part
+of this repository; it is kept in the
+[SHUD-OpenMP](https://github.com/DankerMu/SHUD-OpenMP) development
+repository. Speedup depends strongly on mesh size and hardware, so treat
+these numbers as an indication only.
 
-- **"Set `OMP_NUM_THREADS=16` but wall time didn't change"** — most likely
-  the binary was built with an old default. Pre-v1.0.1 `shud_omp` was
-  Config B (no StrictOMP RHS); pre-v1.1.1 it was Config C (Serial NVector,
-  RHS-only parallelism). Check what you have:
-  `strings shud_omp | grep SHUD_RHS_THREADS` (empty ⇒ pre-v1.0.1, no
-  StrictOMP RHS) and `strings shud_omp | grep "NVEC config: Config E"`
-  (empty ⇒ Config C or older, NVector layer still serial — v1.1.1 default
-  should show it). If either is missing and you want the current default,
-  rebuild: `make clean && make shud_omp`.
-- **"Two nodes together should be faster"** — no. Each node runs an
-  independent job. There is no MPI in v1.0.x.
-- **`OMP_NUM_THREADS=64` on a 40-core node** — oversubscription. Threads
-  contend for cores and wall regresses. Cap at physical core count.
-- **Shared-tenant node** — memory bandwidth is a limited resource that
-  Amdahl-bound OpenMP workloads spend heavily. Use `--exclusive` or an
-  idle node.
-- **"Config E/E2 ignores `OMP_NUM_THREADS`"** (v1.1) — the NVector thread
-  count is read from the **cfg.para `NUM_OPENMP`** field at project load,
-  not from the environment alone. Set `NUM_OPENMP` *and*
-  `OMP_NUM_THREADS` to the same N (see §Config E / E2). A startup log
-  line prints the effective thread count — trust that line.
-- **"E2 output differs from my old golden"** (v1.1) — expected, once.
-  Config E2 changes the (deterministic) summation order, so it is not
-  bit-equal to Config C/E history; it was re-baselined and A5-certified
-  (NSE=1.0000 / KGE=0.9999 vs Config C). Validate E2 runs against an
-  E2-lineage golden; never diff goldens across the C/E ↔ E2 boundary.
-  Config E needs no such care — it is bit-equal to Config C everywhere.
+Wall time by build (median of 3 runs):
 
-### Reproducing the P1e A/B/D research configurations
+| Build | 8 threads | 16 threads | 16 threads vs serial-vector build | 16 threads vs serial |
+|---|---:|---:|---:|---:|
+| Serial vectors | 724 s | 694 s | 1.00× | ≈ 1.9× |
+| Default        | 553 s | 492 s | 1.41× | ≈ 2.6× |
+| Fastest        | 432 s | 363 s | 1.92× | ≈ 3.6× |
 
-For ADR-0002 A/B/D reproducibility (not for production use):
+Scaling of the serial-vector build with thread count (a separate set of
+runs):
 
-```bash
-make shud                                     # Config A (canonical serial reference)
-make shud_omp SHUD_ENABLE_OPENMP_RHS=0        # Config A/B (serial RHS via shud_omp target)
-# Config D (OpenMP NVec WITHOUT hybrid overrides — REFUTED, nondeterministic).
-# Since v1.1.1, SHUD_USE_OPENMP_NVECTOR=1 alone builds Config E (HYBRID
-# defaults on under shud_omp), so Config D must be requested explicitly and
-# is gated behind SHUD_ALLOW_CONFIG_D=1 (build-only smoke; do not run for
-# results):
-make shud_omp SHUD_NVEC_HYBRID=0 SHUD_ALLOW_CONFIG_D=1   # Config D (research/smoke only)
-make shud SHUD_ENABLE_OPENMP_RHS=1            # Config C via shud target (Serial NVec + StrictOMP RHS)
-make shud_omp SHUD_USE_OPENMP_NVECTOR=0       # Config C via shud_omp target (v1.1.1 opt-out)
-```
+| Threads | Wall time | Speedup |
+|---:|---:|---:|
+| 1  | 1317 s | 1.00× |
+| 2  |  973 s | 1.35× |
+| 4  |  824 s | 1.60× |
+| 8  |  730 s | 1.80× |
+| 16 |  677 s | 1.95× |
 
-See `RELEASE.md` and `docs/p1e/p1e_academic_summary.md` in the outer
-repo for the configuration matrix and evidence.
+With only the RHS threaded, about half of the run time stays serial, which
+limits the speedup to about 2× whatever the thread count. Most of that
+serial remainder is CVODE's vector work; threading it is what the default
+and fastest builds add.
 
+### Common problems
 
+- **Changing `OMP_NUM_THREADS` has no effect.** The vector layer takes its
+  thread count from `NUM_OPENMP` in `<project>.cfg.para`. Set both, and
+  check the startup lines shown above.
+- **The run is not faster than `./shud`.** Check that you are running
+  `./shud_omp`, that the startup log shows `openMP NVector: ON` and the
+  expected thread counts, and that the project is large enough to benefit.
+- **The output of the fastest build differs from an older reference.**
+  Expected: see "Which build do I want?".
+- **`make shud_omp SHUD_NVEC_HYBRID=0` stops with an error.** That
+  combination threads the vector sums without fixing their order, so the
+  output changes with the thread count. It is blocked on purpose. Use
+  `SHUD_USE_OPENMP_NVECTOR=0` for the serial-vector build.
+- **Two nodes are not faster than one.** There is no MPI; each node can only
+  run an independent simulation.
 
+### Further reading
+
+- [`OpenMP_NVector_Determinism.md`](OpenMP_NVector_Determinism.md)
+  — how the default build stays bit-identical to the serial-vector build,
+  and the compiler-dependent assumption this relies on. Read it before
+  changing compilers, compiler flags or the SUNDIALS version.
+- [`VersionUpdate.md`](VersionUpdate.md) — every build option and
+  environment variable added with this work.
+- The parallel code was developed in
+  [SHUD-OpenMP](https://github.com/DankerMu/SHUD-OpenMP), which holds the
+  benchmark projects, validation tools and decision records. Start with its
+  [release notes](https://github.com/DankerMu/SHUD-OpenMP/blob/cpu-accel-v1.1.1/RELEASE.md)
+  and, for the vector layer, the
+  [design decision](https://github.com/DankerMu/SHUD-OpenMP/blob/cpu-accel-v1.1.1/docs/adr/0011-p12-nvec-tier1-verdict-and-tier2-gate.md).
+  The corresponding tag in this repository is `cpu-accel-v1.1.1`.

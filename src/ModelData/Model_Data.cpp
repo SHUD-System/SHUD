@@ -1,12 +1,12 @@
 #include "Model_Data.hpp"
 #include "is_sm_et.hpp"
-#include <cassert> /* S5d.1 (#178) — DEBUG asserts in initialize_hot() */
-#include <cstdio>  /* S5d.3 (#181) — printf for [NUMA] first-touch tokens */
+#include <cassert> /* DEBUG asserts in initialize_hot() */
+#include <cstdio>  /* printf for [NUMA] first-touch tokens */
 
-/* S5d.3 (#181) — NUMA first-touch gate set in shud.cpp emit_numa_token()
+/* NUMA first-touch gate set in shud.cpp emit_numa_token()
  * at SHUD() entry. Read here in malloc_EleRiv() to decide whether to
  * run parallel first-touch loops (1) or skip them (0; OMP_PROC_BIND
- * unset — design R3 mitigation #2). */
+ * unset). */
 extern int g_numa_first_touch_enabled;
 
 Model_Data::Model_Data(){
@@ -20,10 +20,9 @@ Model_Data::~Model_Data(){
     FreeData();
 }
 void Model_Data::TimeSpent(){
-    /* S1d.2 (openMP #48) — `omp_get_wtime` is the OpenMP wall-clock
+    /* `omp_get_wtime` is the OpenMP wall-clock
      * API; available iff `-fopenmp` was passed (which auto-defines
-     * `_OPENMP`). Migrated from the retired legacy macro.
-     * Independent of the SHUD-level feature switches. */
+     * `_OPENMP`). Independent of the SHUD-level feature switches. */
 #ifdef _OPENMP
     double toc = omp_get_wtime();
     double dt = toc - tic;
@@ -57,7 +56,7 @@ void Model_Data::modelSummary(int end){
     screeninfo("\tModel total number of steps(minimum): %d \n", CS.NumSteps);
     sprintf(str,"\tSize of model: \tNcell = %d \tNriver = %d\t NSeg = %d", NumEle, NumRiv, NumSegmt);
     screeninfo(str);
-    /* S1d.2 (openMP #48) — same migration as TimeSpent() above. */
+    /* Keyed on `_OPENMP`, same as TimeSpent() above. */
 #ifdef _OPENMP
     screeninfo("\n\n\tOpenMP enable. No of threads = %d\n", CS.num_threads);
     screeninfo("\n========================================================\n");
@@ -90,14 +89,11 @@ void Model_Data::malloc_Y(){
 void Model_Data::malloc_EleRiv(){
     
     /* allocate memory storage to flux terms */
-    /* S5d.2-5a (#179) — jagged QeleSurf/QeleSub flattened to one
-     * contiguous row-major `double[NumEle*3]` block per array. The
-     * historical nested-allocation pattern
-     *   QeleSurf = new double *[NumEle];
-     *   for(i=0;i<NumEle;++i) QeleSurf[i] = new double[3];
-     * (NumEle+1 separate allocations, one indirection on every access,
-     *  unpredictable cache layout on the inner row) is replaced by ONE
-     * `new double[NumEle*3]` per array. Access is via QeleSurfAt(i,j) /
+    /* QeleSurf/QeleSub are one contiguous row-major
+     * `double[NumEle*3]` block per array, not a jagged
+     * `double *[NumEle]` of 3-element rows: that would cost NumEle+1
+     * separate allocations, one indirection on every access and an
+     * unpredictable cache layout. Access is via QeleSurfAt(i,j) /
      * QeleSubAt(i,j) inline accessors (Model_Data.hpp). Symmetric
      * single delete[] in MD_readin.cpp Model_Data::FreeData(). */
     QeleSurf_flat = new double[NumEle * 3];
@@ -108,14 +104,15 @@ void Model_Data::malloc_EleRiv(){
     
     Qe2r_Surf = new double[NumEle]; //5.1
     Qe2r_Sub  = new double[NumEle]; // 5.2
-    /* S3b (PR-9): per-edge slots used only when lakeon. Always allocate
-     * (NumEle-sized; cheap) so non-lake builds need no conditional
-     * cleanup. Touched only inside the lake branches of fun_Ele_surface
-     * / fun_Ele_sub and gathered in PassValue_legacy. */
+    /* Per-edge slots used only when lakeon. Always allocate
+     * (NumEle*3-sized; cheap) so projects without lakes need no
+     * conditional cleanup. Written only inside the lake branches of
+     * fun_Ele_surface / fun_Ele_sub and summed in
+     * rhs_deterministic_gather(). */
     QeleSurf_lake = new double[NumEle * 3];
     QeleSub_lake  = new double[NumEle * 3];
-    qEleEvapo_lake = new double[NumEle]; // S3b.4 (PR-9)
-    qElePrep_lake  = new double[NumEle]; // S3b.4 (PR-9)
+    qEleEvapo_lake = new double[NumEle]; // per-element lake-cell slot
+    qElePrep_lake  = new double[NumEle]; // per-element lake-cell slot
 
     qEleE_IC      = new double[NumEle];
     qEleEvapo      = new double[NumEle];
@@ -175,10 +172,8 @@ void Model_Data::malloc_EleRiv(){
         uYriv = new double[NumRiv];  // 35.1
     }
     
-    /* S5d.2-5a (#179) — old nested `new double[3]` loop deleted; the
-     * single contiguous `new double[NumEle*3]` for QeleSurf_flat /
-     * QeleSub_flat (above) replaces it. Future S5d.3 first-touch will
-     * insert a parallel zero-init loop here. */
+    /* QeleSurf_flat / QeleSub_flat need no per-row allocation here:
+     * each is the single contiguous `new double[NumEle*3]` above. */
 
 
     t_prcp  = new double[NumEle];  //
@@ -192,8 +187,8 @@ void Model_Data::malloc_EleRiv(){
     t_mf    = new double[NumEle];  //
 //    t_hc    = new double[NumEle];  //
 
-    /* S5d.1 (#178) — ElementHotData SoA allocation. Sized NumEle (or
-     * NumEle*3 for flat-3 arrays). Layout mirrors docs/s5d_hot_fields.yaml.
+    /* ElementHotData SoA allocation. Sized NumEle (or
+     * NumEle*3 for flat-3 arrays). Layout mirrors MD_layout.hpp.
      * NumEle is read at this call site; if NumEle changes after this
      * call, hot must be reallocated (no such code path exists today).
      * Free in symmetric order at MD_readin.cpp Model_Data::FreeData(). */
@@ -230,24 +225,22 @@ void Model_Data::malloc_EleRiv(){
     hot.Rough           = new double[NumEle];
     hot.ImpAF           = new double[NumEle];
 
-    /* S5d.3 (#181) — parallel first-touch initialization. THREE entry
-     * points per master plan §S5d.3 L1411-L1413 + design D4:
+    /* Parallel first-touch initialization, so that on NUMA machines
+     * each page is placed near the thread that will use it. THREE
+     * entry points:
      *   (1) hot.* SoA fields                       (this block, below)
      *   (2) QeleSurf_flat / QeleSub_flat etc.      (next block)
-     *   (3) _Element AoS Ele[] placement-new touch (last block)
+     *   (3) _Element AoS Ele[] touch               (last block)
      * Each is gated by g_numa_first_touch_enabled — when OMP_PROC_BIND
      * is unset at SHUD() entry the gate stays 0 and ALL three blocks
-     * fall through to the serial path so the binary is byte-identical
-     * to the pre-#181 baseline (spec L79-81 + L83-85 scenario).
+     * are skipped, so the run behaves exactly as without first-touch.
      *
      * Writes are zero-init (and assignment-back for AoS in entry 3) so
      * downstream consumers (initialize_hot, LoadIC, RHS) see the same
-     * memory state as before. The "[NUMA] first-touch begin tag=<arr>"
-     * stdout tokens are emitted unconditionally per site so the log
-     * trace is uniform whether the gate is on or off — when off, the
-     * tag line is followed by `(skipped: OMP_PROC_BIND unset)` so
-     * `grep '[NUMA] first-touch begin'` still finds NO touch lines per
-     * spec L79-81. */
+     * memory state either way. A "[NUMA] first-touch begin tag=<arr>"
+     * stdout line is printed per site when the gate is on; when it is
+     * off a single "[NUMA] first-touch skipped" line is printed
+     * instead, so `grep '[NUMA] first-touch begin'` finds nothing. */
     if (g_numa_first_touch_enabled) {
         /* Entry (1): hot.* SoA arrays. Mirrors the field roster declared
          * above so every owned array gets a touch. NumEle-sized arrays
@@ -316,12 +309,11 @@ void Model_Data::malloc_EleRiv(){
             qElePrep_lake[i]  = 0.0;
         }
 
-        /* Entry (3): _Element AoS placement-new touch. `Ele = new
-         * _Element[NumEle]` was executed earlier in MD_readin.cpp:208
-         * during loadinput(); here we walk the same NumEle slots so
-         * each _Element's memory page is faulted in on the consumer
-         * thread per master plan §S5d.3 L1412 ("placement-new 之后
-         * 用 parallel 循环 touch 一次"). The touch is a self-assignment
+        /* Entry (3): _Element AoS touch. `Ele = new
+         * _Element[NumEle]` was executed earlier in MD_readin.cpp
+         * during loadinput(); here we walk the same NumEle slots once
+         * in a parallel loop so each _Element's memory page is touched
+         * by the consumer thread. The touch is a self-assignment
          * of one stable scalar field (`Ele[i].index` was already set
          * during readin and is read-back-write here), which only
          * exercises the page without changing any value.
@@ -335,11 +327,10 @@ void Model_Data::malloc_EleRiv(){
             Ele[i].index = tmp;
         }
     } else {
-        /* Per acceptance criterion (PR-9 message + spec L79-81): when
-         * OMP_PROC_BIND is unset the log MUST NOT contain ANY
+        /* When OMP_PROC_BIND is unset the log MUST NOT contain ANY
          * "[NUMA] first-touch begin" line so a grep of that exact
-         * pattern reports zero hits. We still emit a single audit-
-         * trail line per malloc_EleRiv invocation, but it uses the
+         * pattern reports zero hits. We still emit a single
+         * line per malloc_EleRiv invocation, but it uses the
          * distinct "first-touch skipped" verb so the grep stays clean. */
         printf("[NUMA] first-touch skipped: OMP_PROC_BIND unset (3 sites: hot.soa, QeleSurf_flat, Ele_AoS)\n");
         fflush(stdout);
@@ -347,7 +338,7 @@ void Model_Data::malloc_EleRiv(){
 }
 
 void Model_Data::initialize_hot() {
-    /* S5d.1 (#178) — populate ElementHotData SoA from _Element AoS.
+    /* Populate ElementHotData SoA from _Element AoS.
      * Bitwise contract: every SoA value matches the AoS source EXACTLY
      * (assignment-only; no rounding or cast loss). Called from
      * Model_Data::initialize() AFTER element AoS load is complete and
@@ -392,9 +383,9 @@ void Model_Data::initialize_hot() {
         hot.ImpAF[i]          = Ele[i].ImpAF;
 
 #ifdef DEBUG
-        /* S5d.1 (#178) — sample assertion to catch SoA-vs-AoS drift on
-         * DEBUG builds. Spec: scenario "DEBUG 一致性 assertion 通过".
-         * Sampling = full sweep across all elements (cheap; DEBUG only). */
+        /* Consistency assertions to catch SoA-vs-AoS drift on DEBUG
+         * builds. A sample of fields is checked, across all elements
+         * (cheap; DEBUG only). */
         assert(hot.area[i]    == Ele[i].area);
         assert(hot.u_effKH[i] == Ele[i].u_effKH);
         assert(hot.iLake[i]   == Ele[i].iLake);

@@ -137,9 +137,8 @@ public:
     char Calib_bak[MAXLEN];
     
     //Time steps
-    /* #401 sub-task 1 — NSDMI nullptr default. fid_time is opened by
-     * fopen() in updateFilePath() (IO.cpp L187) and was previously
-     * uninitialized + never closed. The dtor (added 2026-06-30) closes
+    /* nullptr default. fid_time is opened by fopen() in
+     * updateFilePath() (IO.cpp). The dtor closes
      * it under nullptr guard so unallocated FileOut instances are safe
      * and successfully-opened streams release their underlying FD. */
     FILE *fid_time = nullptr;
@@ -151,9 +150,8 @@ public:
     char obs_sim[MAXLEN];
     
     FileOut();
-    /* #401 sub-task 1 — close fid_time FILE* opened by updateFilePath().
-     * Pre-2026-06-30 the underlying stream + FD were leaked at process
-     * exit. Idempotent under nullptr guard. */
+    /* Closes the fid_time FILE* opened by updateFilePath() so the
+     * stream + FD are not leaked. Idempotent under nullptr guard. */
     ~FileOut();
     void setsuffix(const char *s);
     void setOutFilePath( char *outpath, char * prjname);

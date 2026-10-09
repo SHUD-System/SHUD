@@ -2,37 +2,33 @@
 #ifdef SHUD_ENABLE_PROFILE
 #include "timer.h"
 #endif
-/* S2 capstone (PR-8): MD_rhs_core.hpp is the only serial dispatch path;
- * the prior legacy-vs-rhs_core fork has been retired. */
+/* MD_rhs_core.hpp declares the coupled RHS (rhs_core) that f()
+ * dispatches to. */
 #include "MD_rhs_core.hpp"
 int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
-    /* S0-10 / openMP #14 — t_RHS_total wraps the entire outer RHS
-     * callback: vector unwrap + sub-call dispatch + nFCall accounting +
-     * (debug-only) DY snapshot. The inner t_RHS_kernel timer below
-     * scopes ONLY the three flux-computation sub-calls (update / loop /
-     * applyDY), so kernel ≤ total; the difference is "outer overhead"
-     * (NV_DATA dereference, counter bump, etc.). Both #ifdef-guarded so
-     * PROFILE=0 builds are bitwise-equivalent to the un-instrumented
-     * baseline (timer.h header-only no-ops, but the RAII object would
-     * still emit an extra ctor/dtor frame at -O0 — guards keep the
-     * release build clean too). */
+    /* t_RHS_total wraps the entire RHS callback: vector unwrap +
+     * rhs_core dispatch + nFCall accounting + (debug-only) DY
+     * snapshot. The inner t_RHS_kernel timer below scopes ONLY the
+     * rhs_core call (update / flux / apply), so kernel ≤ total; the
+     * difference is callback overhead (array-pointer lookup, counter
+     * bump, etc.). Both are #ifdef-guarded so that builds without
+     * SHUD_ENABLE_PROFILE contain no timer code at all (not even an
+     * empty RAII ctor/dtor frame at -O0). */
     shud_profile::Timer _t_rhs_total("t_RHS_total");
 #endif
     double       *Y, *DY;
     Model_Data      * MD;
     MD = (Model_Data *) DS;
     timeNow = t;
-    /* S1d.2 (openMP #48) — generic N_Vector data accessor. SUNDIALS 6
-     * `N_VGetArrayPointer` dispatches on the N_Vector's ops table at
-     * runtime, so the same source compiles + works against
-     * nvector_serial OR nvector_openmp backends (selected by
-     * SHUD_USE_OPENMP_NVECTOR via the N_VNew_* dispatch in shud.cpp).
-     * The 6 prior backend-specific data-accessor blocks (f / f_surf /
-     * f_unsat / f_gw / f_river / f_lake) have all been collapsed to
-     * this generic form. See design.md D5 (N_VGetArrayPointer
-     * rationale — generic ops-table dispatch, not the type-specific
-     * NV_Ith). */
+    /* Generic N_Vector data accessor. SUNDIALS `N_VGetArrayPointer`
+     * dispatches on the N_Vector's ops table at runtime, so the same
+     * source compiles + works against nvector_serial OR
+     * nvector_openmp backends (selected by SHUD_USE_OPENMP_NVECTOR
+     * via the N_VNew_* dispatch in shud.cpp). All six RHS callbacks
+     * in this file (f / f_surf / f_unsat / f_gw / f_river / f_lake)
+     * use this form; do not use the type-specific NV_Ith_* / NV_DATA_*
+     * macros, which are only valid for one backend. */
     Y = N_VGetArrayPointer(CV_Y);
     DY = N_VGetArrayPointer(CV_Ydot);
     /* Debug Code
@@ -46,30 +42,24 @@ int f(double t, N_Vector CV_Y, N_Vector CV_Ydot, void *DS){
 #ifdef SHUD_ENABLE_PROFILE
         shud_profile::Timer _t_rhs_kernel("t_RHS_kernel");
 #endif
-        /* S2 capstone (PR-8): f() routes to rhs_core; the legacy `_omp`
-         * RHS receivers (MD_f_omp.cpp) and the legacy/rhs_core fork have
-         * been retired. PURE CARRY-OVER `rhs_update/rhs_flux/rhs_apply`
-         * are byte-for-byte copies of `f_update/f_loop/f_applyDY`.
-         *
-         * P1e PR-F (#314): policy selection is now build-flag gated.
-         *   - SHUD_ENABLE_OPENMP_RHS=0 (default, mode A/B): ExecPolicy::Serial
-         *     keeps the post-S2 behavior unchanged
-         *   - SHUD_ENABLE_OPENMP_RHS=1 (mode C/D): ExecPolicy::StrictOMP
-         *     dispatches to the design D2 single-region OpenMP impl in
-         *     MD_rhs_core.cpp (3 phases with implicit barriers; cross-N
-         *     parallel activation depends on PR-G's -fopenmp wiring per
-         *     tasks 3.5/3.6) */
+        /* f() routes to rhs_core (rhs_update -> rhs_flux -> rhs_apply).
+         * The execution policy is selected by a build flag:
+         *   - SHUD_ENABLE_OPENMP_RHS=0 (default for `make shud`):
+         *     ExecPolicy::Serial.
+         *   - SHUD_ENABLE_OPENMP_RHS=1 (default for `make shud_omp`):
+         *     ExecPolicy::StrictOMP, the single-region OpenMP
+         *     implementation in MD_rhs_core.cpp (3 phases with implicit
+         *     barriers; the Makefile adds -fopenmp for this setting). */
 #ifdef SHUD_ENABLE_OPENMP_RHS
         MD->rhs_core(Y, DY, t, ExecPolicy::StrictOMP);
 #else
         MD->rhs_core(Y, DY, t, ExecPolicy::Serial);
 #endif
     }
-    /* S5c-C (#175): nFCall is SHUD's RHS kernel entry counter (Model_Data.hpp L58,
-     * NOT L60-64 alt counters). Free-running; emitted to nfcall.txt separately from
-     * CVODE 15-key snapshot per design.md D10. nFCall != nfe is allowed (no upper
-     * threshold), but B1b_CHANGELOG.md S5c section SHALL carry one line per case
-     * documenting the diff. */
+    /* nFCall is SHUD's entry counter for the coupled RHS (the nFCall1..5
+     * counters belong to the uncoupled callbacks below). Free-running; it is
+     * written to nfcall.txt, separately from the CVODE statistics, and may
+     * legitimately differ from CVODE's own nfe count. */
     MD->nFCall++;
 #ifdef DEBUG
     printDY(MD->file_debug, DY, MD->NumY, t);

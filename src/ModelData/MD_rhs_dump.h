@@ -1,19 +1,21 @@
 /* MD_rhs_dump.h — RHS snapshot dump hook target.
  *
- * Hook insertion (S0-6, openmp issue #8): MD_f.cpp / MD_update.cpp.
- * Writer impl (S0-7, openmp issue #9): MD_rhs_dump.cpp.
+ * Debugging aid: dumps an array from inside the RHS at chosen model
+ * times so two builds or runs can be compared. Compiled in with
+ * `make ... SHUD_DUMP_RHS=1`; off by default.
+ * Call sites: the RHS functions in MD_rhs_core.cpp.
+ * Writer impl: MD_rhs_dump.cpp.
  *
- * Header is unconditionally guarded so includes from MD_f.cpp /
- * MD_update.cpp are safe regardless of SHUD_DUMP_RHS state; the
- * call sites themselves are #ifdef SHUD_DUMP_RHS-guarded so
- * DUMP=0 builds emit zero added code.
+ * Header is unconditionally guarded so it can be included
+ * regardless of SHUD_DUMP_RHS state; the call sites themselves are
+ * #ifdef SHUD_DUMP_RHS-guarded so builds without it emit zero added
+ * code.
  *
- * Format version + magic MUST stay equal to the outer-repo
- *   tools/rhs_snapshot/format.h
- * The outer repo header is authoritative; this copy is a sister
- * kept in sync (S0-9 build check enforces).
+ * Format version + magic identify the file layout below to external
+ * readers of the snapshot files; change the version whenever the
+ * layout changes.
  *
- * Layout (must match tools/rhs_snapshot/format.h v1):
+ * Layout (format version 1):
  *   FileHeader   (40 B packed)  : magic[4] + version + case_id[32]
  *   RecordHeader (12 B packed)  : t_value (double) + array_count
  *   Array entries: uint32 name_len + name + uint64 nelem + double[nelem]
@@ -46,9 +48,9 @@ struct ShudSnapshotRecordHeader {
 #pragma pack(pop)
 
 static_assert(sizeof(ShudSnapshotFileHeader)   == 40,
-              "ShudSnapshotFileHeader must be exactly 40 bytes; struct layout drifted vs outer repo");
+              "ShudSnapshotFileHeader must be exactly 40 bytes; struct layout changed");
 static_assert(sizeof(ShudSnapshotRecordHeader) == 12,
-              "ShudSnapshotRecordHeader must be exactly 12 bytes; struct layout drifted vs outer repo");
+              "ShudSnapshotRecordHeader must be exactly 12 bytes; struct layout changed");
 
 /* Record one RHS snapshot point.
  *
@@ -68,12 +70,13 @@ static_assert(sizeof(ShudSnapshotRecordHeader) == 12,
  *   SHUD_DUMP_SITE          default "f_update"
  *   SHUD_DUMP_FNAME_SUFFIX  default "" (empty); when non-empty filename
  *                           becomes snapshot_t<v>_<suffix>.bin instead of
- *                           snapshot_t<v>.bin. Used by #43 before-PassValue_legacy
- *                           probe to coexist with existing f_update goldens
- *                           in same output dir without collision. Suffix
+ *                           snapshot_t<v>.bin. Lets snapshots from two
+ *                           sites (e.g. f_loop_before_passvalue and
+ *                           f_update) share an output dir without
+ *                           collision. Suffix
  *                           MUST NOT contain '/' or '\\' (path traversal
  *                           guard, checked first), and max length is 64
- *                           chars (F5 length cap, checked second); rejected
+ *                           chars (length cap, checked second); rejected
  *                           suffixes disable the dump and emit a stderr
  *                           diagnostic.
  */

@@ -1,20 +1,20 @@
 #ifndef MD_LAYOUT_HPP
 #define MD_LAYOUT_HPP
-/* MD_layout.hpp — S5d.1 (#178) ElementHotData SoA container.
+/* MD_layout.hpp — ElementHotData structure-of-arrays (SoA) container.
  *
- * Purpose: extract _Element multi-inheritance fat-AoS hot fields (master
- * plan §4.22.1) into a separate contiguous SoA container so RHS hot path
- * loads stay cache-friendly. Field set is THE SINGLE SOURCE OF TRUTH at
- * docs/s5d_hot_fields.yaml — any drift between yaml and this header MUST
- * be caught by the CI grep gate (tools/check_manifest/check_hot_fields.py)
- * and the DEBUG assert path in Model_Data::initialize_hot().
+ * Purpose: copy the hot fields of the multi-inheritance, fat
+ * array-of-structures (AoS) _Element into a separate contiguous SoA
+ * container so RHS hot path loads stay cache-friendly. This header is
+ * the definitive list of hot fields; malloc_EleRiv(), initialize_hot()
+ * and FreeData() must be kept in step with it. DEBUG builds check the
+ * copied values in Model_Data::initialize_hot().
  *
- * Field selection method (audit):
+ * Field selection method:
  *   The roster is the set of distinct field names accessed via
  *   `Ele[<expr>].<field>` in the three RHS hot-path TUs
- *     SHUD/src/ModelData/MD_ElementFlux.cpp
- *     SHUD/src/ModelData/MD_f.cpp
- *     SHUD/src/ModelData/MD_ET.cpp
+ *     src/ModelData/MD_ElementFlux.cpp
+ *     src/ModelData/MD_f.cpp
+ *     src/ModelData/MD_ET.cpp
  *   determined by the grep
  *     grep -nE 'Ele\[[^]]+\]\.' src/ModelData/MD_*.cpp \
  *       | grep -oE 'Ele\[[^]]+\]\.[A-Za-z_0-9]+(\[[^]]+\])?' \
@@ -25,8 +25,8 @@
  *    and the SoA is synced from AoS via sync_hot_dynamic() AFTER each
  *    invocation, so RHS subsequent reads of u_qi/u_qex/u_effKH/u_satn
  *    see the just-updated values from the SoA). The roster reflects the
- *    actual hot-path footprint, not the master-plan §4.22.1 estimate
- *    (which over-counts by listing fields that grep does not hit).
+ *    actual hot-path footprint: fields the grep does not hit are not
+ *    mirrored.
  *
  * Contract:
  *   - Static SoA fields (geometry / topology / BC / Soil-Layer-derived
@@ -37,7 +37,7 @@
  *     Model_Data::sync_hot_dynamic(i) — a per-element inline helper
  *     invoked immediately after Ele[i].updateElement(), updateLakeElement(),
  *     Flux_Infiltration() or Flux_Recharge(). This is the price of the
- *     "double-track" design (D2): _Element AoS remains source-of-truth
+ *     "double-track" design: _Element AoS remains source-of-truth
  *     for the writers (methods) and the SoA is a cache-friendly read
  *     mirror for the consumers (geometry-driven flux loops).
  *   - _Element AoS stays intact for init / IO / calibration. RHS hot path
@@ -55,20 +55,20 @@
 #include "Macros.hpp"
 
 struct ElementHotData {
-    /* All members allocated by Model_Data::malloc_EleRiv() under
-     * MD_layout-managed contiguous block (S5d.3 will switch to parallel
-     * first-touch). Free()d by FreeData() symmetrically.
+    /* All members are allocated by Model_Data::malloc_EleRiv(), one
+     * contiguous array each (with an optional parallel first-touch
+     * there), and freed symmetrically by FreeData().
      *
-     * P8-tune.F PR-0 (#386) — NSDMI nullptr default for every pointer
-     * field so Model_Data::FreeData()'s unconditional `delete[] hot.*`
-     * chain is a defined no-op when malloc_EleRiv() never ran or aborted
-     * partway (e.g. NumY > 100k OOM in mid-allocation). Without these
-     * defaults, the `hot` substruct's pointer slots hold indeterminate
-     * stack/heap bytes — `delete[]` on those triggers `free(): invalid
-     * pointer` heap corruption (glibc) or SEGV (other allocators). The
-     * default writes are overridden by the `hot.* = new ...` assignments
-     * in Model_Data::malloc_EleRiv() so production happy-path output
-     * remains bitwise-identical to B0/B1a/B1b baselines. */
+     * Every pointer field defaults to nullptr so that
+     * Model_Data::FreeData()'s unconditional `delete[] hot.*` chain is
+     * a defined no-op when malloc_EleRiv() never ran or aborted
+     * partway (e.g. out of memory in mid-allocation). Without these
+     * defaults, the pointer slots would hold indeterminate bytes and
+     * `delete[]` on those triggers `free(): invalid pointer` heap
+     * corruption (glibc) or SEGV (other allocators). The defaults are
+     * overwritten by the `hot.* = new ...` assignments in
+     * Model_Data::malloc_EleRiv(), so they do not affect model
+     * output. */
 
     /* Geometry — from class Triangle */
     int    *nabr_flat = nullptr;        /* nabr[NumEle][3] flat */

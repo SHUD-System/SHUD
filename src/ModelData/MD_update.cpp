@@ -1,5 +1,5 @@
 #include "Model_Data.hpp"
-#include <vector>  /* P1e PR-B0 (#323): recompute_for_output scratch DY */
+#include <vector>  /* recompute_for_output scratch DY */
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
 #endif
@@ -61,17 +61,16 @@ void Model_Data::f_updatei(double  *Y, double *DY, double t, int flag){
             break;
     }
 }
-/* P1d.2.0 PR-C0 (#291): Model_Data f_update legacy carry-over deleted.
- * Live counterpart is Model_Data::rhs_update in MD_rhs_core.cpp
- * (~L58-149), which CVODE invokes via f.cpp:54 -> MD->rhs_core(...).
- * The "f_update" SHUD_DUMP_RHS tag string at MD_rhs_core.cpp:147 +
- * MD_rhs_dump.{h,cpp} default site name are preserved as the
- * golden-file dump contract. */
+/* The coupled-mode state update is Model_Data::rhs_update in
+ * MD_rhs_core.cpp, which CVODE reaches through MD->rhs_core(...).
+ * Its SHUD_DUMP_RHS site name is "f_update", which is also the
+ * default site in MD_rhs_dump.{h,cpp}; snapshot files are selected by
+ * that name, so it must not be renamed. */
 void Model_Data::summary (N_Vector udata){
     double  *Y;
-    /* S1d.2 (openMP #48) — generic N_Vector data accessor (see f.cpp
-     * + Macros.hpp comments). Replaces the prior backend-specific
-     * NV_DATA_OMP / NV_DATA_S branch. */
+    /* Generic N_Vector data accessor (see f.cpp + Macros.hpp
+     * comments): works for both the serial and the OpenMP N_Vector
+     * backend, so no NV_DATA_OMP / NV_DATA_S branch is needed. */
     Y = N_VGetArrayPointer(udata);
     for (int i = 0; i < NumEle; i++){
         yEleSurf[i] = Y[iSF];
@@ -93,102 +92,77 @@ void Model_Data::summary (N_Vector udata){
         }
     }
 }
-/* P1e PR-B0 (#323): recompute flux/gather caches from Y(tout) before
- * ExportResults so PCtrl-aliased output buffers (QrivDown, QrivUp,
+/* Recompute the flux/gather caches from Y(tout) before ExportResults
+ * so the output buffers registered with PCtrl (QrivDown, QrivUp,
  * QrivSurf, QrivSub, QLakeRivIn, QLakeRivOut, QLakeSurf, QLakeSub,
  * qLakeEvap, qLakePrcp, Qe2r_Surf, Qe2r_Sub, qEle*, QeleSubTot,
- * QeleSurfTot, etc.) reflect deterministic Y(tout)-derived state, NOT
- * the side-effect cache left by the last internal-step f() at
- * t_internal != tout under CV_NORMAL mode (per
- * docs/p1e/p1e_rivqdown_cache_audit.md conclusion + spec
- * p1e-strict-omp-rhs L260-285 + design D5 option 1).
+ * QeleSurfTot, etc.) hold values derived from Y(tout), NOT whatever
+ * the last internal-step f() left behind at t_internal != tout under
+ * CV_NORMAL mode.
  *
  * Mechanics: re-run the full RHS chain `rhs_update -> rhs_flux ->
  * rhs_apply` exactly once at (Y, t)=(udata, t) using a local scratch
- * DY buffer. rhs_apply IS idempotent at fixed (Y, t) (verified by
- * Phase 4.5 verifier — MD_rhs_core.cpp L648-649 leading `=` resets +
- * inner j∈[0,3) `+=` accumulates per-i), so calling it is safe; the
- * DY_scratch mutation is harmless because the scratch buffer is
- * discarded on return.
+ * DY buffer. rhs_apply is idempotent at fixed (Y, t) (each per-element
+ * total is reset with `=` before its three edges are added with `+=`),
+ * so calling it is safe; the DY_scratch mutation is harmless because
+ * the scratch buffer is discarded on return.
  *
- * Why rhs_apply MUST be called (Phase 6 fix per outer #323): without
- * this call QeleSubTot[i] and QeleSurfTot[i] stay at the values
- * written by rhs_update (set to zero at MD_rhs_core.cpp:91 / :104) —
- * PrintData tau-averaging would then emit silent all-zero data into
- * any PCtrl-aliased *.eleQsubTot.dat / *.eleQsurfTot.dat output when
- * DT_QE_SUB > 0 or DT_QE_SURF > 0. The earlier "skip rhs_apply"
- * rationale was based on a non-idempotent-+= misread; Phase 4.5
- * verifier refuted that. See docs/p1e/p1e_pr_b0_rivqdown_recompute.md
- * §"rhs_apply Phase 6 fix rationale".
+ * Why rhs_apply MUST be called: rhs_update zeroes QeleSubTot[i] and
+ * QeleSurfTot[i] and only rhs_apply refills them. Without it the
+ * *.eleQsubTot.dat / *.eleQsurfTot.dat outputs (enabled when
+ * DT_QE_SUB > 0 or DT_QE_SURF > 0) would silently be all zero.
  *
- * Sibling-cache coverage: rhs_update + rhs_flux + rhs_apply is the
- * ground-truth RHS chain that originally populates every river / lake
- * / element cache exposed via PCtrl::Init() (MD_initialize.cpp
- * L307-391) + flood->InitPointer alias (Model_Data.cpp:427). Reusing
- * the existing chain (instead of a hand-rolled per-channel recompute)
- * guarantees all sibling caches are recomputed in the same pass, with
- * byte-equivalent iteration / floating-point operation order.
+ * Reusing the RHS chain (instead of a hand-written per-array
+ * recompute) refreshes every river / lake / element cache exposed
+ * through PCtrl::Init() and flood->InitPointer in one pass, with the
+ * same iteration and floating-point operation order as the solver.
  *
- * Side effects extend beyond PCtrl-aliased output buffers to all
- * RHS-touched scratch state (Ele[i].{QBC, u_effKH, ...},
+ * Side effects extend beyond the output buffers to all RHS-touched
+ * scratch state (Ele[i].{QBC, u_effKH, ...},
  * Riv[i].{u_Ystage, u_CSarea, ...}, lake[i].{u_toparea, ...},
  * hot.*[i]); these are deterministic functions of (Y, t) and are
- * overwritten on the next f() call, so the leakage is benign.
+ * overwritten on the next f() call, so this is benign.
  *
- * Under SHUD_ENABLE_DIAGNOSTICS builds, the 5 shud_diag::ScopeTimer
- * instrumentations inside rhs_flux (MD_rhs_core.cpp L365 / L407 /
- * L423 / L433 / L496) will see double-counted bucket entries on this
- * extra call; subtract one outer-tick bucket per ScopeTimer in
- * diagnostics post-processing if exact attribution is needed.
- * Default builds (no DIAGNOSTICS macro) unaffected.
+ * Under SHUD_ENABLE_DIAGNOSTICS builds, the shud_diag::ScopeTimer
+ * buckets inside rhs_flux also count this extra call; subtract one
+ * call per output step in post-processing if exact attribution is
+ * needed. Default builds are unaffected.
  *
- * Counter discipline: `nFCall` is NOT incremented. This call is a
- * tout-boundary cache refresh for output, not a CVODE-driven RHS
- * evaluation; nFCall semantics (per Model_Data.hpp L58 + S5c-C #175)
- * remain the count of solver-internal f() invocations.
+ * `nFCall` is NOT incremented: this is a cache refresh for output,
+ * not a CVODE-driven RHS evaluation, and nFCall counts only
+ * solver-internal f() invocations.
  *
- * Profile / diagnostics: deliberately not wrapped in shud_profile or
- * shud_diag timers — recompute time is attributed to t_other (not
- * t_RHS_total) so existing profile decomposition stays interpretable.
+ * Deliberately not wrapped in shud_profile or shud_diag timers —
+ * recompute time is attributed to t_other (not t_RHS_total) so the
+ * profile decomposition stays interpretable.
  *
- * Determinism: `rhs_update + rhs_flux + rhs_apply` are deterministic
- * functions of (Y, t, time-series state, model config). Same (Y, t)
- * -> same caches.
- *
- * Scope: this call site is wired in only on the coupled-mode MainLoop
- * (SHUD(), shud.cpp:203). Uncoupled mode (SHUD_uncouple(),
- * shud.cpp:412-413 under `-g` CLI flag) runs 5 split CVode integrations
- * each with its own internal-step cache and does NOT receive this
- * helper call; that scope is deferred to a future issue. Workaround
- * for uncoupled users: do not use `-g` for runs that require bitwise
- * reproducibility — default coupled mode is unaffected.
+ * Scope: called only from the coupled-mode main loop (SHUD() in
+ * shud.cpp). Uncoupled mode (SHUD_uncouple(), `-g` CLI flag) runs 5
+ * split CVode integrations, each with its own internal-step cache,
+ * and does NOT call this helper; do not use `-g` for runs that
+ * require bitwise-reproducible output.
  */
 void Model_Data::recompute_for_output(N_Vector udata, double t){
     double *Y = N_VGetArrayPointer(udata);
-    /* Scratch DY consumed by rhs_update (zeroes it L218-220) +
-     * rhs_apply (writes derivative components L657-659/etc.); ignored
-     * on rhs_flux input. NumY = 3*NumEle + NumRiv + NumLake, matches
-     * the solver state vector layout. */
+    /* Scratch DY consumed by rhs_update (zeroes it) + rhs_apply
+     * (writes derivative components); not used by rhs_flux.
+     * NumY = 3*NumEle + NumRiv + NumLake, matches the solver state
+     * vector layout. */
     std::vector<double> DY_scratch(NumY, 0.0);
     rhs_update(Y, DY_scratch.data(), t);
     rhs_flux(t);
-    /* PR-B0 Phase 6 fix (cand-2): rhs_apply IS idempotent at fixed
-     * (Y, t). Without this call, QeleSubTot/QeleSurfTot stay at the
-     * rhs_update zero-out (MD_rhs_core.cpp:91 / :104) → PCtrl-aliased
-     * *.eleQsubTot.dat / *.eleQsurfTot.dat would silently emit
-     * all-zero data when DT_QE_SUB>0 or DT_QE_SURF>0. The DY_scratch
-     * mutation (rhs_apply writes derivative components) is harmless —
-     * scratch is discarded on return. */
+    /* Required: refills QeleSubTot/QeleSurfTot, which rhs_update
+     * zeroed (see the function comment above). */
     rhs_apply(DY_scratch.data(), t);
 }
 void Model_Data::summary (N_Vector u1, N_Vector u2, N_Vector u3, N_Vector u4, N_Vector u5){
 
-    /* S1d.2 (openMP #48) — generic N_VGetArrayPointer collapse of the
-     * prior backend-split blocks (NV_Ith_OMP / NV_Ith_S). Hoist the
-     * five pointer fetches out of the inner loops so the per-element
-     * indexing stays a single load-and-store; bitwise-equivalent to
-     * `NV_Ith_S(v, i)` because nvector_serial's NV_Ith_S expands to
-     * `((NV_DATA_S(v))[i])` (verified against sundials 6.0.0). */
+    /* N_VGetArrayPointer works for both the serial and the OpenMP
+     * N_Vector backend, so no NV_Ith_OMP / NV_Ith_S split is needed.
+     * The five pointer fetches are hoisted out of the loops so the
+     * per-element indexing stays a single load-and-store; this is
+     * bitwise-equivalent to `NV_Ith_S(v, i)`, which expands to
+     * `((NV_DATA_S(v))[i])` (sundials 6.0.0). */
     double *Y1 = N_VGetArrayPointer(u1);
     double *Y2 = N_VGetArrayPointer(u2);
     double *Y3 = N_VGetArrayPointer(u3);

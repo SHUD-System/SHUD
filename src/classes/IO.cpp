@@ -95,11 +95,10 @@ FileOut::FileOut(){
     setsuffix("");
 }
 FileOut::~FileOut(){
-    /* #401 sub-task 1 — leak chain closure for the time-log FILE*.
-     * Opened by updateFilePath() L187 (`fopen(File_Time, "w")`); pre-
-     * 2026-06-30 there was no matching close at process exit. fid_time
+    /* Close the time-log FILE* opened by updateFilePath()
+     * (`fopen(File_Time, "w")`); this is its only close. fid_time
      * is FILE* (not new[]'d), so fclose is the correct release call;
-     * the NSDMI nullptr default in IO.hpp guards instances where
+     * the nullptr default in IO.hpp guards instances where
      * updateFilePath() was never called (FileOut allocated then
      * discarded — e.g. exception paths in malloc_EleRiv()). */
     if (fid_time) {

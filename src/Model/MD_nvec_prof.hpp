@@ -1,48 +1,42 @@
 #ifndef MD_NVEC_PROF_HPP
 #define MD_NVEC_PROF_HPP
 /* =====================================================================
- * P12-nvec PR-N0 (#442) — env-gated NVector op-share profiler.
+ * Env-gated NVector op-share profiler.
  *
- * SHUD_NVEC_PROF=1 (STRICT `=1` string compare, P11-osc predicate
- * discipline) → wrap every POPULATED function-pointer of the coupled-
+ * SHUD_NVEC_PROF=1 (STRICT `=1` string compare, same predicate as
+ * MD_osc_diag.hpp) → wrap every POPULATED function-pointer of the coupled-
  * solver vector's `ops` table at creation time (before CVodeInit) with a
  * shim that (a) increments a per-op call counter, (b) accumulates
  * monotonic-clock elapsed nanoseconds, then (c) delegates to the ORIGINAL
  * implementation — pure delegation, zero reordering of any computation.
  *
- * WHY an ops-table wrapper (design D1): existing profile buckets stop at
+ * WHY an ops-table wrapper: existing profile buckets stop at
  * t_CVODE_raw (the whole CVode() call) and cannot see inside. The wrapper
  * measures EXACTLY the NVector boundary we would parallelize, and (unlike
  * a sampling profiler) needs no symbol attribution through the SUNDIALS
  * static libs. The dump decomposes t_CVODE_raw into element-wise NVector
- * work vs reduction NVector work vs the non-NVector remainder — the
- * measured input to gates G-E2 context and G-E3(ii)/(iii).
+ * work vs reduction NVector work vs the non-NVector remainder.
  *
- * COMPOSITION ORDER (spec "ops-table wrapper instrumentation" + design D1
- * / D2): the profiler wraps LAST / OUTERMOST. When the PR-N1 Config E
- * hybrid reduction overrides (SHUD_NVEC_HYBRID=1) are also active they
- * install FIRST, so each shim delegates to the EFFECTIVE (overridden)
- * pointer and no reduction measurement is clobbered. PR-N0 ships no
- * hybrid path yet; install() is written so the override step (PR-N1) can
- * run against the same vector BEFORE this call with no change here.
+ * COMPOSITION ORDER: the profiler wraps LAST / OUTERMOST. When the hybrid
+ * reduction overrides (SHUD_NVEC_HYBRID=1, MD_nvec_hybrid.hpp) are also
+ * active they install FIRST, so each shim delegates to the EFFECTIVE
+ * (overridden) pointer and no reduction measurement is clobbered.
  *
  * CLONE PROPAGATION: wrapping happens ONCE at creation, before CVodeInit.
  * The generic N_VClone / N_VCloneEmpty copy the ops table (N_VCopyOps),
  * so every CVODE-internal temporary inherits the shim table automatically
  * → all internal vector work is measured. nvec_prof_clone_carries_shims()
- * is the smoke assert (spec scenario "clone propagation").
+ * is the smoke assert for this.
  *
  * SCOPE: only the coupled `udata` / `du` family is wrapped (the single
  * coupled-solver vector family). The decoupled 5-solver loop vectors
- * (shud.cpp:495+, N_VNew_Serial u1..u5 / du1..du5) are NOT wrapped —
- * install() is called only on the coupled creation site.
+ * (SHUD_uncouple in shud.cpp, N_VNew_Serial u1..u5 / du1..du5) are NOT
+ * wrapped — install() is called only on the coupled creation site.
  *
  * BITWISE NEUTRALITY: gate OFF (unset / "" / "0" / any non-"1") → shims
- * are NEVER installed and the creation path is byte-identical to the
- * unpatched build. Gate ON → shims reorder nothing (pure delegation), so
- * trajectories stay identical; a keliya SHA leg proves it regardless
- * (P11-osc style). No code here lives on the RHS f() call path; f.cpp /
- * MD_rhs_core.cpp are untouched.
+ * are NEVER installed and the vectors keep their stock ops tables. Gate
+ * ON → shims reorder nothing (pure delegation), so trajectories stay
+ * identical. No code here lives on the RHS f() call path.
  * ===================================================================== */
 
 #include <sundials/sundials_nvector.h>
@@ -74,7 +68,7 @@ bool nvec_prof_is_on();
  * are identical and already captured). */
 void nvec_prof_install(N_Vector v, const char *backend);
 
-/* Smoke assert (spec scenario "clone propagation"): clone `v` via BOTH
+/* Clone-propagation smoke assert: clone `v` via BOTH
  * N_VClone and N_VCloneEmpty and verify each clone's wrapped op pointers
  * equal the shims installed on `v` (i.e. the ops table copy carried the
  * shims to the clone). No-op unless the profiler is on. Prints a PASS/
@@ -84,15 +78,15 @@ bool nvec_prof_clone_carries_shims(N_Vector v);
 /* Dump nvec_prof.csv to `outpath` (the project output dir). No-op unless
  * the profiler is on. Header lines carry project_name / NY / nthreads /
  * backend; one data row per wrapped op: op_name,op_class,calls,total_ns
- * with op_class ∈ {elementwise, reduction, other} from the fixed source-
- * committed mapping table below. Also emits, to stdout, the wrapped-entry
- * debug count for the spec's "no unwrapped-op leakage" cross-check. */
+ * with op_class ∈ {elementwise, reduction, other} from the fixed mapping
+ * table in MD_nvec_prof.cpp. Also emits, to stdout, the wrapped-entry
+ * count, to cross-check that no populated op was left unwrapped. */
 void nvec_prof_dump(const char *project_name, int NY, int nthreads,
                     const char *backend, const char *outpath);
 
-/* PROF×HYBRID composition assert (spec nvec-op-profile "composition with
- * hybrid overrides"): for every WRAPPED reduction-class slot, verify (a) the
- * live ops-table entry of `v` holds THIS profiler's shim (so the reduction
+/* PROF×HYBRID composition assert: for every WRAPPED reduction-class slot,
+ * verify (a) the live ops-table entry of `v` holds THIS profiler's shim (so
+ * the reduction
  * pointer differs from the stock OpenMP address), and (b) the shim's captured
  * delegate satisfies `is_override` (so the delegate is the hybrid override
  * address, not a stock reduction). `is_override` is supplied by the hybrid

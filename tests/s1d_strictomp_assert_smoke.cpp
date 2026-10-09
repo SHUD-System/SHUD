@@ -1,44 +1,37 @@
-/* tests/s1d_strictomp_assert_smoke.cpp -- S1d.1 (openMP #47).
+/* tests/s1d_strictomp_assert_smoke.cpp
  *
- * Regression guard for the decision to use `std::abort()` (NOT
- * `assert(false)`) inside the `ExecPolicy::StrictOMP` and
- * `ExecPolicy::ProductionOMP` cases of `Model_Data::rhs_core`.
+ * Checks that `Model_Data::rhs_core(Y, DY, t, ExecPolicy::StrictOMP)`
+ * on an empty Model_Data terminates the process with SIGABRT, in a
+ * build compiled with `-DNDEBUG`.
  *
- * Why: under `-DNDEBUG` (release builds, and the
- * `EXTRA_CXXFLAGS=-DNDEBUG` smoke compile invoked by the
+ * Why: the policy cases of `rhs_core` that have no backend behind
+ * them must fail fast with `std::abort()`, NOT `assert(false)`. Under
+ * `-DNDEBUG` (release builds, and the compile done by the
  * `smoke_strictomp` Makefile target), `assert(...)` expands to an
- * empty statement. If those switch cases used `assert(false)` they
- * would compile away into no-ops, and execution would silently fall
- * through to the next statement -- in this layout, to the closing
- * brace of `rhs_core` -- giving the caller a normal return rather
- * than the fail-fast abort the spec demands. That would let an
- * `ExecPolicy::StrictOMP` call impersonate Serial without anyone
- * noticing, defeating the entire S1d.1 dispatch contract.
+ * empty statement, so such a case would compile away into a no-op
+ * and execution would silently fall through to the closing brace of
+ * `rhs_core` -- giving the caller a normal return, as if the
+ * requested policy had run.
  *
  * Test mechanism:
  *   - `fork()` a child process.
- *   - In the child: construct a Model_Data on the heap (members
- *     uninitialized but we never reach any of them; the StrictOMP
- *     case `std::abort()`s before reading any state), then call
- *     `rhs_core(Y, DY, t, ExecPolicy::StrictOMP)`. The abort
+ *   - In the child: construct a Model_Data on the heap, then call
+ *     `rhs_core(Y, DY, t, ExecPolicy::StrictOMP)`. The expected abort
  *     terminates the child via SIGABRT; the heap Model_Data is
- *     never destructed (no FreeData() UB). If somehow the call
- *     returns, `_exit(0)` makes the assertion below fail.
+ *     never destructed (no FreeData() UB). If the call returns,
+ *     `_exit(0)` makes the check in the parent fail.
  *   - In the parent: `waitpid` the child, check
  *     `WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT`.
  *     Exit 0 on PASS; exit 1 on FAIL (driving the Makefile target).
  *
- * Build / run is wired through the `smoke_strictomp` target in
- * SHUD/Makefile, which compiles with
+ * Build and run: `make smoke_strictomp`, which compiles with
  * `-DNDEBUG -DSHUD_ENABLE_OPENMP_RHS=1`. The `-DSHUD_ENABLE_OPENMP_RHS=1`
  * is needed because the StrictOMP / ProductionOMP cases are
  * `#ifdef SHUD_ENABLE_OPENMP_RHS`-gated out of the translation unit
  * by default to keep release binaries free of OMP-path symbols.
  *
- * Scope: this test deliberately does NOT exercise the Serial path
- * (that is covered by the standard 4-case bitwise validation under
- * tasks 4.6a/b). It tests one thing -- that the OMP-policy stubs
- * abort -- and nothing else.
+ * Scope: this test deliberately does NOT exercise the Serial path.
+ * It tests one thing -- that the call aborts -- and nothing else.
  */
 
 #include <sys/wait.h>

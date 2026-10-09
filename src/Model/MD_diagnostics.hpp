@@ -1,12 +1,12 @@
-/* MD_diagnostics.hpp — S5c-B (#174) diagnostic timer accumulators.
+/* MD_diagnostics.hpp — diagnostic timer accumulators.
  *
  * 7-bucket RHS wall-clock timer + forcing I/O wall-clock timer.
  * ALL declarations and helper utilities here are gated behind
  * `#ifdef SHUD_ENABLE_DIAGNOSTICS` so the default build (macro
  * undefined) emits ZERO code in the RHS hot path and ZERO new symbols
- * in the binary — preserving the B1a-tag bitwise contract.
+ * in the binary, and its results are unaffected.
  *
- * Buckets (per master plan §S5c L1366):
+ * Buckets:
  *   0 update    — rhs_update() (zero-resets + BC reads)
  *   1 ET        — rhs_flux() pass-1 per-element ET/infil/recharge
  *   2 lateral   — rhs_flux() pass-2 per-element surf/sub flux
@@ -16,10 +16,11 @@
  *   6 applyDY   — rhs_apply() write of DY
  *
  * Timer storage is a single global `long long` array (nanoseconds).
- * The driver is strictly single-threaded under the B1a contract
- * (no `#pragma omp parallel` is active anywhere; verified S5a/S5b
- * audits in B1b_CHANGELOG), so a plain global accumulator is race-free.
- * P1+ parallelization will revisit this with per-thread accumulators.
+ * A plain global accumulator is race-free only while the RHS runs
+ * serially. With the OpenMP RHS (SHUD_ENABLE_OPENMP_RHS=1) the bucket
+ * timers inside rhs_flux() are updated by every team thread without
+ * synchronisation, so the timings are approximate; use diagnostics
+ * builds for profiling only.
  */
 #ifndef MD_DIAGNOSTICS_HPP
 #define MD_DIAGNOSTICS_HPP

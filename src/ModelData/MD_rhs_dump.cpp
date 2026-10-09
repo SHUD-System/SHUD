@@ -1,22 +1,19 @@
 /* MD_rhs_dump.cpp — RHS snapshot dump impl.
  *
- * S0-7 (openmp issue #9) replaces the S0-6 stub with a real writer:
- * env-driven manifest probe, single-record / single-array snapshot
- * per call site match.
+ * Debugging aid, compiled in with `make ... SHUD_DUMP_RHS=1`. The
+ * SHUD_DUMP_* environment variables (listed in MD_rhs_dump.h) select
+ * a call site and a set of model times; each match writes one file
+ * holding a single record with a single array.
  *
  * When SHUD_DUMP_RHS is undefined the TU compiles to no emitted symbols
- * — DUMP=0 link binary stays functionally equivalent to a build that
- * omits this file entirely (B0 SHA256 invariant).
+ * — the binary is functionally equivalent to a build that omits this
+ * file entirely.
  *
- * SCHEMA DUPLICATION NOTE:
- *   The byte layout written here MUST match the writer at
- *     tools/rhs_snapshot/writer.cpp
- *   and the schema header at
- *     tools/rhs_snapshot/format.h
- *   We replicate the small writer here (rather than link against the
- *   outer-repo writer) because the SHUD submodule has no visibility of
- *   outer-repo objects at compile time. S0-9 CI MUST diff the two
- *   schema headers + replicate-writer logic on each PR.
+ * FILE FORMAT NOTE:
+ *   The byte layout written here is the one documented in
+ *   MD_rhs_dump.h. Any external tool that reads these snapshots
+ *   depends on it; bump SHUD_RHS_SNAPSHOT_FORMAT_VERSION if the
+ *   layout changes.
  */
 #include "MD_rhs_dump.h"
 
@@ -38,7 +35,7 @@ struct DumpConfig {
     std::string         output_dir;
     std::string         case_id;
     std::string         site;
-    std::string         fname_suffix;  /* #43: empty = legacy snapshot_t<v>.bin;
+    std::string         fname_suffix;  /* empty = snapshot_t<v>.bin;
                                         * non-empty = snapshot_t<v>_<suffix>.bin */
     double              tol = 0.5;
     std::vector<double> targets;
@@ -88,10 +85,10 @@ void init_config() {
     const char *site = std::getenv("SHUD_DUMP_SITE");
     c.site = (site && site[0]) ? site : "f_update";
 
-    /* #43: filename disambiguation suffix for coexistence of multiple
+    /* Filename disambiguation suffix for coexistence of multiple
      * dump sites in same output dir (e.g. f_update vs
-     * f_loop_before_passvalue). Empty = legacy filename, full bitwise
-     * back-compat with PR #53 goldens. */
+     * f_loop_before_passvalue). Empty = plain snapshot_t<v>.bin
+     * filename. */
     const char *sfx = std::getenv("SHUD_DUMP_FNAME_SUFFIX");
     c.fname_suffix = (sfx && sfx[0]) ? sfx : "";
     /* Path-traversal guard: reject suffix containing '/' or '\\'. The
@@ -109,7 +106,7 @@ void init_config() {
             c.disabled = true;
             return;
         }
-        /* F5 fix: length cap. Buffer math in shud_rhs_dump_point()
+        /* Length cap. Buffer math in shud_rhs_dump_point()
          * leaves ~95 chars headroom for the suffix; a 64-char limit
          * gives us a clear safety margin and keeps filenames
          * filesystem-friendly. Truncating silently would let a
@@ -123,15 +120,14 @@ void init_config() {
             c.disabled = true;
             return;
         }
-        /* F24 (PR #54 round-2): The two early-return paths above (path-
-         * separator reject + F5 length-cap reject) intentionally leave
-         * c.consumed unset.  This is safe by design: c.disabled = true
-         * makes downstream call paths (shud_rhs_dump_point body, see
-         * `if (c.disabled) return;` at the top of the dispatch) early-
-         * out before any read of c.consumed[i].  c.consumed is only
-         * assigned at line 172 below, after we've committed to a valid
-         * targets vector — so any future reorder that touches consumed
-         * before disabled-gate must re-audit these early returns. */
+        /* The two early-return paths above (path-separator reject +
+         * length-cap reject) intentionally leave c.consumed unset.
+         * This is safe: c.disabled = true makes shud_rhs_dump_point()
+         * return (`if (c.disabled) return;`) before any read of
+         * c.consumed[i].  c.consumed is only assigned at the end of
+         * this function, once the targets vector is final — so any
+         * reorder that reads consumed before the disabled check must
+         * re-audit these early returns. */
     }
 
     const char *tol = std::getenv("SHUD_DUMP_T_TOL");
@@ -144,7 +140,7 @@ void init_config() {
     const char *tv = std::getenv("SHUD_DUMP_T_VALUES");
     c.targets = parse_t_values(tv);
 
-    /* F2-corr hygiene: drop non-finite targets (parse_t_values accepts
+    /* Drop non-finite targets (parse_t_values accepts
      * "nan"/"inf" tokens because strtod does; reject them here so they
      * cannot reach the filename buffer or the tolerance compare). */
     {
@@ -157,7 +153,7 @@ void init_config() {
         c.targets.erase(fin, c.targets.end());
     }
 
-    /* F1-corr hygiene: %%.0f filename precision means two targets within
+    /* The %%.0f filename precision means two targets within
      * 1.0 of each other collapse to the same snapshot_t<rounded>.bin file
      * and the second would silently overwrite the first. Reject at init. */
     if (c.targets.size() > 1) {
@@ -181,8 +177,8 @@ void init_config() {
     c.consumed.assign(c.targets.size(), false);
 }
 
-/* Replicated single-record writer. Layout: see SCHEMA DUPLICATION NOTE
- * above + format.h header. */
+/* Single-record writer. Layout: see the "Layout" section of
+ * MD_rhs_dump.h. */
 int write_one_snapshot(const std::string& path,
                        const std::string& case_id,
                        double             t_value,
@@ -250,11 +246,11 @@ void shud_rhs_dump_point(const char *site, double t,
     if (idx < 0) return;
     c.consumed[idx] = true;
 
-    /* #43: when fname_suffix is set, append `_<suffix>` between
+    /* When fname_suffix is set, append `_<suffix>` between
      * t-stem and `.bin`. Filename buffer sized to fit the longest
      * suffix the path-traversal guard does not reject. Buffer math:
      * 128 - 10 ("snapshot_t") - 17 ("%.0f" max) - 1 ("_") - 4 (".bin")
-     * - 1 (NUL) = 95 chars headroom for suffix. The F5 64-char
+     * - 1 (NUL) = 95 chars headroom for suffix. The 64-char
      * SHUD_DUMP_FNAME_SUFFIX guard in init_config() keeps any accepted
      * suffix well below this limit. */
     char fname[128];

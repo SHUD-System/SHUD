@@ -1,29 +1,25 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
-#include <stdio.h>  /* S5d.3 (#181) — printf for [NUMA] first-touch token */
+#include <stdio.h>  /* printf for the [NUMA] first-touch message */
 #include "ModelConfigure.hpp"
 #include "IO.hpp"
 #include "functions.hpp"
 #include "Model_Data.hpp"
-#include "MD_adjacency.hpp"  /* S4 PR-10 (#154): build_adjacency_lists()
-                              * called from Model_Data::initialize() AFTER
+#include "MD_adjacency.hpp"  /* build_adjacency_lists(), called from
+                              * Model_Data::initialize() AFTER
                               * malloc_EleRiv + entity-table population so
                               * RivSeg / Riv / Ele arrays + counts are
-                              * present. Init-time only — no runtime
-                              * behavior change (PR-11 / S3c will consume
-                              * the lists in rhs_deterministic_gather). */
+                              * present. The lists are built once here
+                              * and read by rhs_deterministic_gather(). */
 
-/* S5d.3 (#181) — see Model_Data.cpp for the gate semantics. LoadIC()
- * appends a fourth first-touch site after IC values are populated so
- * the page residency of the 8 Element-indexed yEle* IC arrays moves
- * from the master thread to the prospective worker threads (design D4
- * + master plan §S5d.3 L1413 "LoadIC 串行加载后额外做一次 parallel
- * touch"). NumRiv-indexed `yRivStg` and NumLake-indexed `yLakeStg` are
- * deferred to #183 / A3a per PR-9 Phase 7 Gap Sweep N1 — single-thread
- * bitwise gate doesn't require them, and the per-river / per-lake
- * counts are small enough that single-page residency is the dominant
- * cost. */
+/* NUMA first-touch gate; see Model_Data.cpp for its semantics. The IC
+ * arrays are filled serially in LoadIC(), so LoadIC() ends with an
+ * extra parallel touch that moves the page residency of the 8
+ * Element-indexed yEle* IC arrays from the master thread to the
+ * worker threads. NumRiv-indexed `yRivStg` and NumLake-indexed
+ * `yLakeStg` are not re-touched: the per-river / per-lake counts are
+ * small enough that they fit in a few pages. */
 extern int g_numa_first_touch_enabled;
 
 void Model_Data::LoadIC(){
@@ -130,7 +126,7 @@ void Model_Data::LoadIC(){
     }
     Sub2Global(yEleSurf, yEleUnsat, yEleGW, yRivStg, yLakeStg, NumEle, NumRiv, NumLake);
 
-    /* S5d.3 (#181) — fourth first-touch site: re-touch the IC arrays
+    /* NUMA first-touch: re-touch the IC arrays
      * that were just populated by the serial switch above so their
      * Linux NUMA-page residency moves from the master thread to the
      * worker threads that will own those slots in parallel RHS. The
@@ -284,20 +280,19 @@ void Model_Data::initialize(){
     initializeLake();
     malloc_Y();
     read_cfgout(pf_in->file_cfgout);
-    /* S4 PR-10 (#154) — build 7 deterministic-gather adjacency lists.
+    /* Build the 7 deterministic-gather adjacency lists.
      * AFTER initializeLake() so NumLake is finalized; AFTER malloc_Y()
      * is harmless (lists don't depend on Y state). Lists are read-only
-     * post-build; PR-10 BUILDS them but does NOT YET USE them at runtime
-     * (PR-11 / S3c consumes them in rhs_deterministic_gather). The
+     * post-build and are consumed by rhs_deterministic_gather(). The
      * fallback path + assert booleans are exposed via MD_adjacency.hpp
      * and exercised by tests/test_adjacency_fallback.cpp. */
     build_adjacency_lists(this);
-    /* S5d.1 (#178) — populate ElementHotData SoA from _Element AoS.
+    /* Populate ElementHotData SoA from _Element AoS.
      * MUST happen AFTER all element AoS load (geometry / soil-geol /
      * landcover / IC) and BEFORE any RHS dispatch. RHS hot path reads
      * the SoA copy; sync_hot_dynamic(i) keeps the dynamic subset
      * (u_qi / u_qex / u_effKH / u_satn) in sync across each writer
-     * call. See MD_layout.hpp + docs/s5d_hot_fields.yaml. */
+     * call. See MD_layout.hpp. */
     initialize_hot();
 }
 void Model_Data:: initialize_output (){
@@ -329,11 +324,9 @@ void Model_Data:: initialize_output (){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_subTot, CS.dt_Qe_sub, QeleSubTot, 1, io_ele);
     }
     if (CS.dt_Qe_subx > 0){
-        /* S5d.2-5a (#179) — InitIJ now takes the flat-array `double *`
-         * overload; PrintCtrl stores `&(QeleSub_flat[3*i + j])` for j
-         * picking the column. Bitwise equivalent to the prior nested
-         * `&(QeleSub[i][j])` because both expressions resolve to the
-         * SAME memory address (per row-major flatten); see comment in
+        /* InitIJ takes the flat-array `double *` overload; PrintCtrl
+         * stores `&(QeleSub_flat[3*i + j])`, with j picking the
+         * column of the row-major NumEle x 3 array; see comment in
          * Model_Control.cpp InitIJ flat-overload. */
         CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub0, CS.dt_Qe_sub, QeleSub_flat, 0, 1, io_ele);
         CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_sub1, CS.dt_Qe_sub, QeleSub_flat, 1, 1, io_ele);
@@ -343,7 +336,7 @@ void Model_Data:: initialize_output (){
         CS.PCtrl[ip++].Init(ForcStartTime, NumEle, pf_out->ele_Q_surfTot, CS.dt_Qe_surf, QeleSurfTot, 1, io_ele);
     }
     if (CS.dt_Qe_surfx > 0){
-        /* S5d.2-5a (#179) — flat-overload as for ele_Q_sub above. */
+        /* Flat-overload as for ele_Q_sub above. */
         CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf0, CS.dt_Qe_surf, QeleSurf_flat, 0, 1, io_ele);
         CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf1, CS.dt_Qe_surf, QeleSurf_flat, 1, 1, io_ele);
         CS.PCtrl[ip++].InitIJ(ForcStartTime, NumEle, pf_out->ele_Q_surf2, CS.dt_Qe_surf, QeleSurf_flat, 2, 1, io_ele);

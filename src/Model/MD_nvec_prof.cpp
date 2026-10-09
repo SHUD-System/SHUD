@@ -1,5 +1,5 @@
 /* =====================================================================
- * P12-nvec PR-N0 (#442) — env-gated NVector op-share profiler (impl).
+ * Env-gated NVector op-share profiler (impl).
  * See MD_nvec_prof.hpp for the design rationale, composition-order rule,
  * clone-propagation contract, and bitwise-neutrality guarantee.
  * ===================================================================== */
@@ -31,17 +31,17 @@ static inline uint64_t nvp_now_ns(void) {
 /* ---------------------------------------------------------------------
  * Fixed op registry. Each WRAPPED op slot has: a stable name (== the CSV
  * op_name and the ops-struct field name), a fixed op_class, a captured
- * ORIGINAL function pointer, and per-op counters. The op_class column is
- * the source-committed mapping table the spec requires (Requirement
- * "nvec_prof.csv pinned schema").
+ * ORIGINAL function pointer, and per-op counters. The op_class column of
+ * nvec_prof.csv comes from this fixed table.
  *
- * CLASSIFICATION (the fixed mapping table — audit deliverable):
+ * CLASSIFICATION (the fixed mapping table):
  *   elementwise : output element z[i] is a fixed per-element expression
  *                 of inputs at the SAME index i (no cross-element
  *                 accumulation). Parallelizable bitwise across threads.
  *   reduction   : accumulates a scalar (or per-element test) ACROSS all
  *                 elements — the class whose OpenMP `reduction(...)` order
- *                 varies with thread count (the Config D failure mode).
+ *                 varies with thread count (the "Config D" failure mode,
+ *                 see OpenMP_NVector_Determinism.md).
  *   other       : structural / clone ops that carry op work but are
  *                 neither of the above (nvclone, nvcloneempty).
  * ------------------------------------------------------------------- */
@@ -470,8 +470,8 @@ void nvec_prof_install(N_Vector v, const char *backend) {
     NVP_WRAP(o->nvcloneempty, NVP_CLONEEMPTY, nvp_cloneempty);
 }
 
-/* Count how many distinct slots point at OUR shim on this table (the
- * "wrapped-entry debug count" the spec cross-checks against). */
+/* Count how many distinct slots point at OUR shim on this table (to
+ * cross-check against the wrapped-entry count printed by the dump). */
 static int nvp_count_shims_on(N_Vector v) {
     if (v == NULL || v->ops == NULL) return 0;
     N_Vector_Ops o = v->ops;
@@ -634,10 +634,10 @@ void nvec_prof_dump(const char *project_name, int NY, int nthreads,
     }
     fclose(fp);
 
-    /* Cross-check line to stdout (spec "no unwrapped-op leakage"): the
+    /* Cross-check line to stdout (no populated op left unwrapped): the
      * number of wrapped table entries and how many CVODE actually
-     * invoked. A reviewer compares wrapped_entries against the shim count
-     * on the live table. */
+     * invoked. Compare wrapped_entries against the shim count on the
+     * live table. */
     fprintf(stdout,
             "[NVEC_PROF] dump %s : wrapped_entries=%d invoked(calls>0)=%d "
             "backend=%s NY=%d nthreads=%d\n",

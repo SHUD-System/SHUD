@@ -79,7 +79,7 @@ void CommandIn::parse(int argc, char **argv){
     printf("\t\t\t * Debug mode enable.\n");
 #endif
     
-    /* S1d.2 (openMP #48) — banner reports whether the compiler-level
+    /* The banner reports whether the compiler-level
      * OpenMP runtime is available (i.e. omp_get_max_threads is callable),
      * which is exactly what `_OPENMP` (auto-defined by `-fopenmp`)
      * signals. Independent of the SHUD-level feature switches

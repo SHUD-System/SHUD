@@ -5,9 +5,8 @@
 //
 
 #include "Model_Control.hpp"
-/* P2a fix (2026-06-26): timer.h include removed alongside the nested
- * t_output Timer in ExportResults() — the bucket is now driven solely
- * by the outer Timer at shud.cpp:241/282. */
+/* No timer header here: ExportResults() is timed by its caller in
+ * shud.cpp (the t_output bucket), not inside this file. */
 void PrintOutDt::defaultmode(){
     int dt = 1440;
     /* Element storage */
@@ -75,20 +74,16 @@ void PrintOutDt::calibmode(int dt ){
 Control_Data::Control_Data(){
 }
 Control_Data::~Control_Data(){
-    /* #401 sub-task 1 — leak chain closure paired with NSDMI nullptr
-     * default in Model_Control.hpp. Pre-2026-06-30 this was a commented-
-     * out scalar `delete` because `Tout` had no defined default and
-     * deleting an uninitialized pointer is UB. With the NSDMI default,
-     * `delete[] nullptr` is a defined no-op (and any future writer that
-     * uses `new double[N]` will be freed correctly). */
+    /* Paired with the nullptr default of `Tout` in Model_Control.hpp:
+     * deleting an uninitialized pointer would be UB, but with the
+     * default `delete[] nullptr` is a defined no-op (and any future
+     * writer that uses `new double[N]` will be freed correctly). */
     delete[] Tout;
 }
 void Control_Data::ExportResults(double t){
-    /* P2a fix (2026-06-26): inner Timer removed; outer Timers in
-     * shud.cpp:241 and shud.cpp:282 already cover the full
-     * ExportResults wall. Inner accumulation here doubled the
-     * t_output bucket. Same root cause as MD_ET.cpp updateforcing/ET
-     * fixes. */
+    /* Do not time this function here: the caller's t_output Timer
+     * in shud.cpp already covers the full ExportResults wall time,
+     * so a Timer here would double-count the t_output bucket. */
     for (int i = 0; i < NumPrint; i++){
         PCtrl[i].PrintData(dt, t);
     }
@@ -109,11 +104,10 @@ void Control_Data::updateSimPeriod(double day0, double day1){
 void Control_Data::read(const char *fn){
     char    str[MAXLEN];
     char    optstr[MAXLEN];
-    /* S1d.2 (openMP #48) — migrated from the retired legacy
-     * triple-concern macro to the standard `_OPENMP` compiler
-     * builtin (auto-defined by `-fopenmp`). The intent here is
-     * "if the build linked omp.h, query the default thread count";
-     * this is independent of SHUD_USE_OPENMP_NVECTOR (N_Vector
+    /* Guarded by the standard `_OPENMP` compiler builtin
+     * (auto-defined by `-fopenmp`). The intent here is
+     * "if the build has the OpenMP runtime, query the default thread
+     * count"; this is independent of SHUD_USE_OPENMP_NVECTOR (N_Vector
      * backend) and SHUD_ENABLE_OPENMP_RHS (RHS execution policy). */
 #ifdef _OPENMP
     num_threads = omp_get_max_threads(); /*Default number of threads for OpenMP*/
@@ -360,21 +354,16 @@ void Print_Ctrl::Init(long st, int n, const char *s, int dt, double *x, int iFlu
     }
 }
 
-/* S5d.2-5a (#179) — flat-array InitIJ overloads.
+/* Flat-array InitIJ overloads.
  *
- * Bitwise-equivalence rationale: PrintCtrl points to the same logical
- * (i, j) slot in both jagged and flat forms; writes go through
- * QeleSurfAt(i, j) ≡ _flat[3*i + j] and reads through *PrintVar[k]
- * alias correctly — dat output is bitwise-identical to the
- * pre-flatten build at every print step.
+ * PrintVar[i] aliases slot (i, j) of the flat `double[n*3]` block:
+ * writes go through QeleSurfAt(i, j) ≡ _flat[3*i + j] and reads
+ * through *PrintVar[k] see the same storage, so the output is the
+ * same as it would be with a jagged `double**` layout.
  *
- * The legacy `double**` overloads of these two InitIJ entry points
- * were removed in PR #197 (review A-S1): after the jagged→flat
- * refactor, `grep -rn '\.InitIJ\|::InitIJ\|->InitIJ' SHUD/src/`
- * reports only the flat-array call sites in MD_initialize.cpp
- * (`...InitIJ(..., QeleSub_flat, j, ...)` etc.). Carrying the dead
- * overloads would mask future jagged-array regressions in code
- * review. */
+ * Only the flat-array form exists; the call sites are in
+ * MD_initialize.cpp (`...InitIJ(..., QeleSub_flat, j, ...)` etc.).
+ * Do not add `double**` overloads of these two entry points. */
 void Print_Ctrl::InitIJ(long st, int n, const char *s, int dt,
                         double *x_flat, int j, int iFlux){
     StartTime = st;

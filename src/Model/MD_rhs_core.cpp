@@ -1,82 +1,66 @@
-/* MD_rhs_core.cpp — S1a RHS core scaffolding (openMP issue #44).
+/* MD_rhs_core.cpp — the coupled right-hand side (RHS) of the ODE system.
  *
- * `Model_Data::rhs_update()` is a PURE CARRY-OVER of
- * `Model_Data::f_update` defined in
- * SHUD/src/ModelData/MD_update.cpp:63-153. The only structural
- * difference vs legacy is the function NAME (`rhs_update` instead of
- * `f_update`) — same `Model_Data::` member, same signature, same
- * `this`-relative member / global access (per spec
- * rhs-core-scaffolding Scenario "Source carry-over diff is
- * structural-only" allowing function-name + namespace + qualifier
- * differences only).
+ * `Model_Data::rhs_core()` runs three phases in order:
+ *   1. `rhs_update()` — copy the state vector Y into the working
+ *      arrays, apply boundary conditions, zero the flux accumulators
+ *      and DY.
+ *   2. `rhs_flux()`   — compute element / segment / river / lake fluxes
+ *      and gather them per owner.
+ *   3. `rhs_apply()`  — assemble DY from the fluxes.
  *
- * All variable names, loop bounds, branch predicates, expression
- * trees, floating-point operation order, and global-state read /
- * write timing are preserved byte-for-byte.
+ * The floating-point operation order inside each phase is fixed; the
+ * results must not depend on the build variant or the thread count.
  *
- * `SHUD_DUMP_RHS` hook tag string is `"f_update"` (NOT `"rhs_update"`)
- * — rename would break snapshot lookup against the 24 goldens shipped
- * in PR #53 + #54. See spec Scenario "Source carry-over diff is
- * structural-only" final bullet.
+ * The `SHUD_DUMP_RHS` hook tags (`"f_update"`,
+ * `"f_loop_before_passvalue"`, `"f_loop"`, `"f_applyDY"`) are keys used
+ * by external snapshot-comparison tooling; do not rename them to match
+ * the function names.
  *
- * `timeNow` is NOT written here — it is assigned at f.cpp::f() L22
- * before `rhs_core()` dispatch (single-source per spec Scenario
- * "`timeNow` not double-written").
+ * `timeNow` is NOT written here — f() in f.cpp assigns it once before
+ * calling `rhs_core()`.
  */
 #include "MD_rhs_core.hpp"
-#include "MD_adjacency.hpp"  /* S4 PR-10 (#154): 7 adjacency lists +
-                              * `build_adjacency_lists()` declarations.
-                              * Lists are built once from
-                              * `Model_Data::initialize()` (MD_initialize.cpp);
-                              * PR-10 BUILDS but does NOT YET USE them in
-                              * rhs_core (PR-11 / S3c will replace PassValue_legacy's
-                              * in-loop gather). The include here satisfies
-                              * spec s4-adjacency-topology Scenario
-                              * "MD_rhs_core.cpp 文件顶部 SHALL 包含
-                              * #include MD_adjacency.hpp". */
-#include <cstdlib>   /* std::abort -- S1d.1 OMP stub regression guard */
+#include "MD_adjacency.hpp"  /* Adjacency lists consumed by the gathers
+                              * in rhs_flux() and
+                              * rhs_deterministic_gather(). They are
+                              * built once from
+                              * `Model_Data::initialize()`
+                              * (MD_initialize.cpp). */
+#include <cstdlib>   /* std::abort -- unimplemented ExecPolicy cases */
 #ifdef SHUD_DUMP_RHS
 #include "MD_rhs_dump.h"
 #endif
-/* S5c-B (#174): RHS 7-bucket diagnostic timer. Header is empty under
- * default (SHUD_ENABLE_DIAGNOSTICS undefined) — zero new code in hot
- * path, zero floating-point change, B1a-tag bitwise contract intact. */
+/* RHS 7-bucket diagnostic timer. The header is empty unless
+ * SHUD_ENABLE_DIAGNOSTICS is defined, so the default build has no
+ * extra code in the hot path and no floating-point change. */
 #include "MD_diagnostics.hpp"
 
 #ifdef SHUD_ENABLE_DIAGNOSTICS
 namespace shud_diag {
 /* Definition of the 7-bucket nanosecond accumulators declared in
- * MD_diagnostics.hpp. Single TU storage — single-threaded driver makes
- * this race-free under B1a contract. */
+ * MD_diagnostics.hpp. Plain globals: race-free when the RHS runs
+ * serially, racy under the OpenMP RHS (see rhs_flux()). */
 long long g_rhs_timer_ns[RHS_BUCKET_COUNT] = {0, 0, 0, 0, 0, 0, 0};
 }  // namespace shud_diag
 #endif
 
-/* P1d.2.1 (#277) — NUMA first-touch gate, defined in shud.cpp L49 and
- * set once by emit_numa_token() at SHUD() entry (L70-91). The
- * steady-state RHS first-touch warm-up loops it gated (P1d era
- * MD_rhs_core.cpp L62-95 / L169-203 / L324-354) were removed in P1e
- * PR-H (#316) per design D4: with `ExecPolicy::StrictOMP` enabling
- * an OUTER `#pragma omp parallel` over the entire RHS body, the
- * steady-state warm-up `#pragma omp parallel for` would create a
- * nested parallel region and violate the single-region rule. The
- * allocation-time first-touch in Model_Data.cpp::malloc_EleRiv +
- * load-time first-touch in MD_initialize.cpp::LoadIC remain (they
- * fire once outside the RHS hot path) — the extern declaration is
- * kept here purely so legacy non-StrictOMP modes that may still want
- * to consult the flag can do so via this translation unit if
- * needed. */
+/* NUMA first-touch gate, defined and set once at startup in shud.cpp.
+ * It is declared here but not consulted in this file: first-touch
+ * happens once at allocation time (Model_Data.cpp::malloc_EleRiv) and
+ * at load time (MD_initialize.cpp::LoadIC), outside the RHS hot path.
+ * Do NOT add first-touch `#pragma omp parallel for` loops inside the
+ * RHS: under `ExecPolicy::StrictOMP` the whole RHS body already runs
+ * inside one parallel region, so they would create a nested region. */
 extern int g_numa_first_touch_enabled;
 
 void Model_Data::rhs_update(double *Y, double *DY, double t){
-    /* P1e PR-H (#316, design D2) — `#pragma omp for schedule(static)`
-     * on each top-level loop below. When invoked from
-     * `ExecPolicy::StrictOMP` the directives work-share the iteration
-     * space across the outer team; when invoked from `ExecPolicy::Serial`
-     * (no enclosing parallel region) each `omp for` becomes an
-     * orphaned construct and OpenMP semantics execute it in the
-     * encountering thread (= serial), so mode A behaviour is
-     * preserved bit-for-bit. The five upstream loops use `nowait`
+    /* Each top-level loop below carries `#pragma omp for
+     * schedule(static)`. When invoked from `ExecPolicy::StrictOMP` the
+     * directives work-share the iteration space across the enclosing
+     * team; when invoked from `ExecPolicy::Serial` (no enclosing
+     * parallel region) each `omp for` is an orphaned construct that
+     * runs in the encountering thread, so the serial result is
+     * unchanged bit-for-bit. The five upstream loops use `nowait`
      * because their owner-local writes target disjoint slots; only
      * the final `for (i < NumY) DY[i] = 0.` omits `nowait` so its
      * implicit barrier closes Phase 1 before rhs_flux reads DY. */
@@ -84,7 +68,7 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
     for (int i = 0; i < NumEle; i++) {
 //        uYsf[i] = (Y[iSF] >= 0.) ? Y[iSF] : 0.;
 //        uYus[i] = (Y[iUS] >= 0.) ? Y[iUS] : 0.;
-        /* S5d.2-5a (#179) — flat zero via accessor. */
+        /* Zero the per-edge fluxes through the flat-array accessors. */
         for(int j = 0; j < 3; j++){
             QeleSubAt(i, j) = 0.;
             QeleSurfAt(i, j) = 0.;
@@ -156,13 +140,6 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
         Qe2r_Surf[i] = 0.;
         Qe2r_Sub[i] = 0.;
     }
-    /* P1e PR-H (#316, design D4) — steady-state lake first-touch
-     * warm-up loop removed. See header comment at L55-69. The lake
-     * arrays (QLakeSub/QLakeSurf/qLakeEvap/qLakePrcp/QLakeRivIn/
-     * QLakeRivOut) are still zero-initialised below in the same
-     * for-i NumLake loop, and allocation-time first-touch in
-     * Model_Data.cpp::malloc_EleRiv still sets the NUMA page
-     * residency. */
 
     #pragma omp for schedule(static) nowait
     for (int i = 0; i < NumLake; i++) {
@@ -187,8 +164,8 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
         DY[i] = 0.;
     }
 #ifdef SHUD_DUMP_RHS
-    /* PR-H: SHUD_DUMP_RHS hook performs file I/O; wrap in `omp single`
-     * so exactly one thread runs it under StrictOMP. */
+    /* The SHUD_DUMP_RHS hook performs file I/O; `omp single` makes
+     * exactly one thread run it under StrictOMP. */
     #pragma omp single
     {
         shud_rhs_dump_point("f_update", t, DY, NumY);
@@ -196,47 +173,32 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
 #endif
 }
 
-/* S1b (openMP #45) — `Model_Data::rhs_flux` is a PURE CARRY-OVER of
- * `Model_Data::f_loop` defined in
- * `SHUD/src/ModelData/MD_f.cpp:11-74` (PR #43 post-state; range
- * includes both #ifdef SHUD_DUMP_RHS probe blocks + after-PassValue_legacy
- * no-op hook). The only structural difference vs legacy is the
- * function NAME (`rhs_flux` instead of `f_loop`) — same
- * `Model_Data::` member, same `(double t)` signature, same
- * `this`-relative member / global access (per spec
- * rhs-core-flux-extraction Scenario "Diff legacy f_loop vs new
- * rhs_flux" allowing only function-name + namespace qualifier
- * differences).
+/* `Model_Data::rhs_flux` computes all fluxes for one RHS evaluation.
  *
- * Process order is the strict 6-step sequence preserved byte-for-byte:
+ * The process order is a strict sequence; each step reads what the
+ * previous ones wrote:
  *   1. Element pass 1  (lake updateLakeElement / fun_Ele_lakeVertical
- *                       + qLakeEvap/qLakePrcp accum; non-lake f_etFlux
- *                       + updateElement + fun_Ele_Infiltraion +
- *                       fun_Ele_Recharge)
+ *                       + per-element qLakeEvap/qLakePrcp shares;
+ *                       non-lake f_etFlux + updateElement +
+ *                       fun_Ele_Infiltraion + fun_Ele_Recharge)
  *   2. Element pass 2  (lake fun_Ele_lakeHorizon; non-lake
  *                       fun_Ele_surface + fun_Ele_sub)
  *   3. Segment pass    (fun_Seg_surface + fun_Seg_sub)
  *   4. River pass      (Flux_RiverDown)
- *   5. Lake clamp pass (min/max on qLakeEvap)
- *   6. PassValue_legacy()     (zero-reset + segment re-accumulate)
- * Followed by the after-PassValue_legacy no-op SHUD_DUMP_RHS hook (legacy).
+ *   5. Lake pass       (per-lake gather of qLakeEvap/qLakePrcp, then
+ *                       min/max clamp on qLakeEvap)
+ *   6. rhs_deterministic_gather() (zero-reset + per-owner gathers)
+ * The two SHUD_DUMP_RHS hooks sit immediately before and after step 6.
  *
- * Dump tag strings `"f_loop_before_passvalue"` (MD_f.cpp:67) and
- * `"f_loop"` (MD_f.cpp:72) are preserved verbatim so PR #54's 12
- * `_before_passvalue.bin` + 12 unsuffixed snapshot goldens (4 case
- * × 3 t_values) stay addressable. Renaming = breaks goldens.
- *
- * No sub-function split (rhs_element_vertical / rhs_segment_compute
- * etc. belong to S3, not S1b — per spec Scenario "No sub-function
- * split inside rhs_flux"). */
+ * Dump tag strings `"f_loop_before_passvalue"` and `"f_loop"` are keys
+ * used by external snapshot-comparison tooling; do not rename them. */
 
-/* P1c PR-B (#245): Fixed-shape pairwise tree reduction over an index
- * list, B0 serial traversal order preserved. Tree shape depends only on
- * the list length, NOT on NUM_OPENMP — used at per-owner accumulation
- * sites to obtain a thread-count-independent canonical sum. Spec
- * p1c-deterministic-reduction "fixed-shape pairwise canonical reduction".
+/* Fixed-shape pairwise tree reduction over an index list, visited in
+ * list order. Tree shape depends only on the list length, NOT on the
+ * thread count — used at per-owner accumulation sites to obtain a
+ * thread-count-independent canonical sum.
  *
- * Empty list returns 0.0 (preserves prior explicit zero-init semantics);
+ * Empty list returns 0.0 (so callers need no explicit zero-init);
  * single element returns src[idx[0]]. Range-pointer variant avoids
  * per-call vector copies (O(n log n) work, O(log n) stack). Stack depth
  * = ceil(log2(n)); n is bounded by NumEle so recursion is safe. */
@@ -256,17 +218,16 @@ static inline double fixed_pairwise_sum_indexed(
     return fixed_pairwise_sum_range(idx.data(), idx.size(), src);
 }
 
-/* P1c PR-C (#246): Fixed-shape leftfold canonical reduction over an
- * index list (B0 traversal order preserved). For each src element
- * src[idx[k]] in list order, accumulator runs
+/* Fixed-shape leftfold canonical reduction over an index list. For
+ * each src element src[idx[k]] in list order, accumulator runs
  *   `acc = 0; acc += src[idx[0]]; acc += src[idx[1]]; ...`.
- * Result is bitwise-identical to legacy serial `for x in list: dst +=
- * src[x]` accumulation (assuming dst starts at 0.0) since the operation
- * order is identical to a left-fold pattern. Use this for sites 3-7
- * (segment -> river / element gathers, upstream river gather) where
- * keliya N=1 bitwise vs B0 must be preserved. Sites 1-2 (lake
- * aggregation) use the tree variant `fixed_pairwise_sum_indexed`
- * instead (different shape trade-off documented in PR-B). */
+ * Result is bitwise-identical to a plain serial `for x in list: dst +=
+ * src[x]` accumulation (with dst starting at 0.0) since the operation
+ * order is the same. Used for the segment -> river / element gathers,
+ * the upstream river gather and the river -> lake gather, which must
+ * reproduce the serial loop bit-for-bit. The per-lake qLakeEvap /
+ * qLakePrcp aggregation uses the tree variant
+ * `fixed_pairwise_sum_indexed` instead. */
 static inline double fixed_leftfold_sum_indexed(
         const std::vector<int>& idx, const double* src) {
     double acc = 0.0;
@@ -274,14 +235,14 @@ static inline double fixed_leftfold_sum_indexed(
     return acc;
 }
 
-/* Fixed-shape leftfold canonical reduction over an index-pair list
- * (B0 traversal order preserved). For each (ie, j) pair in B0
- * traversal order, accumulator runs `acc += src[ie * stride + j]`.
- * Bitwise-identical to legacy `for (auto& ej : list) acc += src[ej.first
- * * stride + ej.second]`. Used for site 8 (lake_bank_edge_by_lake,
- * S4.6) where adjacency list contains (ie, j) pairs; lookup is the
- * standard stride=3 element-edge convention. Constant-stride keeps the
- * helper trivially inlinable.
+/* Fixed-shape leftfold canonical reduction over an index-pair list.
+ * For each (ie, j) pair in list order, accumulator runs
+ * `acc += src[ie * stride + j]`. Bitwise-identical to a plain serial
+ * `for (auto& ej : list) acc += src[ej.first * stride + ej.second]`.
+ * Used for the lake-bank gathers (lake_bank_edge_by_lake), whose
+ * adjacency list contains (ie, j) pairs; lookup is the standard
+ * stride=3 element-edge convention. Constant-stride keeps the helper
+ * trivially inlinable.
  */
 static inline double fixed_leftfold_sum_pair_indexed(
         const std::vector<std::pair<int,int>>& pairs,
@@ -293,67 +254,51 @@ static inline double fixed_leftfold_sum_pair_indexed(
 }
 
 void Model_Data:: rhs_flux(double t){
-    /* P1e PR-H (#316, design D4) — steady-state river first-touch
-     * warm-up loop removed. See header comment at L55-69. The river
-     * arrays (QrivSurf/QrivSub/QrivUp) are still pre-zeroed inside
-     * rhs_deterministic_gather() (L545-547 in this file) and then
-     * overwritten by the leftfold helpers, exactly as before; the
-     * pre-PR-H warm-up loop only mirrored those zero writes for
-     * NUMA-local page residency, which is already handled by the
-     * allocation-time first-touch in Model_Data.cpp::malloc_EleRiv. */
-
-    /* S5c-B (#174): 5 inner buckets (ET / lateral / segment / river /
-     * gather) are scoped via `shud_diag::ScopeTimer`. The block braces
-     * are pre-existing in some loops (none here) so we add explicit
-     * `{ }` to scope each ScopeTimer to exactly one phase. Under
-     * `SHUD_ENABLE_DIAGNOSTICS` undefined, the timer macros expand to
-     * nothing — the loop bodies and brace nesting are unchanged.
+    /* The 5 inner diagnostic buckets (ET / lateral / segment / river /
+     * gather) are scoped via `shud_diag::ScopeTimer`; the explicit
+     * `{ }` blocks scope each ScopeTimer to exactly one phase. With
+     * `SHUD_ENABLE_DIAGNOSTICS` undefined the timers are compiled out
+     * and the loop bodies are unchanged.
      *
-     * P1e PR-H (#316, design D2) — when invoked under StrictOMP the
-     * inner ScopeTimer constructions race on `g_rhs_timer_ns[bucket]`
-     * (each team thread runs the ctor/dtor and += the global). The
-     * race is documented as a known dev-only artefact: diagnostics
-     * builds are not bitwise-deterministic in strict-omp mode and
-     * are used only for offline profiling, not for verification.
-     * Production builds (`-USHUD_ENABLE_DIAGNOSTICS`) compile the
-     * ScopeTimer ctor/dtor away entirely. */
+     * Under StrictOMP the ScopeTimer constructions race on
+     * `g_rhs_timer_ns[bucket]` (each team thread runs the ctor/dtor
+     * and += the global). This is accepted: diagnostics builds are
+     * for offline profiling only and their timings are not exact with
+     * the OpenMP RHS. */
     {
 #ifdef SHUD_ENABLE_DIAGNOSTICS
         shud_diag::ScopeTimer _t_et(
             &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_ET]);
 #endif
-    /* PR-H: omp for on the NumEle pass. Each iteration writes only to
-     * Ele[i] (AoS + hot SoA slot i) and to per-element scratch
-     * (qLakeEvap_lake[i], qElePrep_lake[i], qEleEvapo[i], qElePrep[i]
-     * via f_etFlux / fun_Ele_* — all owner-local to i). The trailing
-     * implicit barrier (no `nowait`) is REQUIRED: the lateral bucket
-     * below reads `hot.u_effKH[inabr]` (neighbour element's hot SoA
-     * slot, populated here by sync_hot_dynamic(i) after
-     * updateElement). Without the barrier some neighbour SoA slots
-     * would still hold stale values when the lateral team reads
-     * them — TSan-confirmed cross-thread race on MD_ElementFlux.cpp
-     * L169 vs MD_rhs_core.cpp ET bucket. */
+    /* Each iteration writes only to Ele[i] (AoS + hot SoA slot i) and
+     * to per-element scratch (qEleEvapo_lake[i], qElePrep_lake[i],
+     * qEleEvapo[i], qElePrep[i] via f_etFlux / fun_Ele_* — all
+     * owner-local to i). The trailing implicit barrier (no `nowait`)
+     * is REQUIRED: the lateral bucket below reads `hot.u_effKH[inabr]`
+     * (neighbour element's hot SoA slot, populated here by
+     * sync_hot_dynamic(i) after updateElement). Without the barrier
+     * some neighbour SoA slots could still hold stale values when the
+     * lateral pass reads them — a cross-thread data race. */
     #pragma omp for schedule(static)
     for (int i = 0; i < NumEle; i++) {
         if(lakeon && Ele[i].iLake > 0){
             /* Lake elements */
             Ele[i].updateLakeElement();
-            /* S6b.4 (#205): SoA/AoS sync drift fix. updateLakeElement()
-             * mutates AoS hot fields (Ele[i].u_effKH = KsatH, etc.) but
-             * does NOT refresh hot.<field>[i]; sync_hot_dynamic(i) is
-             * required so subsequent consumers reading hot.u_effKH[i]
-             * see the post-update value rather than the stale forcing
-             * blend left by updateforcing(). Pattern mirrors the
-             * dead-code legacy MD_f.cpp::f_loop L27-28. */
+            /* updateLakeElement() mutates AoS hot fields
+             * (Ele[i].u_effKH = KsatH, etc.) but does NOT refresh
+             * hot.<field>[i]; sync_hot_dynamic(i) is required so
+             * subsequent consumers reading hot.u_effKH[i] see the
+             * post-update value rather than the stale forcing blend
+             * left by updateforcing(). */
             sync_hot_dynamic(i);
             fun_Ele_lakeVertical(i, t);
-            /* S3b.4 (PR-9): shared writes
+            /* The per-lake sums
              *   qLakeEvap[Ele[i].iLake-1] += qEleEvapo[i] / NumEleLake
              *   qLakePrcp[Ele[i].iLake-1] += qElePrep[i]  / NumEleLake
-             * extracted into deterministic per-element slots. The
-             * division (by lake.NumEleLake) is now per-element. Gather
-             * (after RivLoop, BEFORE the lake clamp below) sums to
-             * per-lake qLakeEvap / qLakePrcp. */
+             * would be shared writes, so each element stores its share
+             * (already divided by lake.NumEleLake) in its own slot. The
+             * gather after the river loop, BEFORE the lake clamp below,
+             * sums them to per-lake qLakeEvap / qLakePrcp. */
             qEleEvapo_lake[i] = qEleEvapo[i] / lake[Ele[i].iLake - 1].NumEleLake;
             qElePrep_lake[i]  = qElePrep[i]  / lake[Ele[i].iLake - 1].NumEleLake;
         }else{
@@ -361,10 +306,9 @@ void Model_Data:: rhs_flux(double t){
             /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
             /*========infiltration/Recharge Function==============*/
             Ele[i].updateElement(uYsf[i] , uYus[i] , uYgw[i] ); // step 1 update the kinf, kh, etc. for elements.
-            /* S6b.4 (#205): same SoA refresh pattern after updateElement
-             * mutation. Mirrors MD_f.cpp::f_loop L40-41 dead-code
-             * pattern; Flux_Infiltration / Flux_Recharge consumers read
-             * hot.u_effkInfi[i] etc. and must see post-update value. */
+            /* Same SoA refresh after updateElement(): the infiltration
+             * / recharge code reads hot.u_effkInfi[i] etc. and must see
+             * the post-update value. */
             sync_hot_dynamic(i);
             fun_Ele_Infiltraion(i, t); // step 2 calculate the infiltration.
             fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
@@ -376,7 +320,7 @@ void Model_Data:: rhs_flux(double t){
         shud_diag::ScopeTimer _t_lat(
             &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_LATERAL]);
 #endif
-    /* PR-H: owner-local writes to QeleSurfAt(i,j) / QeleSubAt(i,j).
+    /* Owner-local writes to QeleSurfAt(i,j) / QeleSubAt(i,j).
      * Trailing implicit barrier (no `nowait`) — segment / river
      * buckets below cannot start until lateral writes are visible
      * (rhs_deterministic_gather() further down reads QsegSurf via
@@ -399,7 +343,7 @@ void Model_Data:: rhs_flux(double t){
         shud_diag::ScopeTimer _t_seg(
             &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_SEGMENT]);
 #endif
-    /* PR-H: owner-local writes to QsegSurf[i] / QsegSub[i]. Trailing
+    /* Owner-local writes to QsegSurf[i] / QsegSub[i]. Trailing
      * implicit barrier (no `nowait`) — rhs_deterministic_gather()
      * below reads QsegSurf / QsegSub via seg_by_riv / seg_by_ele
      * adjacency lookups; the gather entry must observe all segment
@@ -415,7 +359,7 @@ void Model_Data:: rhs_flux(double t){
         shud_diag::ScopeTimer _t_riv(
             &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_RIVER]);
 #endif
-    /* PR-H: Flux_RiverDown(t, i) writes QrivDown[i] (owner-local) and
+    /* Flux_RiverDown(t, i) writes QrivDown[i] (owner-local) and
      * reads neighbour `uYriv[iDown]` / `Riv[iDown].depth` (Phase 1
      * -> Phase 2 barrier already synchronised those). Trailing
      * implicit barrier (no `nowait`) — rhs_deterministic_gather()
@@ -424,28 +368,22 @@ void Model_Data:: rhs_flux(double t){
     for (int i = 0; i < NumRiv; i++) {
         Flux_RiverDown(t, i);
     }
-    /* S3b.4 (PR-9): transitional gather per-element -> per-lake.
-     * Must run BEFORE the lake clamp below (clamp reads qLakeEvap /
-     * qLakePrcp). Cannot live in PassValue_legacy because PassValue_legacy() is
-     * called AFTER the clamp. Will be replaced by
-     * rhs_deterministic_gather() in S3c (PR-11).
+    /* Per-element -> per-lake gather of qLakeEvap / qLakePrcp. It must
+     * run BEFORE the lake clamp below (the clamp reads both), so it
+     * cannot live in rhs_deterministic_gather(), which is called
+     * AFTER the clamp.
      *
-     * P1c PR-B (#245): L278/L279 inline serial += replaced with per-lake
-     * fixed-shape pairwise tree reduction over `ele_by_lake[ilake]`
-     * (S4.5; populated in MD_adjacency.cpp by the same
-     * `for (i = 0; i < NumEle; i++) if Ele[i].iLake > 0` traversal so the
-     * list is already in B0 canonical order — do NOT re-sort). Tree
-     * shape determined by list length only, NOT NUM_OPENMP. Prior
-     * explicit zero-init is removed because fixed_pairwise_sum_indexed
-     * returns 0.0 on empty lists, preserving the empty-lake semantics.
-     * Fork-join structure unchanged; no schedule / atomic / reduction
-     * pragmas added (P9 owns parallel attribution).
+     * Each lake sum is a fixed-shape pairwise tree reduction over
+     * `ele_by_lake[ilake]`. MD_adjacency.cpp fills that list by an
+     * ascending `for (i = 0; i < NumEle; i++) if Ele[i].iLake > 0`
+     * traversal, which is the canonical order — do NOT re-sort. Tree
+     * shape is determined by list length only, NOT by the thread
+     * count. No explicit zero-init is needed because
+     * fixed_pairwise_sum_indexed returns 0.0 on an empty list.
      *
-     * P1e PR-H (#316): the lake transitional gather + clamp pass is a
-     * single sequential block that depends on the prior NumEle ET pass
-     * (qEleEvapo_lake / qElePrep_lake populated per-element above) and
-     * feeds the upcoming lake clamp + rhs_deterministic_gather() pass.
-     * Bracketed in `#pragma omp single` so exactly one team thread
+     * The gather + clamp is a sequential block that depends on the
+     * NumEle ET pass above (qEleEvapo_lake / qElePrep_lake). It is
+     * bracketed in `#pragma omp single` so exactly one team thread
      * runs it; the trailing implicit barrier ensures all team
      * threads observe the gathered + clamped per-lake values before
      * the rhs_deterministic_gather() block below. */
@@ -465,27 +403,23 @@ void Model_Data:: rhs_flux(double t){
         }
     } /* end omp single — lake transitional gather + clamp */
     } /* end river bucket (incl. lake transitional gather + clamp) */
-    /* #43 (S1-pre-B): before-PassValue_legacy probe. Dumps Qe2r_Surf
-     * (length NumEle), a PassValue_legacy() write-set member that carries
-     * the previous iteration's element-to-river surface flux state.
-     * PassValue_legacy (see body at L182-205) zero-resets Qe2r_Surf[0..NumEle-1]
-     * and then accumulates QsegSurf over NumSegmt segments; capturing
-     * Qe2r_Surf HERE gives a deterministic snapshot of the value that
-     * is about to be cleared + re-derived by PassValue_legacy. PR #54 round-1
-     * fix F4 replaced the prior QeleSurfTot probe payload (which
-     * f_update zero-resets so the snapshot was always all zeros and
-     * thus useless as a before-vs-after PassValue_legacy diff) with this
-     * write-set member. Site tag "f_loop_before_passvalue" is distinct
-     * from the no-op "f_loop" hook below + the "f_update" hook in
-     * MD_update.cpp:151; the writer SHUD_DUMP_FNAME_SUFFIX env
+    /* Before-gather probe. Dumps Qe2r_Surf (length NumEle), which at
+     * this point still holds the element-to-river surface flux of the
+     * previous RHS evaluation: rhs_deterministic_gather() below
+     * zero-resets it and re-accumulates QsegSurf into it, so this is a
+     * snapshot of the value about to be cleared and re-derived.
+     * (QeleSurfTot would be useless here — rhs_update zero-resets it,
+     * so it is always all zeros at this point.) Site tag
+     * "f_loop_before_passvalue" is distinct from the no-op "f_loop"
+     * hook below and the "f_update" hook in rhs_update(); the
+     * SHUD_DUMP_FNAME_SUFFIX environment variable read by the writer
      * disambiguates output files (`snapshot_t<v>_before_passvalue.bin`
-     * vs `snapshot_t<v>.bin`). SHUD_DUMP_RHS=0 builds emit zero code
-     * (compile-switch neutrality contract).
+     * vs `snapshot_t<v>.bin`).
      *
-     * P1e PR-H (#316): the SHUD_DUMP_RHS hook performs file I/O; under
-     * StrictOMP wrap in `#pragma omp single` so exactly one thread runs
-     * the dump. SHUD_DUMP_RHS-undefined builds compile the directive
-     * out alongside the hook itself. */
+     * The hook performs file I/O, so `#pragma omp single` makes
+     * exactly one thread run the dump under StrictOMP. Without
+     * SHUD_DUMP_RHS both the directive and the hook are compiled
+     * out. */
 #ifdef SHUD_DUMP_RHS
     #pragma omp single
     {
@@ -493,18 +427,15 @@ void Model_Data:: rhs_flux(double t){
     }
 #endif
     /* Shared for both OpenMP and Serial, to update.
-     * S3c.3 (PR-11 #155): retired the legacy in-line gather function
-     * (formerly PassValue_legacy, MD_f.cpp); the replacement
-     * rhs_deterministic_gather() consumes the 7 S4 adjacency lists
-     * (PR-10) to do all segment->river/element + downstream river +
-     * lake river-in/surf/sub gathering, with bitwise-preserved
-     * iteration order. */
+     * rhs_deterministic_gather() consumes the adjacency lists to do
+     * all segment->river/element + downstream river + lake
+     * river-in/surf/sub gathering in a fixed iteration order. */
     {
 #ifdef SHUD_ENABLE_DIAGNOSTICS
         shud_diag::ScopeTimer _t_gather(
             &shud_diag::g_rhs_timer_ns[shud_diag::RHS_BUCKET_GATHER]);
 #endif
-        /* PR-H: rhs_deterministic_gather() body now contains its own
+        /* rhs_deterministic_gather() contains its own
          * `#pragma omp for schedule(static)` directives; do NOT wrap
          * the call site in `omp single` (would defeat parallelisation). */
         rhs_deterministic_gather();
@@ -517,47 +448,42 @@ void Model_Data:: rhs_flux(double t){
 #endif
 }
 
-/* S3c.3 (PR-11 #155) -- `Model_Data::rhs_deterministic_gather` is the
- * unified deterministic gather called from `rhs_flux` at the prior
- * legacy in-line gather site (formerly `PassValue_legacy`). Per design.md
- * D12 the function body lives WITH the RHS core in MD_rhs_core.cpp
- * (NOT in a separate MD_gather.cpp file).
+/* `Model_Data::rhs_deterministic_gather` is the unified per-owner
+ * gather called at the end of `rhs_flux`.
  *
  * Body content:
  *   1. Pre-zero all river / element / lake accumulators (River:
  *      QrivSurf, QrivSub, QrivUp; Element: Qe2r_Surf, Qe2r_Sub;
  *      Lake: QLakeRivIn, QLakeSurf, QLakeSub).
- *   2. S3c.1 -- segment -> river gather via S4.1 seg_by_riv.
- *   3. S3c.1 -- segment -> element gather via S4.2 seg_by_ele.
- *   4. S3c.2 -- downstream river -> upstream gather via S4.3
- *      upstream_by_down (predicate `toLake<=0` already baked into the
- *      list at build time, MD_adjacency.cpp L108-115).
- *   5. S3b.1 -- per-river-down -> per-lake gather via S4.4
- *      riv_in_by_lake (lake-only branch).
- *   6. S3b.2 -- per-element-edge surf -> per-lake gather via S4.6
+ *   2. Segment -> river gather via seg_by_riv.
+ *   3. Segment -> element gather via seg_by_ele.
+ *   4. Downstream river -> upstream gather via upstream_by_down
+ *      (predicate `toLake<=0` already baked into the list at build
+ *      time, MD_adjacency.cpp).
+ *   5. Per-river-down -> per-lake gather via riv_in_by_lake
+ *      (lake-only branch).
+ *   6. Per-element-edge surf -> per-lake gather via
  *      lake_bank_edge_by_lake.
- *   7. S3b.3 -- per-element-edge sub -> per-lake gather via S4.6
+ *   7. Per-element-edge sub -> per-lake gather via
  *      lake_bank_edge_by_lake.
  *
  * NOT included here (and intentionally so):
- *   - S3b.4 qLakeEvap / qLakePrcp per-element->per-lake gather; that
- *     stays in `rhs_flux` BEFORE the lake clamp pass (the clamp reads
- *     the gathered values; constraint documented in PR-9 commit log).
+ *   - the qLakeEvap / qLakePrcp per-element->per-lake gather; that
+ *     stays in `rhs_flux` BEFORE the lake clamp pass, because the
+ *     clamp reads the gathered values.
  *
- * Bitwise reproducibility: each S4 list iterates in B0 ascending
+ * Bitwise reproducibility: each adjacency list is stored in ascending
  * array-index order (MD_adjacency.cpp), so the per-accumulator `+=`
- * sequence is identical to the legacy serial loops. No `#pragma omp
- * parallel` directive is added; OpenMP parallelization of the gather
- * is deferred to P1+ per master plan.
+ * sequence is identical to a plain serial loop over the source array.
  */
 void Model_Data::rhs_deterministic_gather(){
-    /* P1e PR-H (#316, design D2) — `#pragma omp for schedule(static)`
-     * on each top-level loop. The helper-driven reductions
-     * (fixed_leftfold_sum_indexed / fixed_pairwise_sum_indexed /
-     * fixed_leftfold_sum_pair_indexed) iterate over deterministic S4
-     * adjacency lists in B0-canonical order — independent of which
-     * OMP team thread evaluates them — so cross-N bitwise
-     * determinism is preserved.
+    /* Each top-level loop carries `#pragma omp for schedule(static)`.
+     * Only the loop over owners is work-shared; each owner's sum is
+     * computed by one thread through the helper reductions
+     * (fixed_leftfold_sum_indexed / fixed_leftfold_sum_pair_indexed),
+     * which walk that owner's adjacency list in its stored order —
+     * independent of which team thread evaluates it — so results are
+     * bit-identical for any thread count.
      *
      * The lake-side branch (`if (lakeon)`) wraps three pairs of
      * `omp for` directives. The conditional itself is uniform across
@@ -589,34 +515,33 @@ void Model_Data::rhs_deterministic_gather(){
      * slots, so the team must observe the zero writes before
      * proceeding. */
 
-    /* -------- S3c.1: segment -> river gather (S4.1, fixed-shape leftfold
-     * canonical reduction over seg_by_riv, B0 traversal order preserved).
-     * P1c PR-C (#246): sites 3-4 wrapped with fixed_leftfold_sum_indexed
-     * (byte-equivalent to original `acc += src[iseg]` since the operation
-     * order is identical). Pre-zero loop at function head kept for
-     * explicitness; helper assignment overwrites (zero-cost behavior). */
+    /* -------- segment -> river gather (fixed-shape leftfold canonical
+     * reduction over seg_by_riv, in list order; bitwise-equivalent to
+     * a serial `acc += src[iseg]` loop). The pre-zero loop at function
+     * head is kept for explicitness; the helper assignment overwrites
+     * it. */
     #pragma omp for schedule(static) nowait
     for (int ir = 0; ir < NumRiv; ir++) {
         QrivSurf[ir] = fixed_leftfold_sum_indexed(seg_by_riv[ir], QsegSurf);
         QrivSub[ir]  = fixed_leftfold_sum_indexed(seg_by_riv[ir], QsegSub);
     }
 
-    /* -------- S3c.1: segment -> element gather (S4.2, leftfold +
+    /* -------- segment -> element gather (seg_by_ele, leftfold +
      * post-negate; `-leftfold(...)` is IEEE-754 bitwise-equivalent to
-     * original left-to-right `acc += -src[iseg]` since negation is exact
-     * sign-bit flip). P1c PR-C (#246): sites 5-6. Pre-zero kept for
-     * explicitness; helper assignment overwrites. */
+     * a left-to-right `acc += -src[iseg]` since negation is exact
+     * sign-bit flip). Pre-zero kept for explicitness; helper
+     * assignment overwrites. */
     #pragma omp for schedule(static)
     for (int ie = 0; ie < NumEle; ie++) {
         Qe2r_Surf[ie] = -fixed_leftfold_sum_indexed(seg_by_ele[ie], QsegSurf);
         Qe2r_Sub[ie]  = -fixed_leftfold_sum_indexed(seg_by_ele[ie], QsegSub);
     }
-    /* Implicit barrier above — S3c.2 downstream gather reads QrivDown
-     * (populated by Flux_RiverDown upstream + finalised by the prior
-     * river bucket); we must also synchronise across the QrivUp
-     * writes before any lake-side branch reads them. */
+    /* Implicit barrier above — the downstream gather below reads
+     * QrivDown (populated by Flux_RiverDown upstream + finalised by
+     * the prior river bucket); we must also synchronise across the
+     * QrivUp writes before any lake-side branch reads them. */
 
-    /* -------- S3c.2: downstream river -> upstream gather (S4.3,
+    /* -------- downstream river -> upstream gather (upstream_by_down,
      * leftfold + post-negate; `-leftfold(...)` is IEEE-754
      * bitwise-equivalent to left-to-right `acc += -src[up]` since
      * negation is exact sign-bit flip). upstream_by_down[ir] was
@@ -629,9 +554,8 @@ void Model_Data::rhs_deterministic_gather(){
 
     /* -------- lake-side gathers (lakeon-gated) -------- */
     if (lakeon) {
-        /* S3b.1: per-river-down -> per-lake (S4.4 riv_in_by_lake,
-         * fixed-shape leftfold canonical reduction over B0 ascending
-         * iriv order). */
+        /* Per-river-down -> per-lake (riv_in_by_lake, fixed-shape
+         * leftfold canonical reduction over ascending iriv order). */
         #pragma omp for schedule(static) nowait
         for (int ilake = 0; ilake < NumLake; ilake++) {
             QLakeRivIn[ilake] = 0.;
@@ -642,8 +566,8 @@ void Model_Data::rhs_deterministic_gather(){
                     riv_in_by_lake[ilake], QrivDown);
         }
 
-        /* S3b.2: per-element-edge surface -> per-lake (S4.6
-         * lake_bank_edge_by_lake, fixed-shape leftfold over B0 ascending
+        /* Per-element-edge surface -> per-lake
+         * (lake_bank_edge_by_lake, fixed-shape leftfold over ascending
          * (iele, j) pairs; stride=3 element-edge convention). */
         #pragma omp for schedule(static) nowait
         for (int ilake = 0; ilake < NumLake; ilake++) {
@@ -655,8 +579,8 @@ void Model_Data::rhs_deterministic_gather(){
                     lake_bank_edge_by_lake[ilake], QeleSurf_lake, 3);
         }
 
-        /* S3b.3: per-element-edge subsurface -> per-lake (same S4.6
-         * list, separate accumulator). Final `omp for` in the function
+        /* Per-element-edge subsurface -> per-lake (same list,
+         * separate accumulator). Final `omp for` in the function
          * — must NOT carry `nowait` so its implicit barrier
          * synchronises team state before returning to rhs_flux's
          * caller. */
@@ -670,45 +594,30 @@ void Model_Data::rhs_deterministic_gather(){
                     lake_bank_edge_by_lake[ilake], QeleSub_lake, 3);
         }
     }
-    /* PR-H: when lakeon == false the final `omp for` in the function
-     * is the S3c.2 downstream-gather loop above (which omits `nowait`
+    /* When lakeon == false the final `omp for` in the function
+     * is the downstream-gather loop above (which omits `nowait`
      * already), so the implicit-barrier requirement still holds.
      * When lakeon == true the final loop is the lake-sub gather
      * directly above (also no `nowait`). */
 }
 
-/* S1c (openMP #46) — `Model_Data::rhs_apply` is a PURE CARRY-OVER of
- * `Model_Data::f_applyDY` defined in
- * `SHUD/src/ModelData/MD_f.cpp:76-182`. The only structural difference
- * vs legacy is the function NAME (`rhs_apply` instead of `f_applyDY`)
- * — same `Model_Data::` member, same `(double *DY, double t)`
- * signature, same `this`-relative member / global access (per spec
- * rhs-core-applydy-extraction Scenario "Diff vs B0 f_applyDY shows
- * only signature changes" allowing only function-name + namespace
- * qualifier differences).
+/* `Model_Data::rhs_apply` assembles DY from the fluxes computed by
+ * `rhs_flux`.
  *
- * River DY uses serial 3-step formula (length + area clamp +
- * `fun_dAtodY()`); the simpler `_omp` "/ u_TopArea" 1-step formula
- * MUST NOT be used (per spec Scenario "River DY divisor is
- * Riv[i].Length not u_TopArea"). Lake DY divide-by-zero UB is
- * preserved verbatim — no `y2LakeArea[i] == 0` guard / epsilon /
- * ternary (per spec Scenario "Lake DY divide-by-zero UB preserved";
- * numerical-stability fixes deferred to S5 / S6).
- *
- * Commented-out debug printf blocks preserved verbatim.
+ * River DY uses the 3-step formula (divide by Riv[i].Length, clamp
+ * to the available cross-section area, then `fun_dAtodY()`); a
+ * simpler 1-step "/ u_TopArea" formula MUST NOT be used. Lake DY
+ * divides by y2LakeArea[i] with no zero guard / epsilon; a lake with
+ * zero top area is therefore not handled here.
  *
  * `SHUD_DUMP_RHS` hook tag string is `"f_applyDY"` (NOT `"rhs_apply"`)
- * — rename would break snapshot lookup against any goldens shipped in
- * PR #53 / #54 that key on the legacy tag. See spec Scenario "Diff
- * vs B0 f_applyDY shows only signature changes" final bullet. */
+ * — it is a key used by external snapshot-comparison tooling and must
+ * not be renamed. */
 void Model_Data::rhs_apply(double *DY, double t){
-    /* P1e PR-H (#316, design D2) — `area / isf / ius / igw` moved from
-     * method scope into the NumEle loop body so each StrictOMP team
-     * thread holds its own per-iteration locals (the pre-PR-H method-
-     * scope declarations were thread-shared and would race on the
-     * `omp for` decomposition introduced below). Mode A semantics
-     * unchanged — local-vs-method-scope storage is invisible to the
-     * single-thread iteration order. */
+    /* `area / isf / ius / igw` are declared inside the NumEle loop
+     * body, not at method scope, so each StrictOMP team thread holds
+     * its own per-iteration locals; method-scope declarations would be
+     * shared across the team and race under the `omp for` below. */
     #pragma omp for schedule(static) nowait
     for (int i = 0; i < NumEle; i++) {
         int isf = iSF;
@@ -717,7 +626,7 @@ void Model_Data::rhs_apply(double *DY, double t){
         double area = Ele[i].area;
         QeleSurfTot[i] = Qe2r_Surf[i];
         QeleSubTot[i] = Qe2r_Sub[i];
-        /* S5d.2-5a (#179) — flat read via accessor. */
+        /* Read the per-edge fluxes through the flat-array accessors. */
         for (int j = 0; j < 3; j++) {
             QeleSurfTot[i] += QeleSurfAt(i, j);
             QeleSubTot[i] += QeleSubAt(i, j);
@@ -778,7 +687,7 @@ void Model_Data::rhs_apply(double *DY, double t){
         CheckNANi(DY[igw], i, "DY[igw] (Model_Data::f_applyDY)");
 #endif
     }
-    /* PR-H: NumRiv loop writes only DY[iRIV] (owner-local). `nowait`
+    /* NumRiv loop writes only DY[iRIV] (owner-local). `nowait`
      * since the next NumLake loop touches a disjoint DY range
      * (iLAKE = i + 3 * NumEle + NumRiv). */
     #pragma omp for schedule(static) nowait
@@ -805,9 +714,9 @@ void Model_Data::rhs_apply(double *DY, double t){
         CheckNANi(DY[i + 3 * NumEle], i, "DY[i] of river (Model_Data::f_applyDY)");
 #endif
     }
-    /* PR-H: NumLake loop writes only DY[iLAKE]. Final `omp for` in
+    /* NumLake loop writes only DY[iLAKE]. Final `omp for` in
      * rhs_apply — no `nowait` so its implicit barrier closes Phase 3
-     * before the StrictOMP outer parallel region exits. */
+     * before the StrictOMP parallel region exits. */
     #pragma omp for schedule(static)
     for(int i = 0; i < NumLake; i++){
 //        DY[i + 3 * NumEle + NumRiv]
@@ -822,8 +731,8 @@ void Model_Data::rhs_apply(double *DY, double t){
 #endif
     }
 #ifdef SHUD_DUMP_RHS
-    /* PR-H: SHUD_DUMP_RHS hook performs file I/O; wrap in `omp single`
-     * so exactly one thread runs it under StrictOMP. */
+    /* The SHUD_DUMP_RHS hook performs file I/O; `omp single` makes
+     * exactly one thread run it under StrictOMP. */
     #pragma omp single
     {
         shud_rhs_dump_point("f_applyDY", t, DY, 3 * NumEle + NumRiv + NumLake);
@@ -831,35 +740,31 @@ void Model_Data::rhs_apply(double *DY, double t){
 #endif
 }
 
-/* S1d.1 (openMP #47) — `rhs_core` four-arg ExecPolicy dispatch.
+/* `rhs_core` ExecPolicy dispatch.
  *
- * Per spec exec-policy-enum + design.md D7 / D8:
- *   - `ExecPolicy::Serial` runs the full new-path chain
- *     (`rhs_update` -> `rhs_flux` -> `rhs_apply`) extracted in
- *     S1a/b/c — bitwise-identical to legacy `f_update/f_loop/f_applyDY`
- *     (verified vs B0-tag in tasks 4.6a/b).
- *   - `ExecPolicy::StrictOMP` and `ExecPolicy::ProductionOMP` are
- *     S1-phase compile-time stubs: each calls `std::abort()` so any
- *     runtime call SIGABRTs immediately. `assert(false)` is forbidden
- *     because `-DNDEBUG` (release / EXTRA_CXXFLAGS=-DNDEBUG smoke
- *     compile) strips assert to a no-op and would let execution fall
- *     through silently to the next statement — destroying the
- *     contract that an OMP-policy call cannot impersonate Serial.
- *   - SHUD_ENABLE_OPENMP_RHS=0 (default) `#ifdef`s the OMP cases
- *     out of the translation unit; the resulting binary contains no
- *     OMP-path symbols (verified in tasks 4.9 / 5.10c via `nm`).
+ *   - `ExecPolicy::Serial` runs `rhs_update` -> `rhs_flux` ->
+ *     `rhs_apply` sequentially.
+ *   - `ExecPolicy::StrictOMP` runs the same three phases inside one
+ *     `#pragma omp parallel` region (see the case body).
+ *   - `ExecPolicy::ProductionOMP` is not implemented and calls
+ *     `std::abort()`. `assert(false)` must not be used instead:
+ *     `-DNDEBUG` strips assert to a no-op and would let execution
+ *     fall through silently to the next statement.
+ *   - Without SHUD_ENABLE_OPENMP_RHS the OMP cases are `#ifdef`ed
+ *     out of the translation unit, so the binary contains no
+ *     OMP-path code.
  *   - `default:` branch also aborts to catch ABI drift / future
  *     enumerator additions that haven't been wired up here.
  *
  * No template specialization, no virtual dispatch — plain switch.
- * The switch is compile-time-known at every caller in this stage
- * (f.cpp always passes `ExecPolicy::Serial`), so the compiler
- * eliminates the branch in optimized builds.
+ * The policy is a compile-time constant at the only caller (f() in
+ * f.cpp), so the compiler can eliminate the branch in optimized
+ * builds.
  */
 void Model_Data::rhs_core(double *Y, double *DY, double t, ExecPolicy policy){
     switch (policy) {
         case ExecPolicy::Serial:
-            /* S5c-B (#174): bucket 0 (update) + bucket 6 (applyDY) are
+            /* Diagnostic bucket 0 (update) + bucket 6 (applyDY) are
              * wrapped at the dispatch seam; buckets 1-5 are wrapped
              * inside rhs_flux(). rhs_flux as a whole is NOT timed as a
              * single bucket — its 5 inner sub-phases collectively cover
@@ -883,67 +788,47 @@ void Model_Data::rhs_core(double *Y, double *DY, double t, ExecPolicy policy){
             break;
 #ifdef SHUD_ENABLE_OPENMP_RHS
         case ExecPolicy::StrictOMP: {
-            /* P1e PR-F (#314) — replaces S1d.1 std::abort() stub with the
-             * design D2 single-region OpenMP impl. Three sequential phases
-             * (rhs_update -> rhs_flux -> rhs_apply) share a single outer
-             * `#pragma omp parallel`, with implicit barriers between phases
-             * supplied by `omp single` (each `single` ends with a barrier
-             * because no `nowait` is requested). Phase ordering and data
-             * dependencies are identical to the Serial branch above.
+            /* Single-region OpenMP implementation. The three phases
+             * (rhs_update -> rhs_flux -> rhs_apply) share ONE
+             * `#pragma omp parallel` region, to avoid a fork-join per
+             * loop. Phase ordering and data dependencies are identical
+             * to the Serial branch above.
              *
-             * Scope contract per p1e-strict-omp-rhs tasks.md §3 + design D2:
-             *   - Single outer parallel region (master plan C7 fork-join
-             *     minimization)
-             *   - 3 phases with implicit barriers between (Phase 1 update
-             *     -> Phase 2 flux -> Phase 3 apply)
-             *   - `default(none) shared(Y, DY, t) private()` — explicit
+             *   - `default(none) shared(Y, DY, t)` — explicit
              *     data-sharing (Y/DY/t are the only crossing scalars; all
              *     entity state is reached through `this->` member access
-             *     which is implicit-shared via the enclosing method)
-             *   - `schedule(static)` on each `#pragma omp for` inside
-             *     rhs_update / rhs_flux / rhs_apply (master plan §8.1
-             *     strict bans `dynamic|guided`)
+             *     which is implicit-shared via the enclosing method).
+             *   - All threads enter the three RHS methods together. The
+             *     per-entity top-level loops inside them carry
+             *     `#pragma omp for schedule(static)`; `dynamic` /
+             *     `guided` schedules are not allowed. The last `omp for`
+             *     in each method omits `nowait`, so its implicit barrier
+             *     synchronises team state at method return.
+             *   - No `#pragma omp parallel` may appear inside the three
+             *     methods: it would create a nested parallel region.
              *
-             * P1e PR-H (#316, design D2 + D4) — replaced the PR-F
-             * `omp single` scaffolding with `omp for` work-sharing.
-             * All threads now enter the three RHS methods together
-             * (the outer team is the only team), and the per-entity
-             * top-level loops inside rhs_update / rhs_flux / rhs_apply
-             * carry `#pragma omp for schedule(static)` (the last for
-             * in each method omits `nowait` so the implicit barrier
-             * synchronises team state at method return). Steady-state
-             * inner first-touch `#pragma omp parallel for` loops at
-             * MD_rhs_core.cpp:L62-95 / L169-203 / L324-354 are removed
-             * in this same PR per design D4 — without that removal the
-             * inner directives would create a nested parallel region
-             * once the outer `omp parallel` is live.
-             *
-             * Bitwise contract: with -fopenmp OFF the `omp parallel`
+             * Reproducibility: with -fopenmp OFF the `omp parallel`
              * and `omp for` directives are no-ops and the methods run
-             * fully serial (identical to mode A). With -fopenmp ON and
-             * `SHUD_RHS_THREADS=1` the OpenMP runtime executes each
-             * `omp for` on a single thread (the only team member), so
-             * the iteration sequence remains the canonical serial
-             * order; N=1 mode C output therefore equals mode A
-             * bit-for-bit. For N>1 the per-iteration owner-local
+             * fully serial. With -fopenmp ON and `SHUD_RHS_THREADS=1`
+             * each `omp for` runs on the single team member in the
+             * canonical serial order, so the output equals the serial
+             * build bit-for-bit. For N>1 the per-iteration owner-local
              * writes (each thread updates a disjoint Ele[i] / Riv[i]
              * / Lake[i] / DY[i] slot) and the canonical leftfold /
-             * pairwise reductions in rhs_deterministic_gather() (which
-             * iterate over deterministic S4 adjacency lists, NOT over
-             * OMP-decomposed ranges) preserve bitwise determinism
-             * across thread counts.
+             * pairwise reductions in rhs_flux() and
+             * rhs_deterministic_gather() (which iterate over the
+             * adjacency lists, NOT over OMP-decomposed ranges) keep
+             * the result bit-identical across thread counts.
              *
-             * P1e PR-G (#315 / design D3) — `num_threads(omp_get_max_threads())`
-             * pins the team size to the value `omp_set_num_threads()` left
-             * in the OpenMP ICVs at startup (driven by `SHUD_RHS_THREADS`,
-             * defaulting to `omp_get_max_threads()` itself). The explicit
-             * clause is defense against accidental nesting (e.g. a future
-             * caller wrapping rhs_core in its own outer parallel region):
-             * without the clause the inner team could inherit the outer
-             * team size and over-subscribe. The PR-G design forbids
-             * `omp_set_num_threads` inside this hot path (it has been
-             * called exactly once at shud.cpp startup); grep guard
-             * `grep -nE 'omp_set_num_threads' MD_rhs_core.cpp == 0`.
+             * `num_threads(omp_get_max_threads())` pins the team size
+             * to the value `omp_set_num_threads()` set at startup in
+             * shud.cpp (driven by `SHUD_RHS_THREADS`). The explicit
+             * clause is defense against accidental nesting (e.g. a
+             * future caller wrapping rhs_core in its own parallel
+             * region): without the clause the inner team could
+             * inherit the enclosing team size and over-subscribe. Do
+             * not call `omp_set_num_threads` in this hot path; it is
+             * called once at startup.
              */
             #pragma omp parallel default(none) shared(Y, DY, t) \
                 num_threads(omp_get_max_threads())
@@ -973,7 +858,7 @@ void Model_Data::rhs_core(double *Y, double *DY, double t, ExecPolicy policy){
             break;
         }
         case ExecPolicy::ProductionOMP:
-            /* ProductionOMP backend remains a P2+ scope stub. */
+            /* ProductionOMP is not implemented. */
             std::abort();
 #endif
         default:

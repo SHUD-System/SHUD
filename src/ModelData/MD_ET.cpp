@@ -7,22 +7,16 @@
 //
 
 #include "Model_Data.hpp"
-/* P2a fix (2026-06-26): inner-function Timer for `t_forcing_io` /
- * `t_ET` removed. They were nested inside the RAII Timers wrapping
- * `MD->updateforcing(t)` and `MD->ET(t, tnext)` at shud.cpp:211/219,
- * so the bucket double-counted (outer Timer covers inner-call wall +
- * inner Timer adds the same span again). Server heihe N=1 surfaced
- * the bug as t_forcing_io=773s > wall=495s (physically impossible).
- * Mac qhh N=1 had the same defect but ratio stayed <100% by luck.
- * Profile coverage is unchanged: the shud.cpp main-loop call sites
- * remain instrumented and span the full updateforcing/ET wall. */
+/* updateforcing() and ET() carry no profiling Timer of their own.
+ * The `t_forcing_io` / `t_ET` buckets are timed by the RAII Timers
+ * that wrap `MD->updateforcing(t)` and `MD->ET(t, tnext)` in the
+ * shud.cpp main loop; a second Timer in here would add the same span
+ * to the same bucket again and report more time than the wall clock. */
 void Model_Data::updateforcing(double t){
     int i;
-    /* S2.10 (PR-1 #144) — isolated `#ifdef _OPENMP / #pragma omp for`
-     * removed: the pragma was dormant (no enclosing `omp parallel`
-     * region) and the surrounding driver is single-threaded by the
-     * B1a contract. `tsd_weather[i].movePointer(t)` retains its
-     * serial-call semantics across NumForc. */
+    /* Plain serial loop: updateforcing() is called from the
+     * single-threaded main loop, outside any `omp parallel` region,
+     * so a bare `#pragma omp for` here would have no effect. */
     for (i = 0; i < NumForc; i++){
         tsd_weather[i].movePointer(t);
     }
@@ -30,19 +24,19 @@ void Model_Data::updateforcing(double t){
     tsd_LAI.movePointer(t);
 //    tsd_RL.movePointer(t);
     for(i = 0; i < NumEle; i++){
-        /* S5d.1 (#178) — updateElement writes Ele[i].u_effKH / u_satn
+        /* updateElement writes Ele[i].u_effKH / u_satn
          * / Kmax / u_deficit / u_theta / u_satKr / u_phius / u_effkInfi
          * (member method on AoS); sync_hot_dynamic(i) refreshes the SoA
-         * mirror of the subset RHS subsequent reads. */
+         * mirror of the subset that the RHS reads afterwards. */
         Ele[i].updateElement(uYsf[i], uYus[i], uYgw[i]);
         sync_hot_dynamic(i);
         tReadForcing(t,i);
     }
 }
 void Model_Data::tReadForcing(double t, int i){
-    /* S5d.1 (#178) — Ele[i].{iForc, z_surf, iLC, iMF, Albedo, FixPressure,
-     * iLake, windH} reads rerouted to SoA mirror. tsd_weather / tsd_LAI /
-     * tsd_MF are non-element heap state and unchanged. */
+    /* Ele[i].{iForc, z_surf, iLC, iMF, Albedo, FixPressure, iLake,
+     * windH} are read from the SoA mirror. tsd_weather / tsd_LAI /
+     * tsd_MF are not per-element state and are accessed directly. */
     int idx = hot.iForc[i] - 1;
     double etp, ra, rs, t0, hc, U2, Uz, Zmeasure, lai;
     double GroundHeatFlux, RG;
@@ -123,19 +117,15 @@ void Model_Data::tReadForcing(double t, int i){
     qEleETP[i] = etp;
 }
 void Model_Data::ET(double t, double tnext){
-    /* P2a fix (2026-06-26): inner Timer removed; the outer Timer in
-     * shud.cpp:219 already covers the full ET wall, and accumulating
-     * here on top double-counted into the t_ET bucket. See
-     * updateforcing() comment above for the same root cause. */
+    /* Not timed here; the caller in shud.cpp owns the t_ET Timer (see
+     * the comment above updateforcing()). */
     double  DT_min = tnext - t;
-    /* S2.14 (PR-1 #144) — isolated `#ifdef _OPENMP / #pragma omp for`
-     * removed (dormant outside an enclosing `omp parallel`; B1a stays
-     * single-threaded). The 16 element-local scalars previously
-     * declared above the loop (T, LAI, MF, prcp, snFrac, snAcc,
+    /* Plain serial loop, called outside any `omp parallel` region.
+     * All element-local scalars (T, LAI, MF, prcp, snFrac, snAcc,
      * snMelt, snStg, icAcc, icEvap, icStg, icMax, vgFrac, ta_surf,
-     * ta_sub, plus loop index i) are now declared at use inside the
-     * for body. DT_min stays shared as a loop-invariant (tnext - t
-     * is computed once per ET call). */
+     * ta_sub, and the loop index i) are declared at use inside the
+     * for body, so each iteration touches only its own element.
+     * DT_min is the only shared value and is loop-invariant. */
     for(int i = 0; i < NumEle; i++) {
         double T = t_temp[i];
         double prcp = t_prcp[i];
@@ -166,7 +156,7 @@ void Model_Data::ET(double t, double tnext){
         /* Interception */
         double LAI = t_lai[i];
         double icStg = yEleIS[i];
-        /* S5d.1 (#178) — Ele[i].VegFrac SoA read. */
+        /* Ele[i].VegFrac SoA read. */
         double vgFrac = hot.VegFrac[i];
         double icAcc, icEvap;
         if(LAI > ZERO){
@@ -190,10 +180,10 @@ void Model_Data::ET(double t, double tnext){
     }
 }
 void Model_Data::f_etFlux(int i, double t){
-    /* S5d.1 (#178) — Ele[i].{VegFrac, ImpAF, iSoil, u_satn, WetlandLevel,
-     * RootReachLevel} reads rerouted to SoA mirror. Soil[idx] indexed
-     * lookup still uses Soil array (non-element heap state); only the
-     * `iSoil - 1` selector comes from the SoA. */
+    /* Ele[i].{VegFrac, ImpAF, iSoil, u_satn, WetlandLevel,
+     * RootReachLevel} are read from the SoA mirror. The Soil[idx]
+     * lookup uses the Soil array itself (not per-element state); only
+     * the `iSoil - 1` selector comes from the SoA. */
     double Es = 0., Eu = 0., Tu = 0., Eg = 0., Tg = 0.;
     double va = hot.VegFrac[i], vb = 1. - hot.VegFrac[i];
     double pj = 1. - hot.ImpAF[i];
@@ -241,18 +231,13 @@ void Model_Data::f_etFlux(int i, double t){
     qEleTrans[i] = Tg + Tu;
     qEleEvapo[i] = Eu + Eg + Es;  
     qEleETA[i] = qEleE_IC[i] + qEleEvapo[i] + qEleTrans[i];
-    /* S5b (#177) — RHS hot-path print migration. The per-element AET/PET
-     * warning (formerly an unconditional `printf` inside the per-element
-     * `f_etFlux` loop body, called from `rhs_flux` MD_rhs_core.cpp:184)
-     * is gated behind `#ifdef DEBUG` to remove the unbuffered stdout
-     * write from the RHS hot path. Default builds (no -DDEBUG) emit no
-     * code here and produce bitwise-identical output to the B1a-tag
-     * baseline (the printf only wrote to stdout — not to output binaries
-     * — so the bitwise contract holds regardless, but #ifdef DEBUG also
-     * removes the function-call overhead from the hot path and matches
-     * the project convention used at MD_rhs_core.cpp:100/463 for
-     * `CheckNANi`. Warning content is preserved verbatim under
-     * -DDEBUG. */
+    /* The per-element AET/PET warning is compiled only under
+     * `#ifdef DEBUG`: f_etFlux runs once per element inside rhs_flux,
+     * and an unconditional `printf` here would put a stdout write on
+     * the RHS hot path. Default builds (no -DDEBUG) emit no code
+     * here. The warning only ever goes to stdout, never to the model
+     * output files, so results are the same with or without DEBUG.
+     * This matches how `CheckNANi` is guarded in MD_rhs_core.cpp. */
 #ifdef DEBUG
     if(qEleETA[i] > qEleETP[i] * 2.){
         printf("Warning: More AET(%.3E) than PET(%.3E) on Element (%d).", qEleETA[i], qEleETP[i], i+1);

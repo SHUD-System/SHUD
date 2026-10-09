@@ -8,14 +8,14 @@
 #include <math.h>
 #include <vector>
 
-/* S1d.2 (openMP #48) — Macros.hpp ships the generic N_Vector access
- * macro. nvector_serial.h is unconditionally included because it is
- * the default backend (SHUD_USE_OPENMP_NVECTOR = 0); nvector_openmp.h
- * is pulled in only when SHUD_USE_OPENMP_NVECTOR = 1 (gating both the
- * header presence + libsundials_nvecopenmp link line in the Makefile).
+/* Macros.hpp provides the generic N_Vector access macro.
+ * nvector_serial.h is unconditionally included because the serial
+ * backend is always available; nvector_openmp.h is pulled in only
+ * when SHUD_USE_OPENMP_NVECTOR is defined (the Makefile then also
+ * links libsundials_nvecopenmp).
  *
  * SET_VALUE(v, i) uses `N_VGetArrayPointer(v)[i]` rather than the
- * type-specific NV_Ith_* macros (per design.md D5). The SUNDIALS-6
+ * type-specific NV_Ith_* macros. The SUNDIALS
  * per-backend NV_Ith macros directly cast `v->content` to the backend
  * struct, so a backend mismatch (e.g. an OpenMP-allocated vector fed
  * to a Serial-typed NV_Ith) produces UB rather than a clean abort.
@@ -28,10 +28,10 @@
  *     symbol declarations).
  *   - `SHUD_USE_OPENMP_NVECTOR` is set (shud.cpp calls
  *     `omp_set_num_threads` before N_VNew_OpenMP).
- *   - `SHUD_ENABLE_OPENMP_RHS` is set (P1e PR-G #315 — Config C
- *     binary calls `omp_set_num_threads` + `omp_get_max_threads` at
- *     startup to honour `SHUD_RHS_THREADS`, even when the NVector
- *     backend stays Serial).
+ *   - `SHUD_ENABLE_OPENMP_RHS` is set (the binary calls
+ *     `omp_set_num_threads` + `omp_get_max_threads` at startup to
+ *     honour `SHUD_RHS_THREADS`, even when the N_Vector backend stays
+ *     serial, i.e. `SHUD_USE_OPENMP_NVECTOR=0`).
  * The `omp.h` include and the SHUD_USE_OPENMP_NVECTOR backend are
  * otherwise independent. */
 #include "nvector/nvector_serial.h"

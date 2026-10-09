@@ -1,29 +1,30 @@
-/* tests/s1d_configd_nvec_smoke.cpp -- S1d.2 (openMP #49).
+/* tests/s1d_configd_nvec_smoke.cpp
  *
- * Runtime smoke for Config D
- * (`SHUD_ENABLE_OPENMP_RHS=1 + SHUD_USE_OPENMP_NVECTOR=1`).
+ * Runtime smoke test for the plain SUNDIALS OpenMP N_Vector, i.e. the
+ * build variant `SHUD_ENABLE_OPENMP_RHS=1 + SHUD_USE_OPENMP_NVECTOR=1`
+ * without the SHUD serial-sum overrides (`SHUD_NVEC_HYBRID`). That
+ * variant gives thread-count-dependent results and is blocked by the
+ * Makefile for the model binary; this probe only checks the vector
+ * backend itself.
  *
- * What it asserts (the only thing that matters here):
+ * What it asserts:
  *   - `N_VNew_OpenMP` actually constructs an OpenMP-backed N_Vector
  *     (`N_VGetVectorID(v) == SUNDIALS_NVEC_OPENMP`).
  *   - The generic `N_VDestroy(v)` correctly dispatches via the
- *     vector's `ops->nvdestroy` slot. This validates the §4.19 fix
- *     landed in #48: pre-#48 SHUD called `N_VDestroy_Serial(v)`
- *     unconditionally, which on an OpenMP-backed vector triggers a
- *     type-tag mismatch and is undefined behavior. The fix routes
- *     every destroy through the generic entry; this test exercises
- *     that path on the only backend where it matters.
+ *     vector's `ops->nvdestroy` slot. SHUD destroys every vector
+ *     through this generic entry, because calling
+ *     `N_VDestroy_Serial(v)` on an OpenMP-backed vector is a type-tag
+ *     mismatch and undefined behavior. This test exercises that path
+ *     on the only backend where it matters.
  *
- * What it does NOT exercise (out of scope -- covered elsewhere or
- * not yet implemented):
- *   - RHS evaluation under OpenMP NVector backend (S2 scope).
- *   - Multiple-threads correctness / scalability (P-phase scope).
- *   - SHUD framework integration (separate from this standalone
- *     smoke -- the Makefile target deliberately does NOT link
- *     `$(SHUD_SRC_NOMAIN)` because we are only validating SUNDIALS
- *     OpenMP NVector + the generic destroy contract).
+ * What it does NOT exercise:
+ *   - RHS evaluation under the OpenMP N_Vector backend.
+ *   - Multi-thread correctness / scalability.
+ *   - SHUD framework integration (the Makefile target deliberately
+ *     does NOT link `$(SHUD_SRC_NOMAIN)`; only the SUNDIALS OpenMP
+ *     N_Vector and the generic destroy are validated).
  *
- * Build / run via `make smoke_configd` (Makefile target).
+ * Build and run: `make smoke_configd`.
  */
 
 #include <sundials/sundials_context.h>
@@ -66,10 +67,10 @@ int main(void) {
         return 1;
     }
 
-    /* Generic destroy: the §4.19 contract. If this dispatches to the
-     * wrong backend's destroy (e.g. the pre-#48 `_Serial` flavor),
-     * AddressSanitizer / valgrind would catch it; in a release build
-     * we at least exercise the code path that was previously UB. */
+    /* Generic destroy. If this dispatched to the wrong backend's
+     * destroy (e.g. the `_Serial` flavor), AddressSanitizer / valgrind
+     * would catch it; in a release build we at least exercise the
+     * code path. */
     N_VDestroy(v);
     SUNContext_Free(&ctx);
 

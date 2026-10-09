@@ -1,111 +1,78 @@
 # -----------------------------------------------------------------
-# Makefile for SHUD — B0 baseline lock
+# Makefile for SHUD
 # -----------------------------------------------------------------
 # Programmer: Lele Shu (lele.shu@gmail.com)
 # SHUD model is a heritage of Penn State Integrated Hydrologic Model (PIHM).
-# B0 lockdown maintained per docs/build_manifest.md (top-level repo).
-# Any change to the flag set requires an OpenSpec change against
-#   openspec/changes/.../specs/build-environment-lockdown/spec.md
 # -----------------------------------------------------------------
 # Prerequisites:
-#   - SUNDIALS 6.x installed at $(SUNDIALS_DIR) via ./configure
+#   - SUNDIALS 6.0.x installed at $(SUNDIALS_DIR) via ./configure
+#   - hypre, MPI and OpenBLAS (see "Link paths" below)
 #   - For OpenMP on macOS: `brew install libomp`
 #   - For OpenMP on Linux: GCC with libgomp
+# `make help` lists the targets and options. README.md explains the
+# OpenMP builds.
 # -----------------------------------------------------------------
 
 # -----------------------------------------------------------------
-# B0 baseline lock — flag variables (do not edit without OpenSpec change)
+# Compiler flags (fixed)
 # -----------------------------------------------------------------
-# Two-tier override: CXX_BASE_FLAGS is canonical; SHUD_BUILD_CFLAGS is an
-# alias kept for backward-compat with readers that grep the recipe line.
-# Both use GNU make's `override … :=` so a `make VAR=…` CLI override is
-# silently ignored (per GNU make manual: override on `:=` immunizes against
-# make-CLI assignment). Both must stay `override`-protected.
+# The flag set is fixed because the results of the model must be
+# reproducible bit for bit: -ffp-contract=off and -fno-fast-math keep
+# strict IEEE-754 arithmetic. The bit-identity between the default
+# `make shud_omp` build and the serial N_Vector build also depends on
+# these flags (OpenMP_NVector_Determinism.md).
+# `override ... :=` makes make ignore a command-line assignment such as
+# `make CXX_BASE_FLAGS=...`. SHUD_BUILD_CFLAGS is the name used in the
+# recipes; both variables must stay `override`-protected.
 override CXX_BASE_FLAGS    := -O2 -g -ffp-contract=off -fno-fast-math -std=c++14
 override SHUD_BUILD_CFLAGS := $(CXX_BASE_FLAGS)
-# S1d.2 (openMP #48) — the legacy `CXX_OPENMP_DEFINE` variable +
-# its single-concern `-D` define have been retired. The legacy
-# triple-concern switch is replaced by two orthogonal macros
-# (defined below), each gating exactly one concern:
-#   SHUD_USE_OPENMP_NVECTOR — N_Vector backend (Serial vs OpenMP)
-#   SHUD_ENABLE_OPENMP_RHS  — RHS execution policy stubs (StrictOMP /
-#                             ProductionOMP); from #47
-# S2 capstone (PR-8) — the third macro (legacy `_omp` RHS receiver
-# compile inclusion) was retired together with the source file it
-# gated; the receivers no longer exist in the codebase.
-# The historical legacy define no longer exists in any source.
+# The OpenMP features are selected by two independent options, defined
+# below:
+#   SHUD_ENABLE_OPENMP_RHS   parallel evaluation of the right-hand side
+#   SHUD_USE_OPENMP_NVECTOR  OpenMP N_Vector inside CVODE
 
-# CFLAGS is left as a non-override alias for backward-compat tooling that
-# reads $(CFLAGS); recipes invoke $(SHUD_BUILD_CFLAGS) directly, so a user-
-# supplied `make CFLAGS=…` cannot clobber the locked flag set even before
-# the disallowed-flag scan below catches the injection.
+# CFLAGS is kept only for tools that read $(CFLAGS). The recipes use
+# $(SHUD_BUILD_CFLAGS), so `make CFLAGS=...` cannot change the flags.
 CFLAGS            = $(CXX_BASE_FLAGS)
 
 # -----------------------------------------------------------------
-# B0 baseline lock — disallowed-flag guard
+# Rejected flags
 # -----------------------------------------------------------------
-# Fast-fail if the user attempts to inject IEEE-754-violating flags via
-# ANY user-controllable flag carrier. Two layers:
+# Flags that break IEEE-754 arithmetic are rejected with an error instead
+# of being silently ignored, so that nobody believes a build used them.
 #
-# Layer 1 (filter): scans the 6 standard carriers (CFLAGS / CXXFLAGS /
-# CPPFLAGS / LDFLAGS / MAKEOVERRIDES / MAKEFLAGS) and the 2 project-local
-# lock variables (SHUD_BUILD_CFLAGS / CXX_BASE_FLAGS). `filter` works
-# word-level, so it catches `CXXFLAGS=-ffast-math …`. The two project-
-# local variables are also `override`-protected above (so their values
-# always equal the locked flag set); the scan extension is defense-in-
-# depth in case a future refactor reverts the `override`.
+# Check 1 scans the usual flag variables word by word; it catches e.g.
+# `CXXFLAGS=-ffast-math`.
 #
-# Layer 2 (anchored `=value` scan on MAKEOVERRIDES): iterates over the
-# VAR=value tokens of $(MAKEOVERRIDES) and uses `filter %=$(f)` to detect
-# exact-match `VAR=<disallowed-flag>` CLI assignments (e.g.
-# `make SHUD_BUILD_CFLAGS=-Ofast`), which the `override :=` directive on
-# the lock variables would otherwise silently ignore. The earlier
-# `findstring -Ofast,$(MAKEOVERRIDES)` form was a literal-substring scan
-# that false-positived on paths like `SUNDIALS_DIR=/opt/sundials-Ofast-tuned`;
-# the anchored form pins to the `=` boundary and the end of the token, so
-# only true `VAR=-Ofast` CLI assignments fire. Without this layer the
-# user could think "the build accepted my flag" while in reality the
-# locked flag set is still used — Layer 2 turns the silent rejection into
-# a loud error.
+# Check 2 (further down) looks for a command-line assignment of exactly
+# such a flag, e.g. `make SHUD_BUILD_CFLAGS=-Ofast`, which the
+# `override :=` above would drop without a message. It matches whole
+# `VAR=<flag>` words of $(MAKEOVERRIDES); a substring search would wrongly
+# reject a path such as `SUNDIALS_DIR=/opt/sundials-Ofast-tuned`.
 #
-# `DISALLOWED_FLAGS` itself is `override`-protected so a user-supplied
-# `make DISALLOWED_FLAGS=` cannot disarm the scan list. Binary safety is
-# also guaranteed by `override :=` on the lock variables above, but
-# Layer 1/2 are the user-facing UX — keep them armed.
+# DISALLOWED_FLAGS is `override`-protected so that
+# `make DISALLOWED_FLAGS=` cannot switch the checks off.
 override DISALLOWED_FLAGS := -ffast-math -Ofast -funsafe-math-optimizations
 ifneq (,$(filter $(DISALLOWED_FLAGS),$(CFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS) $(MAKEOVERRIDES) $(MAKEFLAGS) $(SHUD_BUILD_CFLAGS) $(CXX_BASE_FLAGS)))
-$(error disallowed flag detected (one of $(DISALLOWED_FLAGS)) in CFLAGS/CXXFLAGS/CPPFLAGS/LDFLAGS/MAKEOVERRIDES/MAKEFLAGS/SHUD_BUILD_CFLAGS/CXX_BASE_FLAGS; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
+$(error disallowed flag detected (one of $(DISALLOWED_FLAGS)) in CFLAGS/CXXFLAGS/CPPFLAGS/LDFLAGS/MAKEOVERRIDES/MAKEFLAGS/SHUD_BUILD_CFLAGS/CXX_BASE_FLAGS; SHUD requires strict IEEE-754 arithmetic for reproducible results)
 endif
-# Layer 2: anchored scan of $(MAKEOVERRIDES) for `VAR=<disallowed-flag>` CLI
-# assignments. We split MAKEOVERRIDES into VAR=value tokens and, for each
-# token, look for an exact-match `VAR=<flag>` (via `filter %=$(f)`). This
-# avoids the previous literal-findstring false-positive on paths/values that
-# legitimately contain a disallowed flag as a substring (e.g.
-# `SUNDIALS_DIR=/opt/sundials-Ofast-tuned`), while still catching
-# `make shud SHUD_BUILD_CFLAGS=-Ofast` / `CXX_BASE_FLAGS=-Ofast`, which the
-# `override :=` directive would otherwise silently drop.
+# Check 2, described above.
 LAYER2_HITS := $(strip $(foreach tok,$(MAKEOVERRIDES),$(foreach f,$(DISALLOWED_FLAGS),$(if $(filter %=$(f),$(tok)),$(f)))))
 ifneq (,$(LAYER2_HITS))
-$(error disallowed flag detected ($(LAYER2_HITS)) in a make-CLI assignment (MAKEOVERRIDES=[$(MAKEOVERRIDES)]); attempts to inject via SHUD_BUILD_CFLAGS / CXX_BASE_FLAGS / etc are also rejected; B0 baseline requires strict IEEE-754 — see docs/build_manifest.md §1)
+$(error disallowed flag detected ($(LAYER2_HITS)) in a make-CLI assignment (MAKEOVERRIDES=[$(MAKEOVERRIDES)]); attempts to inject via SHUD_BUILD_CFLAGS / CXX_BASE_FLAGS / etc are also rejected; SHUD requires strict IEEE-754 arithmetic for reproducible results)
 endif
 
 # -----------------------------------------------------------------
-# Optional RHS snapshot dump instrumentation (openmp issue #8 / S0-6)
+# SHUD_DUMP_RHS — snapshots of the right-hand side (debugging aid)
 # -----------------------------------------------------------------
-# Off by default. Set `SHUD_DUMP_RHS=1` on the make CLI to compile in
-# the dump hooks at f_update / f_loop / f_applyDY exits. Hook bodies
-# are #ifdef SHUD_DUMP_RHS-guarded in the source, so DUMP=0 produces
-# preprocessor output identical to the unmodified codebase — keliya
-# `*.dat` SHA256 must match the pre-#8 baseline at the same flag set.
-#
-# Runtime env vars (consumed when SHUD_DUMP_RHS=1):
-#   SHUD_DUMP_OUTPUT_DIR  — directory for snapshot files (default: cwd)
-#   SHUD_DUMP_MANIFEST    — path to benchmark manifest.yaml driving
-#                           probe `t_values` (see benchmarks/<case>/)
-#
-# Writer impl is S0-7 (#9). This stage ships a no-op stub
-# (SHUD/src/ModelData/MD_rhs_dump.cpp) so SHUD_DUMP_RHS=1 builds link
-# and the main keliya output stays bitwise-equal to DUMP=0.
+# 0 (default): the dump code is not compiled.
+# 1: snapshots of the RHS state are written at chosen times, controlled
+#    at run time by environment variables (src/ModelData/MD_rhs_dump.cpp):
+#      SHUD_DUMP_OUTPUT_DIR  directory of the snapshot files (default: cwd)
+#      SHUD_DUMP_T_VALUES    times at which to write
+#      SHUD_DUMP_T_TOL, SHUD_DUMP_CASE_ID, SHUD_DUMP_SITE,
+#      SHUD_DUMP_FNAME_SUFFIX
+# The model output is the same with and without this option.
 SHUD_DUMP_RHS ?= 0
 ifeq ($(SHUD_DUMP_RHS),1)
   SHUD_DUMP_DEFINE := -DSHUD_DUMP_RHS=1
@@ -116,36 +83,20 @@ $(error SHUD_DUMP_RHS must be 0 or 1, got '$(SHUD_DUMP_RHS)')
 endif
 
 # -----------------------------------------------------------------
-# SHUD_ENABLE_OPENMP_RHS — S1d.1 (openMP issue #47); legacy fork retired in S2 capstone (PR-8 #152)
+# SHUD_ENABLE_OPENMP_RHS — parallel evaluation of the right-hand side
 # -----------------------------------------------------------------
-# The S2 capstone (PR-8) retired the legacy-vs-rhs_core fork in f.cpp:
-# f() now unconditionally routes through `rhs_core(ExecPolicy::Serial)`,
-# so the original `f_update/f_loop/f_applyDY` chain is dead source kept
-# only as the PURE CARRY-OVER source of `rhs_update/rhs_flux/rhs_apply`.
-# The legacy-routing macro that previously gated f.cpp has been removed.
+# 0: the OpenMP code of the RHS (src/Model/MD_rhs_core.cpp) is not
+#    compiled. Default for `make shud`.
+# 1: the RHS (fluxes of elements, river segments and lakes) runs in an
+#    OpenMP parallel region. Default for `make shud_omp`. The number of
+#    threads is taken from the environment variable SHUD_RHS_THREADS
+#    (src/Model/shud.cpp).
+# A value given on the command line always wins.
 #
-# SHUD_ENABLE_OPENMP_RHS (default 0):
-#   0 = `#ifdef SHUD_ENABLE_OPENMP_RHS` cases in `MD_rhs_core.cpp`
-#       (StrictOMP / ProductionOMP) are excluded from the translation
-#       unit; resulting binary has no OMP-path symbols.
-#   1 = OMP cases compile in. They contain `std::abort()` stubs that
-#       SIGABRT on any runtime call (verified by
-#       `tests/s1d_strictomp_assert_smoke.cpp` under -DNDEBUG). Used
-#       only for smoke compile / abort regression; NOT bitwise-validated.
-#
-# `assert(false)` is forbidden inside the OMP stubs because
-# `-DNDEBUG` strips assert to a no-op and would let the switch case
-# fall through silently to the next statement. `std::abort()` is
-# unconditional; safe under `EXTRA_CXXFLAGS=-DNDEBUG` smoke compile.
-# Release v1.0 default flip: `make shud_omp` defaults to
-# SHUD_ENABLE_OPENMP_RHS=1 (Config C, Serial NVec + StrictOMP RHS,
-# ADR-0002 Path 1 winner). `make shud` remains SHUD_ENABLE_OPENMP_RHS=0
-# (Config A, canonical serial reference). User explicit override on the
-# command line (e.g. `make shud_omp SHUD_ENABLE_OPENMP_RHS=0`) still
-# wins via `?=` semantics — the research escape hatch is preserved.
-# NB: `?=` late-evaluates SHUD_ENABLE_OPENMP_RHS; target-specific vars
-# would NOT flow into the `ifeq` block below (parse-time vs recipe-time
-# phases), so MAKECMDGOALS filtering is the correct hook.
+# The default depends on the goal, so it is chosen with MAKECMDGOALS. A
+# target-specific variable would not work: the `ifeq` blocks below are
+# evaluated while the Makefile is parsed, before any target-specific
+# value exists.
 ifneq (,$(filter shud_omp,$(MAKECMDGOALS)))
   SHUD_ENABLE_OPENMP_RHS ?= 1
 else
@@ -157,19 +108,10 @@ ifeq ($(SHUD_ENABLE_OPENMP_RHS),0)
   SHUD_OMP_RHS_LK     :=
 else ifeq ($(SHUD_ENABLE_OPENMP_RHS),1)
   SHUD_OMP_RHS_DEFINE := -DSHUD_ENABLE_OPENMP_RHS=1
-  # P1e PR-G (#315 / design D3 + D6) — StrictOMP path needs the OpenMP
-  # runtime so the outer `#pragma omp parallel` in
-  # MD_rhs_core.cpp::ExecPolicy::StrictOMP actually spawns threads
-  # (without -fopenmp the `_OPENMP` macro is undefined and the directive
-  # collapses to serial code). Mirrors the SHUD_USE_OPENMP_NVECTOR=1
-  # pattern: `=` (recursive expansion) is required because
-  # CXX_OPENMP_CFLAGS / CXX_OPENMP_LFLAGS are defined later in the
-  # Makefile (Platform-conditional OpenMP flags block); using `:=` here
-  # would capture an empty value and silently drop -fopenmp / -lomp /
-  # -lgomp from the link line, producing link errors at build time.
-  # Wires Config C (`make shud SHUD_ENABLE_OPENMP_RHS=1`) into a real
-  # multi-threaded binary; Config D (`make shud_omp SHUD_ENABLE_OPENMP_RHS=1`)
-  # already inherits -fopenmp from the shud_omp recipe.
+  # The parallel RHS needs the OpenMP compiler and linker flags. `=`, not
+  # `:=`, is required here: CXX_OPENMP_CFLAGS / CXX_OPENMP_LFLAGS are
+  # defined further down, and `:=` would capture empty values and drop
+  # -fopenmp and the OpenMP library from the build.
   SHUD_OMP_RHS_CK      = $(CXX_OPENMP_CFLAGS)
   SHUD_OMP_RHS_LK      = $(CXX_OPENMP_LFLAGS)
 else
@@ -177,44 +119,23 @@ $(error SHUD_ENABLE_OPENMP_RHS must be 0 or 1, got '$(SHUD_ENABLE_OPENMP_RHS)')
 endif
 
 # -----------------------------------------------------------------
-# S1d.2 (openMP #48) — SHUD_USE_OPENMP_NVECTOR
+# SHUD_USE_OPENMP_NVECTOR — N_Vector implementation used by CVODE
 # -----------------------------------------------------------------
-# This flag controls the N_Vector backend selection. S2 capstone
-# (PR-8) retired the sibling `_omp` RHS receiver compile-inclusion
-# switch together with the source file it gated; `SHUD_USE_OPENMP_NVECTOR`
-# is now the only N_Vector concern remaining. Defaults OFF so the
-# default build is Config A (bitwise vs B0).
+# 0: serial N_Vector (N_VNew_Serial); libsundials_nvecopenmp is not
+#    linked. Default for every goal except shud_omp.
+# 1: OpenMP N_Vector (N_VNew_OpenMP); the number of threads is NUM_OPENMP
+#    of the project's .cfg.para file. Links libsundials_nvecopenmp.
+#    Default for `make shud_omp`.
+# Independent of SHUD_ENABLE_OPENMP_RHS.
 #
-# SHUD_USE_OPENMP_NVECTOR (default 0):
-#   0 = nvector_serial backend. udata / du are allocated via
-#       N_VNew_Serial; SET_VALUE / N_VGetArrayPointer dispatch to
-#       the Serial ops table. No `-lsundials_nvecopenmp` link
-#       dependency; the resulting binary does NOT pull in
-#       libsundials_nvecopenmp.so / .dylib (verified via
-#       `otool -L shud | grep nvecopenmp` on macOS or
-#       `ldd shud | grep nvecopenmp` on Linux).
-#   1 = nvector_openmp backend. udata / du via N_VNew_OpenMP
-#       (NV_THREADS = MD->CS.num_threads). Pulls in
-#       nvector_openmp.h (Macros.hpp) + links
-#       libsundials_nvecopenmp. Independent of
-#       SHUD_ENABLE_OPENMP_RHS (which gates the in-RHS
-#       parallel-kernel stubs).
+# Together with SHUD_NVEC_HYBRID=1 (also the default for shud_omp, see
+# below) the output is bit-identical to the serial N_Vector at every
+# thread count. `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` builds the
+# serial N_Vector with the parallel RHS.
 #
-# Release v1.1.1 default flip (user decision post-#441): `make shud_omp`
-# now defaults SHUD_USE_OPENMP_NVECTOR=1 so the default OpenMP binary is
-# Config E (OpenMP NVector element-wise + SHUD serial reduction overrides;
-# paired with SHUD_NVEC_HYBRID?=1 below). Config E is bitwise-identical to
-# Config C at every thread count (G-E1 + PR-N2, single rivqdown SHA across
-# 19 runs) AND 1.41× faster @N16 → a pure Pareto default upgrade, zero
-# golden/CI breakage (E==C bitwise). Escape hatch: the single flag
-# `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` reverts to Config C (Serial
-# NVector; the HYBRID conditional default below is then skipped → 0). All
-# non-shud_omp goals (`make shud`, `shud_asan`, `smoke_configd`) keep the
-# `?= 0` default → Config A/C semantics + CI asan legs unchanged. Same
-# parse-time constraint as SHUD_ENABLE_OPENMP_RHS: `?=` late-evaluates and
-# target-specific vars do NOT reach a parse-time `ifeq`, so MAKECMDGOALS
-# filtering is the correct hook; a CLI `SHUD_USE_OPENMP_NVECTOR=…` still
-# wins via `?=`.
+# The goal-dependent default uses MAKECMDGOALS for the reason given
+# above. Note that `make shud shud_omp` in one command applies the
+# shud_omp defaults to both targets.
 ifneq (,$(filter shud_omp,$(MAKECMDGOALS)))
   SHUD_USE_OPENMP_NVECTOR ?= 1
 endif
@@ -225,19 +146,10 @@ ifeq ($(SHUD_USE_OPENMP_NVECTOR),0)
   SHUD_NVEC_OMP_LK     :=
 else ifeq ($(SHUD_USE_OPENMP_NVECTOR),1)
   SHUD_NVEC_OMP_DEFINE := -DSHUD_USE_OPENMP_NVECTOR=1
-  # OpenMP NVector backend needs the OpenMP runtime (omp_set_num_threads
-  # in shud.cpp + parallelized N_Vector ops inside libsundials_nvecopenmp).
-  # When the user enables it via `make shud SHUD_USE_OPENMP_NVECTOR=1` we
-  # implicitly pull in the platform OpenMP compile flag (sets `_OPENMP`)
-  # and the OpenMP runtime link flag. This keeps `shud` + Config B/C/D
-  # composable without forcing the user to also pass a separate -fopenmp.
-  #
-  # `=` (recursive expansion) is required here because CXX_OPENMP_CFLAGS
-  # / CXX_OPENMP_LFLAGS are defined further down in the Makefile (in the
-  # "Platform-conditional OpenMP flags" block). Using `:=` here would
-  # capture an empty value (the variables aren't bound yet at this
-  # point in parse order), silently dropping `-fopenmp` and `-lomp` /
-  # `-lgomp` from the recipe and producing link errors at build time.
+  # The OpenMP N_Vector needs the OpenMP runtime, so the compiler and
+  # linker flags are added here and `make shud SHUD_USE_OPENMP_NVECTOR=1`
+  # works without a separate -fopenmp. `=`, not `:=`, for the same reason
+  # as for SHUD_OMP_RHS_CK above.
   SHUD_NVEC_OMP_CK      = $(CXX_OPENMP_CFLAGS)
   SHUD_NVEC_OMP_LK      = $(CXX_OPENMP_LFLAGS) -lsundials_nvecopenmp
 else
@@ -245,71 +157,40 @@ $(error SHUD_USE_OPENMP_NVECTOR must be 0 or 1, got '$(SHUD_USE_OPENMP_NVECTOR)'
 endif
 
 # -----------------------------------------------------------------
-# P12-nvec PR-N1 (#443) — SHUD_NVEC_HYBRID (Config E)
+# SHUD_NVEC_HYBRID — order-preserving sums on the OpenMP N_Vector
 # -----------------------------------------------------------------
-# Config E = Config C StrictOMP RHS + OpenMP NVector element-wise ops +
-# SHUD-owned SERIAL reduction overrides (src/Model/MD_nvec_hybrid.cpp,
-# whole TU #ifdef SHUD_NVEC_HYBRID). Element-wise ops keep the stock
-# parallel implementation; every reduction slot is overwritten with a
-# serial generic-API loop → bitwise-identical across thread counts AND vs
-# Config C (Serial NVector). Design D2 / spec hybrid-nvec-tier1.
+# 0: the OpenMP N_Vector is used as SUNDIALS ships it. Its sums and norms
+#    combine per-thread partial results, so the model output changes with
+#    the number of threads. Not for production; see the guard below.
+# 1: element-wise operations stay parallel; every accumulating operation
+#    (dot product, norms, minimum, ...) is replaced by a serial loop
+#    (src/Model/MD_nvec_hybrid.cpp). The output is bit-identical at every
+#    thread count and to the serial N_Vector. The binary reports
+#    "NVEC config: Config E" at startup. Default for `make shud_omp`.
+# Requires SHUD_USE_OPENMP_NVECTOR=1; otherwise the build stops with an
+# error instead of silently doing nothing on a serial vector.
+# Background: OpenMP_NVector_Determinism.md.
 #
-# SHUD_NVEC_HYBRID (default 0):
-#   0 = MD_nvec_hybrid.cpp compiles to no-op fallbacks; the ops table is
-#       untouched → behavior byte-identical to Config C (or Config D when
-#       SHUD_USE_OPENMP_NVECTOR=1 without HYBRID). Default builds
-#       (`make shud`, `make shud_omp`) leave this at 0 → CI build-and-
-#       compare stays green.
-#   1 = -DSHUD_NVEC_HYBRID=1: the serial reduction overrides install on
-#       udata/du after N_VNew_OpenMP (before CVodeInit, before the
-#       SHUD_NVEC_PROF wrap). Config E leg:
-#         make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1
-#
-# HYBRID=1 is meaningful ONLY with the OpenMP NVector backend — the
-# overrides target N_VNew_OpenMP's ops table. If set without
-# SHUD_USE_OPENMP_NVECTOR=1 the build MUST fail LOUD (not silently no-op
-# on a Serial vector). The check is parse-time: like the release
-# SHUD_ENABLE_OPENMP_RHS default-flip, target-specific variables do NOT
-# reach a parse-time `ifeq`, so the guard reads the CLI/`?=` value of
-# SHUD_USE_OPENMP_NVECTOR directly (which the Config E leg sets on the
-# make CLI).
-#
-# Release v1.1.1 default flip (user decision post-#441): under the
-# `shud_omp` goal with SHUD_USE_OPENMP_NVECTOR=1 (its new default there),
-# SHUD_NVEC_HYBRID now defaults to 1 as well → `make shud_omp` builds
-# Config E out of the box (E==C bitwise; 1.41×@N16 Pareto upgrade). The
-# conditional default is nested under the NVECTOR=1 check so the single-
-# flag Config C escape hatch (`make shud_omp SHUD_USE_OPENMP_NVECTOR=0`)
-# leaves HYBRID at its `?= 0` fallback below → Config C, no
-# HYBRID-requires-NVECTOR $(error). All non-shud_omp goals keep `?= 0`.
-# Historical-spec note: PR-N1's "SHUD_NVEC_HYBRID=1 alone aborts loudly"
-# no longer holds — NVECTOR now defaults 1 under shud_omp, so
-# `make shud_omp SHUD_NVEC_HYBRID=1` is just Config E, not an abort. That
-# spec is archived (openspec/changes/archive/2026-07-02-p12-nvec).
+# The default 1 applies only to the shud_omp goal and only when
+# SHUD_USE_OPENMP_NVECTOR=1, so that
+# `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` leaves it at 0 and does not
+# trip the requirement above.
 ifneq (,$(filter shud_omp,$(MAKECMDGOALS)))
   ifeq ($(SHUD_USE_OPENMP_NVECTOR),1)
     SHUD_NVEC_HYBRID ?= 1
   endif
 endif
 SHUD_NVEC_HYBRID ?= 0
-# Config D foot-gun guard (v1.1.1). Post-flip, `make shud_omp` defaults
-# both NVECTOR=1 and HYBRID=1 (Config E). A single negative flag
-# `make shud_omp SHUD_NVEC_HYBRID=0` (NVECTOR still defaulting 1) would
-# silently drop to Config D — the REFUTED nondeterministic config
-# (OpenMP NVector WITHOUT the hybrid serial reduction overrides →
-# reduction-order drift, 10–25% cross-thread; design D2 / ADR-0011). In
-# the shud_omp+NVECTOR=1 path HYBRID can only be 0 by explicit CLI (its
-# default here is 1), so fail LOUD unless the researcher explicitly opts
-# in via SHUD_ALLOW_CONFIG_D=1 (build-only smoke / PR-N1 flag-matrix D
-# leg reachability). The guard is scoped to the shud_omp goal so it does
-# NOT fire on the `smoke_configd` target (a different goal that builds a
-# standalone Config D NVector probe by hardcoding the flags in its recipe,
-# never entering this shud_omp+NVECTOR=1 path).
+# Guard: `make shud_omp SHUD_NVEC_HYBRID=0` would build the OpenMP
+# N_Vector without the order-preserving sums, whose output depends on the
+# number of threads. It is refused unless SHUD_ALLOW_CONFIG_D=1 is given.
+# The guard is limited to the shud_omp goal; the `smoke_configd` target
+# sets its flags in its own recipe and does not pass through here.
 ifneq (,$(filter shud_omp,$(MAKECMDGOALS)))
   ifeq ($(SHUD_USE_OPENMP_NVECTOR),1)
     ifeq ($(SHUD_NVEC_HYBRID),0)
       ifneq ($(SHUD_ALLOW_CONFIG_D),1)
-$(error Config D (OpenMP NVector without hybrid reduction overrides) is REFUTED for production (reduction-order drift; ADR/design D2). Use SHUD_USE_OPENMP_NVECTOR=0 for Config C, or SHUD_ALLOW_CONFIG_D=1 for build-only smoke.)
+$(error SHUD_NVEC_HYBRID=0 with the OpenMP N_Vector gives results that depend on the number of threads and is refused. Use SHUD_USE_OPENMP_NVECTOR=0 for the serial N_Vector, or add SHUD_ALLOW_CONFIG_D=1 to build it anyway (testing only))
       endif
     endif
   endif
@@ -318,7 +199,7 @@ ifeq ($(SHUD_NVEC_HYBRID),0)
   SHUD_NVEC_HYBRID_DEFINE :=
 else ifeq ($(SHUD_NVEC_HYBRID),1)
   ifneq ($(SHUD_USE_OPENMP_NVECTOR),1)
-$(error SHUD_NVEC_HYBRID=1 requires SHUD_USE_OPENMP_NVECTOR=1 (Config E = OpenMP NVector element-wise + serial reduction overrides); set both, e.g. `make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1`)
+$(error SHUD_NVEC_HYBRID=1 requires SHUD_USE_OPENMP_NVECTOR=1 (the order-preserving sums are installed on the OpenMP N_Vector))
   endif
   SHUD_NVEC_HYBRID_DEFINE := -DSHUD_NVEC_HYBRID=1
 else
@@ -326,85 +207,51 @@ $(error SHUD_NVEC_HYBRID must be 0 or 1, got '$(SHUD_NVEC_HYBRID)')
 endif
 
 # -----------------------------------------------------------------
-# P12-nvec PR-N3 (#445) — SHUD_NVEC_DETRED (Config E2)
+# SHUD_NVEC_DETRED — parallel sums in a fixed tree
 # -----------------------------------------------------------------
-# Config E2 = Config E with the SUMMATION reduction slots replaced by
-# FIXED-TREE deterministic bodies (src/Model/MD_nvec_hybrid.cpp, guarded
-# `#ifdef SHUD_NVEC_DETRED`): partition [0,NY) into fixed compile-time
-# blocks of size SHUD_NVEC_DETRED_B (default 4096, INDEPENDENT of thread
-# count), accumulate each block serially in index order, and combine the
-# block partials in a fixed binary-tree order (a pure function of NY and B)
-# → bitwise across thread counts by construction, but a one-time summation-
-# order shift vs Config E/C (certified by G-E4 A4 ulp + A5). Design D4 /
-# spec tier2-det-reduction.
+# 0 (default): the sums are the serial loops of SHUD_NVEC_HYBRID.
+# 1: the summations run in parallel over fixed blocks of
+#    SHUD_NVEC_DETRED_B entries (4096 by default, independent of the
+#    number of threads). Each block is summed serially in index order and
+#    the block results are combined in a fixed binary tree. The output is
+#    bit-identical at every thread count, but the summation order differs
+#    from DETRED=0, so the output is not bit-identical to the other
+#    builds. The binary reports "NVEC config: Config E2" at startup.
+#      make shud_omp SHUD_NVEC_DETRED=1
+# Requires SHUD_NVEC_HYBRID=1 (and therefore SHUD_USE_OPENMP_NVECTOR=1);
+# otherwise the build stops with an error.
 #
-# SHUD_NVEC_DETRED (default 0):
-#   0 = the det_* fixed-tree bodies are #ifdef'd OUT; install() wires the
-#       plain Tier-1 serial overrides → behavior BYTE-IDENTICAL to Config E
-#       (spec scenario "E2 off leaves Config E intact"). Revert to Config E
-#       = rebuild without the flag, NOT a git revert.
-#   1 = -DSHUD_NVEC_DETRED=1: Config E2 leg:
-#         make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1 SHUD_NVEC_DETRED=1
-#       binary marker: "NVEC config: Config E2 ..." startup line + the
-#       [NVEC_HYBRID] Config E2 install banner.
-#
-# DETRED=1 is meaningful ONLY with the Config E hybrid overrides (it
-# selects WHICH reduction bodies install onto N_VNew_OpenMP's ops table);
-# it requires SHUD_NVEC_HYBRID=1 (which transitively requires
-# SHUD_USE_OPENMP_NVECTOR=1). Set without SHUD_NVEC_HYBRID=1 → the build
-# MUST fail LOUD (mirrors the SHUD_NVEC_HYBRID guard above). Same parse-time
-# constraint: target-specific vars don't reach a parse-time `ifeq`, so the
-# guard reads the CLI/`?=` value of SHUD_NVEC_HYBRID directly (which the
-# Config E2 leg sets on the make CLI).
-#
-# SHUD_NVEC_DETRED_B / SHUD_NVEC_DETRED_NEUMAIER: optional compile-time
-# knobs threaded through EXTRA_CXXFLAGS (e.g.
-# `EXTRA_CXXFLAGS=-DSHUD_NVEC_DETRED_B=256` for the forced-small-B
-# determinism leg). The source carries the 4096 / 0 defaults.
+# SHUD_NVEC_DETRED_B and SHUD_NVEC_DETRED_NEUMAIER (compensated
+# summation, 0 by default) are compile-time values passed through
+# EXTRA_CXXFLAGS, e.g. `EXTRA_CXXFLAGS=-DSHUD_NVEC_DETRED_B=256`.
 SHUD_NVEC_DETRED ?= 0
 ifeq ($(SHUD_NVEC_DETRED),0)
   SHUD_NVEC_DETRED_DEFINE :=
 else ifeq ($(SHUD_NVEC_DETRED),1)
   ifneq ($(SHUD_NVEC_HYBRID),1)
-$(error SHUD_NVEC_DETRED=1 requires SHUD_NVEC_HYBRID=1 (Config E2 = fixed-tree deterministic reductions, a compile-time alternative to the Config E serial overrides); set all three, e.g. `make shud_omp SHUD_USE_OPENMP_NVECTOR=1 SHUD_NVEC_HYBRID=1 SHUD_NVEC_DETRED=1`)
+$(error SHUD_NVEC_DETRED=1 requires SHUD_NVEC_HYBRID=1 (the fixed-tree sums replace the serial sums of SHUD_NVEC_HYBRID); use `make shud_omp SHUD_NVEC_DETRED=1`)
   endif
   SHUD_NVEC_DETRED_DEFINE := -DSHUD_NVEC_DETRED=1
 else
 $(error SHUD_NVEC_DETRED must be 0 or 1, got '$(SHUD_NVEC_DETRED)')
 endif
 
-# EXTRA_CXXFLAGS: free-form append slot for caller-supplied defines
-# the build doesn't otherwise know about. The S1d.1 smoke test uses
-# `EXTRA_CXXFLAGS=-DNDEBUG` to verify that `std::abort()` stubs
-# remain effective in release-build configuration (assert(false)
-# would not). Layer-1/2 disallowed-flag guards above still apply:
-# `-Ofast`/`-ffast-math`/`-funsafe-math-optimizations` in
-# EXTRA_CXXFLAGS would be caught by the MAKEOVERRIDES scan.
+# EXTRA_CXXFLAGS: additional compiler options, e.g. `-DNDEBUG` or
+# `-DSHUD_ENABLE_DIAGNOSTICS`. The rejected-flags checks above apply to
+# it as well.
 EXTRA_CXXFLAGS ?=
 
 # -----------------------------------------------------------------
-# S5d.2-5a (#179) — ASan + UBSan build variant `shud_asan`
+# shud_asan — build with AddressSanitizer + UndefinedBehaviorSanitizer
 # -----------------------------------------------------------------
-# Adds `-fsanitize=address,undefined -fno-omit-frame-pointer` on top
-# of the locked CXX_BASE_FLAGS. Used to gate the S5d.2 jagged → flat
-# refactor: any out-of-bounds write into QeleSurf_flat / QeleSub_flat
-# or signed-overflow in the row-major index expression `3*i + j`
-# surfaces under runtime sanitizer instead of silently corrupting
-# memory. The sanitizer flags are NOT IEEE-754-relevant (they add
-# instrumentation, not optimization) so they are kept OUT of the
-# DISALLOWED_FLAGS scan; the `shud_asan` target uses them via a
-# separate variable so the Layer-1/2 guards keep their original
-# vigilance over `-Ofast`/`-ffast-math`.
-#
-# Wall-clock impact: ASan/UBSan-instrumented runs are 2-5x slower than
-# default builds; keep test cases to keliya + qhh under 90-day
-# truncation in CI. Use `make shud_asan` then run the binary normally
-# (../../shud <case>); ASan output goes to stderr — redirect to
-# sanitizer_report.txt for archival.
+# Adds `-fsanitize=address,undefined -fno-omit-frame-pointer` to the fixed
+# flags. The sanitizers add checks and do not change floating-point
+# optimization, so they are not in the rejected-flags list. Runs are 2-5
+# times slower; use short simulations. Reports go to stderr.
 SHUD_ASAN_FLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer
 .PHONY: shud_asan
 shud_asan: check_sundials $(MAIN_shud) $(SRC) $(SRC_H)
-	@echo '...Compiling shud_asan (ASan + UBSan instrumented; S5d.2-5a #179) ...'
+	@echo '...Compiling shud_asan (ASan + UBSan instrumented) ...'
 	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(BUILDDIR)/shud_asan $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_NVEC_OMP_LK)
 	@echo
 	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(BUILDDIR)/shud_asan $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_ASAN_FLAGS) $(SHUD_NVEC_OMP_LK)
@@ -413,39 +260,23 @@ shud_asan: check_sundials $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo
 
 # -----------------------------------------------------------------
-# Optional profile timer instrumentation (openmp issue #10 / S0-8a)
+# SHUD_ENABLE_PROFILE — wall-clock timers
 # -----------------------------------------------------------------
-# Off by default. Set `SHUD_ENABLE_PROFILE=1` on the make CLI to:
-#   - compile in the call sites in shud.cpp that dump
-#     `<outpath>/profile_B0.yaml` at end of run, and
-#   - pull in the outer-repo profile timer library
-#     (../tools/profile/timer.cpp + timer.h) on the compile line.
-#
-# When PROFILE=0 the shud.cpp call sites collapse to no-ops via the
-# `#ifdef SHUD_ENABLE_PROFILE` block + header inline stubs, and the
-# timer.cpp source is not added to the build. The PROFILE=0 binary is
-# preprocessor-equivalent to a build that omits these files entirely.
-# B0 bitwise invariant: keliya `*.dat` SHA256 MUST match between
-# PROFILE=0 and PROFILE=1 builds at the same flag set.
-#
-# #10 ships infrastructure only; actual timer instrumentation inside
-# SHUD source (timer Hooks inside MD_f.cpp / RHS core) is deferred
-# to S0-10. Until then the YAML output is a skeleton with all bucket
-# values = 0.0.
+# 0 (default): the timer calls are not compiled.
+# 1: compiles tools/profile/timer.cpp and writes
+#    `<output dir>/profile_B0.yaml` at the end of the run, with the time
+#    spent in the RHS, in CVODE, in forcing input, in ET and in output.
+# The model output is the same with and without this option.
 SHUD_ENABLE_PROFILE ?= 0
 ifeq ($(SHUD_ENABLE_PROFILE),1)
   SHUD_PROFILE_DEFINE := -DSHUD_ENABLE_PROFILE=1
-  # tools/profile lives in the outer repo, sibling to SHUD/. Pull in
-  # both the include path (for shud.cpp's `#include "timer.h"`) and
-  # the impl source so the build picks up the real timer body.
-  SHUD_PROFILE_INC    := -I$(CURDIR)/../tools/profile
-  SHUD_PROFILE_SRC    := $(CURDIR)/../tools/profile/timer.cpp
+  # Include path of "timer.h" and the implementation file.
+  SHUD_PROFILE_INC    := -I$(CURDIR)/tools/profile
+  SHUD_PROFILE_SRC    := $(CURDIR)/tools/profile/timer.cpp
 else ifeq ($(SHUD_ENABLE_PROFILE),0)
   SHUD_PROFILE_DEFINE :=
-  # PROFILE=0: shud.cpp's #include "timer.h" is itself #ifdef-guarded
-  # to SHUD_ENABLE_PROFILE, so the header path can stay empty. This
-  # keeps the openmp-baseline branch SHUD checkout self-contained when
-  # built standalone (without the outer Hydro-SHUD/openMP repo).
+  # No include path is needed: every `#include "timer.h"` in the sources
+  # is inside `#ifdef SHUD_ENABLE_PROFILE`.
   SHUD_PROFILE_INC    :=
   SHUD_PROFILE_SRC    :=
 else
@@ -458,18 +289,9 @@ endif
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
   LIBOMP_PREFIX     ?= $(shell brew --prefix libomp 2>/dev/null)
-  # Guard libomp when building shud_omp (always needs OpenMP) OR when
-  # building `shud` with SHUD_USE_OPENMP_NVECTOR=1 (S1d.2 #48 Config D
-  # — needs omp_set_num_threads in shud.cpp + libsundials_nvecopenmp's
-  # OpenMP runtime) OR when invoking the smoke_configd target (S1d.2
-  # #49 — same OpenMP NVector runtime dependency, but bypasses
-  # SHUD_USE_OPENMP_NVECTOR on the make CLI by hardcoding the flag
-  # in the recipe). Serial `make shud` (Configs A/B/C) is fine without
-  # libomp installed.
-  # P1e PR-G (#315) — `SHUD_ENABLE_OPENMP_RHS=1` also brings in the
-  # libomp runtime dependency (Config C/D need -fopenmp + -lomp at link
-  # time; see SHUD_OMP_RHS_CK / SHUD_OMP_RHS_LK above), so extend the
-  # libomp guard to fire for Config C builds as well.
+  # libomp is needed by shud_omp, by smoke_configd, and by `make shud`
+  # with SHUD_USE_OPENMP_NVECTOR=1 or SHUD_ENABLE_OPENMP_RHS=1. A plain
+  # `make shud` builds without it.
   ifneq (,$(filter shud_omp smoke_configd,$(MAKECMDGOALS))$(filter 1,$(SHUD_USE_OPENMP_NVECTOR))$(filter 1,$(SHUD_ENABLE_OPENMP_RHS)))
     ifeq ($(LIBOMP_PREFIX),)
 $(error libomp not found via 'brew --prefix libomp'; run 'brew install libomp' before make shud_omp, `make shud SHUD_USE_OPENMP_NVECTOR=1`, `make shud SHUD_ENABLE_OPENMP_RHS=1`, or make smoke_configd)
@@ -509,35 +331,20 @@ MAIN_OMP   = $(SRC_DIR)/main.cpp
 MAIN_DEBUG = $(SRC_DIR)/main.cpp
 
 # -----------------------------------------------------------------
-# Compiler — let user PATH resolve the toolchain.
-# On macOS, `g++` is Apple Clang's wrapper. On Linux, it is GCC (use
-# CXX=g++-12 to pin GCC 12 in CI per docs/build_manifest.md).
+# Compiler. On macOS `g++` is Apple clang; on Linux it is GCC. Use
+# `make CXX=...` to choose another one.
 #
-# NOTE: `CXX ?= g++` is a no-op — GNU make defines CXX = g++ as a built-in
-# default with origin `default`, so `?=` (which only assigns when the
-# variable is undefined) never fires, and reality defaults to `c++`.
-# We check the origin explicitly so only the make built-in is overridden;
-# any environment / CLI / Makefile-assigned value is preserved.
+# `CXX ?= g++` would have no effect: GNU make predefines CXX (origin
+# `default`), so `?=` never assigns. Testing the origin replaces only the
+# built-in value and keeps a value from the environment or the command
+# line.
 ifeq ($(origin CXX),default)
   CXX := g++
 endif
 MPICC ?= mpic++
 
-# S2 capstone (PR-8) — MD_f_omp.cpp (legacy `_omp` RHS receivers) has
-# been deleted from the tree. The prior compile-inclusion switch
-# (sibling of SHUD_USE_OPENMP_NVECTOR) is retired together with the
-# source file.
-#
-# S4 PR-10 (#154) — `$(SRC_DIR)/ModelData/*.cpp` glob already covers
-# `SRC_DIR/ModelData/MD_adjacency.cpp` (new file in this PR). Spec
-# `s4-adjacency-topology` Scenario L28 ("Makefile SHALL 把
-# MD_adjacency.cpp 加入 SOURCE 列表（与 MD_f.cpp 等同级出现）") is
-# satisfied by the wildcard — MD_adjacency.cpp lives in the same
-# directory as MD_f.cpp and is compiled in the same translation pass
-# (see `make shud` recipe below — SRC expands via wildcard at recipe
-# time so the new .cpp ships in the link line automatically). Verified
-# at build time: `make -n shud | grep MD_adjacency.cpp` shows the file
-# on the compile command line.
+# The source lists are wildcards: a new .cpp file in one of these
+# directories is compiled without editing this file.
 SRC = $(SRC_DIR)/classes/*.cpp \
       $(SRC_DIR)/ModelData/*.cpp \
       $(SRC_DIR)/Model/*.cpp \
@@ -549,41 +356,31 @@ SRC_H = $(SRC_DIR)/classes/*.hpp \
         $(SRC_DIR)/Equations/*.hpp
 
 # -----------------------------------------------------------------
-# P8-tune.G0 PR-0 — Hypre / BoomerAMG link chain (additive)
+# Link paths: hypre, MPI, OpenBLAS
 # -----------------------------------------------------------------
-# G0 wires the SUNLinSol_Hypre wrapper at
-# $(SRC_DIR)/Equations/sunlinsol_hypre.{h,cpp}. The wrapper is
-# linked into every `make shud` / `make shud_omp` binary
-# (link-always, runtime-opt-in via SHUD_LINSOL=amg env var; see
-# cvode_config.cpp factory dispatch). Default builds (SHUD_LINSOL
-# unset or "spgmr") make zero Hypre calls and produce bit-identical
-# SPGMR output vs the pre-G0 baseline.
+# src/Equations/sunlinsol_hypre.cpp wraps the hypre BoomerAMG solver as a
+# SUNDIALS linear solver. It is compiled and linked into every binary,
+# and used only when the environment variable SHUD_LINSOL=amg is set;
+# otherwise the SPGMR solver is used and no hypre function is called.
+# hypre in turn needs MPI and OpenBLAS at link time.
 #
-# Install matrix (env-overridable defaults):
-#   macOS brew  : HYPRE_INCDIR=/opt/homebrew/include          HYPRE_LIBDIR=/opt/homebrew/lib
-#   Ubuntu apt  : HYPRE_INCDIR=/usr/include/hypre              HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu
-#   Server      : HYPRE_INCDIR=/scratch/frd_muziyao/local/hypre-3.1.0/include
-#                 HYPRE_LIBDIR=/scratch/frd_muziyao/local/hypre-3.1.0/lib
+#   macOS (Homebrew): HYPRE_INCDIR=/opt/homebrew/include  HYPRE_LIBDIR=/opt/homebrew/lib
+#   Ubuntu (apt)    : HYPRE_INCDIR=/usr/include/hypre     HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu
 #
-# Set per platform via `make HYPRE_INCDIR=... HYPRE_LIBDIR=... shud`
-# or by exporting the vars in the shell before invoking make.
+# Set them on the make command line or in the environment.
 HYPRE_INCDIR ?= /opt/homebrew/include
 HYPRE_LIBDIR ?= /opt/homebrew/lib
 
-# MPI_INCDIR — mpi.h search path. Hypre's HYPRE_utilities.h unconditionally
-# #include "mpi.h" so we need to expose the MPI headers at compile time even
-# when SHUD itself does not invoke any MPI API.
-#   macOS brew  : Hypre is built --without-MPI, so this is unused (but harmless)
-#   Ubuntu apt  : libopenmpi-dev ships at /usr/lib/x86_64-linux-gnu/openmpi/include
-#   Server      : /usr/lib/x86_64-linux-gnu/openmpi/include (cn-node OpenMPI 4.x)
+# MPI_INCDIR — location of mpi.h. The hypre headers include it although
+# SHUD calls no MPI function.
+#   macOS (Homebrew): hypre is built without MPI; the variable is unused.
+#   Ubuntu (apt)    : libopenmpi-dev, /usr/lib/x86_64-linux-gnu/openmpi/include
 MPI_INCDIR ?= /usr/lib/x86_64-linux-gnu/openmpi/include
 
-# OPENBLAS_LIBDIR — openblas search path. On macOS brew openblas is
-# keg-only (installed under /opt/homebrew/opt/openblas/lib, NOT in the
-# default linker search path); on Ubuntu apt libopenblas-dev installs
-# under the multiarch /usr/lib/x86_64-linux-gnu/ which IS in the default
-# search path so the override is empty there. Default to the Mac brew
-# path; CI overrides to empty (Ubuntu uses default linker path).
+# OPENBLAS_LIBDIR — location of the OpenBLAS library. Homebrew installs
+# it outside the default linker path (/opt/homebrew/opt/openblas/lib),
+# hence this default. On Ubuntu it is in the default path; set the
+# variable to empty there.
 OPENBLAS_LIBDIR ?= /opt/homebrew/opt/openblas/lib
 
 INCLUDES = -I $(SUNDIALS_DIR)/include \
@@ -615,28 +412,18 @@ LK_FLAGS = -lm -lsundials_cvode -lsundials_nvecserial \
            -L$(HYPRE_LIBDIR) -lHYPRE -lmpi $(MPI_CXX_LIB) \
            $(if $(OPENBLAS_LIBDIR),-L$(OPENBLAS_LIBDIR)) -lopenblas \
            -Wl,-rpath,$(HYPRE_LIBDIR)
-# S1d.2 (openMP #48) — LK_OMP now only carries the platform OpenMP
-# runtime flags (`-lgomp` on Linux, `-Xpreprocessor -fopenmp -lomp`
-# on macOS via brew libomp). The historical hardcoded
-# `-lsundials_nvecopenmp` link has been moved into the conditional
-# `$(SHUD_NVEC_OMP_LK)` (driven by SHUD_USE_OPENMP_NVECTOR), so:
-#   - serial `make shud` (Config A, default) — no nvecopenmp link
-#   - `make shud SHUD_USE_OPENMP_NVECTOR=1` — adds -lsundials_nvecopenmp
-#   - `make shud_omp` — implicitly sets SHUD_USE_OPENMP_NVECTOR=1
-#     inside the recipe (back-compat with the pre-#48 shud_omp target,
-#     which historically always pulled in nvecopenmp).
+# LK_OMP holds only the OpenMP runtime library. libsundials_nvecopenmp is
+# added through $(SHUD_NVEC_OMP_LK) when SHUD_USE_OPENMP_NVECTOR=1.
 LK_OMP   = $(CXX_OPENMP_LFLAGS)
 LK_DYLN  = "LD_LIBRARY_PATH=$(LIB_SUN)"
 
 # -----------------------------------------------------------------
-# SUNDIALS version + install-completeness guard
+# SUNDIALS version and installation check
 # -----------------------------------------------------------------
-# - MAJOR pinned with `-Eq '^…6$'` (anchored regex) so substrings like
-#   60 / 600 / 6X cannot pass as "6".
-# - MINOR also pinned: 6.0.x is the supported series; 6.1+ is rejected.
-# - PATCH unenforced: future 6.0.x patches are acceptable.
-# - Library stat catches the "header present but libs missing" partial
-#   install that the old grep-only guard silently allowed.
+# - Version 6.0.x is required; 6.1 and later are rejected. The patterns
+#   are anchored so that 60 or 600 does not pass as 6.
+# - The libraries are checked too, to catch an installation where the
+#   headers exist but the libraries were never built.
 SUNDIALS_CFG_H = $(SUNDIALS_DIR)/include/sundials/sundials_config.h
 
 .PHONY: check_sundials check_sundials_omp
@@ -644,9 +431,9 @@ check_sundials:
 	@test -f $(SUNDIALS_CFG_H) || \
 	  (echo "ERROR: $(SUNDIALS_CFG_H) not found; run ./configure first"; exit 2)
 	@grep -Eq '^#define SUNDIALS_VERSION_MAJOR 6$$' $(SUNDIALS_CFG_H) || \
-	  (echo "ERROR: SUNDIALS major != 6 in $(SUNDIALS_CFG_H); B0 requires exactly 6.x"; exit 2)
+	  (echo "ERROR: SUNDIALS major != 6 in $(SUNDIALS_CFG_H); SHUD requires 6.0.x"; exit 2)
 	@grep -Eq '^#define SUNDIALS_VERSION_MINOR 0$$' $(SUNDIALS_CFG_H) || \
-	  (echo "ERROR: SUNDIALS minor != 0; B0 requires 6.0.x; re-run ./configure to pin to 6.0.0"; exit 2)
+	  (echo "ERROR: SUNDIALS minor != 0; SHUD requires 6.0.x; re-run ./configure to pin to 6.0.0"; exit 2)
 	@ls $(SUNDIALS_DIR)/lib/libsundials_cvode.* >/dev/null 2>&1 || \
 	  (echo "ERROR: libsundials_cvode.* not found under $(SUNDIALS_DIR)/lib; SUNDIALS install is incomplete; re-run ./configure"; exit 2)
 	@ls $(SUNDIALS_DIR)/lib/libsundials_nvecserial.* >/dev/null 2>&1 || \
@@ -679,29 +466,27 @@ help:
 	@echo "       make all          - clean then build shud (serial)"
 	@echo "       make cvode        - install SUNDIALS/CVODE 6.x to ./InstallSundials"
 	@echo "       make shud         - build serial shud executable"
-	@echo "       make shud_omp     - build OpenMP shud_omp executable (Config E default: OpenMP NVec + serial reduction overrides + StrictOMP RHS; v1.1.1)"
-	@echo "       make shud_omp SHUD_USE_OPENMP_NVECTOR=0 - Config C opt-out (Serial NVec + StrictOMP RHS; strict minimal-dep build)"
-	@echo "       make shud_omp SHUD_NVEC_DETRED=1        - Config E2 (fixed-tree deterministic reductions; re-baselined golden)"
+	@echo "       make shud_omp     - build OpenMP shud_omp executable (default: parallel RHS + OpenMP N_Vector with serial sums; see README)"
+	@echo "       make shud_omp SHUD_USE_OPENMP_NVECTOR=0 - serial N_Vector, parallel RHS only"
+	@echo "       make shud_omp SHUD_NVEC_DETRED=1        - fastest: parallel sums in a fixed tree (output not bit-identical to the default build)"
 	@echo "       make shud SHUD_DUMP_RHS=1     - serial build with RHS snapshot hooks compiled in"
 	@echo "       make shud_omp SHUD_DUMP_RHS=1 - OpenMP build with RHS snapshot hooks compiled in"
 	@echo "       make shud SHUD_ENABLE_PROFILE=1     - serial build with wall-clock profile timer compiled in"
 	@echo "       make shud_omp SHUD_ENABLE_PROFILE=1 - OpenMP build with wall-clock profile timer compiled in"
-	@echo "       make shud SHUD_ENABLE_OPENMP_RHS=1  - compile in StrictOMP/ProductionOMP std::abort stubs (smoke only; openMP #47)"
-	@echo "       make shud SHUD_USE_OPENMP_NVECTOR=1 - serial build with OpenMP N_Vector backend (Config D dim; openMP #48)"
-	@echo "       make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS - serial build with S5c CVODE diagnostic keys (hlast/qlast) added to cvode_stats.txt (S5c-A #173)"
-	@echo "       make shud_asan    - serial build with -fsanitize=address,undefined (S5d.2-5a #179)"
-	@echo "       make smoke_strictomp                - build + run StrictOMP SIGABRT regression smoke test (openMP #47)"
-	@echo "       make smoke_configd                  - build + run Config D OpenMP NVector runtime probe (openMP #49)"
+	@echo "       make shud SHUD_ENABLE_OPENMP_RHS=1  - shud target with the parallel RHS compiled in"
+	@echo "       make shud SHUD_USE_OPENMP_NVECTOR=1 - shud target with the OpenMP N_Vector backend"
+	@echo "       make shud EXTRA_CXXFLAGS=-DSHUD_ENABLE_DIAGNOSTICS - serial build with extra CVODE keys (hlast/qlast) in cvode_stats.txt"
+	@echo "       make shud_asan    - serial build with -fsanitize=address,undefined"
+	@echo "       make smoke_strictomp                - build + run the parallel-RHS smoke test"
+	@echo "       make smoke_configd                  - build + run the OpenMP N_Vector runtime probe"
 	@echo "       make check_sundials - verify SUNDIALS 6.x install"
 	@echo "       make clean        - remove binary outputs (preserves InstallSundials)"
 	@echo
-	@echo "P8-tune.G0 Hypre/BoomerAMG link chain (additive, runtime-opt-in via SHUD_LINSOL=amg):"
+	@echo "hypre/MPI/OpenBLAS link paths (required by every build; the AMG solver itself is opt-in via SHUD_LINSOL=amg):"
 	@echo "  macOS brew:  HYPRE_INCDIR=/opt/homebrew/include HYPRE_LIBDIR=/opt/homebrew/lib (defaults)"
 	@echo "  Ubuntu apt:  HYPRE_INCDIR=/usr/include/hypre    HYPRE_LIBDIR=/usr/lib/x86_64-linux-gnu"
-	@echo "  Server:      HYPRE_INCDIR=/scratch/frd_muziyao/local/hypre-3.1.0/include"
-	@echo "               HYPRE_LIBDIR=/scratch/frd_muziyao/local/hypre-3.1.0/lib"
+	@echo "  Other:       HYPRE_INCDIR=<prefix>/include HYPRE_LIBDIR=<prefix>/lib"
 	@echo "  LK_FLAGS:    -lHYPRE -lmpi -lopenblas (openblas required by Hypre at link time)"
-	@echo "  ColPack:     NOT required for G0 (per PRE0_SPIKE_NOTES.md §1.7)"
 	@echo
 
 cvode CVODE:
@@ -710,22 +495,17 @@ cvode CVODE:
 	./configure
 	@echo
 
-# S1d.2 (openMP #48) — `shud` recipe carries the remaining feature
-# defines (SHUD_NVEC_OMP_DEFINE / SHUD_NVEC_OMP_LK), so Config C/D can
-# build through the same target via `make shud SHUD_USE_OPENMP_NVECTOR=1`
-# / `make shud SHUD_ENABLE_OPENMP_RHS=1` (or combinations). Config A =
-# `make shud` (all flags default 0). The S2 capstone (PR-8) retired
-# Config B (legacy `_omp` RHS receivers) together with its source file.
-# S1d.2 (openMP #48) — pick check_sundials_omp when the user enables
-# the OpenMP NVector backend (Config D needs libsundials_nvecopenmp);
-# otherwise the basic check is enough (Configs A/B/C don't link nvecopenmp).
+# The option variables are part of the `shud` recipe too, so e.g.
+# `make shud SHUD_ENABLE_OPENMP_RHS=1` works. With
+# SHUD_USE_OPENMP_NVECTOR=1 the OpenMP N_Vector library must be
+# installed, hence the choice of the check target.
 ifeq ($(SHUD_USE_OPENMP_NVECTOR),1)
   SHUD_CHECK_TARGET := check_sundials_omp
 else
   SHUD_CHECK_TARGET := check_sundials
 endif
 shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
-	@echo '...Compiling shud (B0 serial / Config A by default) ...'
+	@echo '...Compiling shud (serial by default) ...'
 	@echo  $(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_OMP_RHS_CK) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(SHUD_OMP_RHS_LK)
 	@echo
 	$(CXX) $(SHUD_BUILD_CFLAGS) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_OMP_RHS_CK) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_NVEC_OMP_CK) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_EXEC) $(MAIN_shud) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(SHUD_OMP_RHS_LK)
@@ -733,39 +513,17 @@ shud SHUD: $(SHUD_CHECK_TARGET) $(MAIN_shud) $(SRC) $(SRC_H)
 	@echo " $(TARGET_EXEC) is compiled successfully!"
 	@echo
 
-# Release v1.1.1 — `shud_omp` produces the production Config E binary by
-# default: OpenMP NVector element-wise + SHUD serial reduction overrides,
-# on top of StrictOMP RHS. The two MAKECMDGOALS-conditional default flips
-# above (SHUD_USE_OPENMP_NVECTOR ?= 1 and, nested under it,
-# SHUD_NVEC_HYBRID ?= 1 for the shud_omp goal) mean users get Config E
-# without passing extra flags. Config E is bitwise-identical to Config C
-# at every thread count (G-E1 + PR-N2) and 1.41×@N16 faster — a pure
-# Pareto default upgrade with zero golden/CI breakage (E==C bitwise).
-# SHUD_ENABLE_OPENMP_RHS still defaults 1 under shud_omp (StrictOMP RHS).
-# Researcher escape hatches:
-#   - `make shud_omp SHUD_USE_OPENMP_NVECTOR=0` → Config C (Serial NVector
-#     + StrictOMP RHS; single-flag opt-out — the HYBRID conditional
-#     default is skipped, so no HYBRID-requires-NVECTOR error).
-#   - `make shud_omp SHUD_ENABLE_OPENMP_RHS=0` → serial-RHS variants
-#     (A/B/D-era reproducibility; note NVector still defaults on).
-#   - `make shud_omp SHUD_NVEC_DETRED=1` → Config E2 (fixed-tree
-#     deterministic reductions; HYBRID defaults 1 here so DETRED's
-#     requires-HYBRID guard is already satisfied — no need to spell out
-#     all three flags anymore).
-#   - Config D (OpenMP NVector without hybrid overrides) is REFUTED and
-#     now guarded: `make shud_omp SHUD_NVEC_HYBRID=0` errors unless
-#     SHUD_ALLOW_CONFIG_D=1 is also passed (build-only smoke).
-# The recipe adds:
-#   - $(CXX_OPENMP_CFLAGS)   : -fopenmp (sets _OPENMP compiler builtin)
-#   - $(CXX_OPENMP_LFLAGS)   : -lgomp / -lomp (OpenMP runtime)
-#   - $(SHUD_NVEC_OMP_DEFINE): -DSHUD_USE_OPENMP_NVECTOR=1 (default on)
-#   - $(SHUD_NVEC_HYBRID_DEFINE): -DSHUD_NVEC_HYBRID=1 (default on → E)
-#   - $(SHUD_NVEC_OMP_LK)    : -lsundials_nvecopenmp (default on)
-# Recipe body is unchanged from v1.1 — all four tokens are conditional
-# expansions driven by the flag values, so flipping the defaults above is
-# sufficient; no recipe edit was needed.
+# shud_omp — the OpenMP build. With the defaults chosen above for this
+# goal (SHUD_ENABLE_OPENMP_RHS=1, SHUD_USE_OPENMP_NVECTOR=1,
+# SHUD_NVEC_HYBRID=1) the RHS and the element-wise vector operations run
+# in parallel, and the output is bit-identical at every thread count.
+#   make shud_omp SHUD_NVEC_DETRED=1         parallel sums in a fixed tree (fastest)
+#   make shud_omp SHUD_USE_OPENMP_NVECTOR=0  serial N_Vector, parallel RHS
+#   make shud_omp SHUD_ENABLE_OPENMP_RHS=0   serial RHS
+# Each option enters the recipe as a variable that is empty when the
+# option is off.
 shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
-	@echo '...Compiling shud_OpenMP (Config E default: OpenMP NVec + serial reduction overrides + StrictOMP RHS) ...'
+	@echo '...Compiling shud_omp (OpenMP) ...'
 	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
 	@echo
 	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) $(SHUD_NVEC_OMP_DEFINE) $(SHUD_NVEC_HYBRID_DEFINE) $(SHUD_NVEC_DETRED_DEFINE) $(SHUD_DUMP_DEFINE) $(SHUD_OMP_RHS_DEFINE) $(SHUD_PROFILE_DEFINE) $(EXTRA_CXXFLAGS) $(INCLUDES) $(SHUD_PROFILE_INC) $(LIBRARIES) $(RPATH) -o $(TARGET_OMP) $(MAIN_OMP) $(SRC) $(SHUD_PROFILE_SRC) $(LK_FLAGS) $(SHUD_NVEC_OMP_LK) $(LK_OMP)
@@ -774,21 +532,17 @@ shud_omp: check_sundials_omp $(MAIN_OMP) $(SRC) $(SRC_H)
 	@echo
 
 # -----------------------------------------------------------------
-# S1d.1 smoke test — StrictOMP std::abort regression guard
+# smoke_strictomp — abort check of the RHS execution-policy switch
 # -----------------------------------------------------------------
-# Builds + runs `tests/s1d_strictomp_assert_smoke.cpp`, which forks a
-# child that invokes `Model_Data::rhs_core(..., ExecPolicy::StrictOMP)`
-# under `-DNDEBUG` and asserts via `waitpid` that the child died by
-# SIGABRT. This guards the decision to use `std::abort()` rather than
-# `assert(false)` for the OMP-policy stubs (assert would be stripped
-# under -DNDEBUG and the case would silently fall through to the
-# next statement). Requires SHUD_ENABLE_OPENMP_RHS=1 to make the
-# OMP cases compile-visible.
+# Builds and runs tests/s1d_strictomp_assert_smoke.cpp. A child process
+# calls `Model_Data::rhs_core(..., ExecPolicy::StrictOMP)` on a build with
+# `-DNDEBUG`, and the parent checks with `waitpid` that the child died by
+# SIGABRT. The purpose is to make sure that an unimplemented policy stops
+# with `std::abort()`, which `-DNDEBUG` does not remove, unlike `assert`.
 #
-# The smoke binary supplies its own main(), so we must drop SHUD's
-# main.cpp from the link line. Wildcard expansion happens at recipe
-# time (SRC uses src/.../*.cpp globs), so the substring filter works
-# only on the expanded list — wrap in $(filter-out ...) accordingly.
+# The test has its own main(), so SHUD's main.cpp is removed from the
+# source list. $(SRC) holds wildcards; they must be expanded with
+# $(wildcard ...) before filter-out can match the file name.
 SHUD_SRC_NOMAIN := $(filter-out $(SRC_DIR)/main.cpp,$(wildcard $(SRC)))
 
 .PHONY: smoke_strictomp
@@ -802,57 +556,38 @@ smoke_strictomp: check_sundials tests/s1d_strictomp_assert_smoke.cpp $(SRC) $(SR
 	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/s1d_strictomp_smoke && echo 'OK: child SIGABRT observed' || (echo 'FAIL: child did not SIGABRT'; exit 1)
 
 # -----------------------------------------------------------------
-# S1d.2 smoke test — Config D OpenMP N_Vector runtime probe (openMP #49)
+# smoke_configd — OpenMP N_Vector runtime probe
 # -----------------------------------------------------------------
-# Builds + runs `tests/s1d_configd_nvec_smoke.cpp`, a standalone (no
-# SHUD framework link) probe that:
-#   1. constructs an OpenMP-backed N_Vector via N_VNew_OpenMP, and
-#   2. asserts N_VGetVectorID == SUNDIALS_NVEC_OPENMP, and
-#   3. exercises the generic N_VDestroy dispatch path (the §4.19
-#      fix landed in #48 -- pre-fix SHUD used N_VDestroy_Serial on
-#      an OpenMP vector, type-tag mismatch UB).
+# Builds and runs tests/s1d_configd_nvec_smoke.cpp, a standalone program
+# (not linked with the SHUD sources) that creates a vector with
+# N_VNew_OpenMP, checks N_VGetVectorID == SUNDIALS_NVEC_OPENMP, and
+# destroys it through the generic N_VDestroy.
 #
-# Requires both:
-#   - SHUD_USE_OPENMP_NVECTOR=1  (compile-line + nvecopenmp link;
-#                                  also triggers the libomp guard
-#                                  via the existing MAKECMDGOALS
-#                                  filter below in this Makefile)
-#   - SHUD_ENABLE_OPENMP_RHS=1   (Config D contract; symbolic --
-#                                  this test does not touch rhs_core)
-#
-# We deliberately do NOT link $(SHUD_SRC_NOMAIN) and do NOT pull in
-# $(LK_FLAGS) (which carries libsundials_cvode + libsundials_nvecserial):
-# the test only exercises the OpenMP NVector + SUNContext API surface.
-# `-lsundials_nvecopenmp` is bracketed by `-lsundials_generic` for
-# SUNContext_Create / SUNContext_Free (nvecopenmp links generic at its
-# own link time, but our standalone executable needs the generic
-# symbols visible at link time too).
+# It links only libsundials_nvecopenmp and libsundials_generic (the
+# latter for SUNContext_Create / SUNContext_Free), not $(LK_FLAGS).
 .PHONY: smoke_configd
 smoke_configd: check_sundials_omp tests/s1d_configd_nvec_smoke.cpp
-	@echo '...Compiling s1d_configd_nvec_smoke (Config D: OpenMP NVector runtime probe) ...'
+	@echo '...Compiling s1d_configd_nvec_smoke (OpenMP N_Vector runtime probe) ...'
 	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_ENABLE_OPENMP_RHS=1 -DSHUD_USE_OPENMP_NVECTOR=1 $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/s1d_configd_nvec_smoke tests/s1d_configd_nvec_smoke.cpp -lsundials_nvecopenmp -lsundials_generic $(CXX_OPENMP_LFLAGS)
 	@echo
 	$(CXX) $(SHUD_BUILD_CFLAGS) $(CXX_OPENMP_CFLAGS) -DSHUD_ENABLE_OPENMP_RHS=1 -DSHUD_USE_OPENMP_NVECTOR=1 $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/s1d_configd_nvec_smoke tests/s1d_configd_nvec_smoke.cpp -lsundials_nvecopenmp -lsundials_generic $(CXX_OPENMP_LFLAGS)
 	@echo
 	@echo '...Running s1d_configd_nvec_smoke (expect OK: N_VGetVectorID == SUNDIALS_NVEC_OPENMP) ...'
-	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/s1d_configd_nvec_smoke || (echo 'FAIL: Config D NVector smoke did not print OK'; exit 1)
+	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/s1d_configd_nvec_smoke || (echo 'FAIL: OpenMP N_Vector smoke test did not print OK'; exit 1)
 
 # -----------------------------------------------------------------
-# S4 PR-10 (#154) — adjacency fallback unit test
+# test_adjacency_fallback — unit test of the adjacency lists
 # -----------------------------------------------------------------
-# Builds tests/test_adjacency_fallback.cpp, which constructs a synthetic
-# Model_Data mock whose entity `.index` fields violate the
-# `index == array_index + 1` invariant. Verifies build_adjacency_lists()
-# sets `adjacency_fallback_triggered = true` AND constructs lists in
-# array-index order (NOT id-sort) — per spec s4-adjacency-topology
-# Scenario "三条 assert 在所有 6 case 都 pass + fallback 单测 PASS".
+# Builds and runs tests/test_adjacency_fallback.cpp. It sets up a
+# Model_Data whose `.index` fields violate `index == array_index + 1`
+# and checks that build_adjacency_lists() sets
+# `adjacency_fallback_triggered` and builds the lists in array-index
+# order.
 #
-# Test binary supplies its own main(); reuse the same `SHUD_SRC_NOMAIN`
-# var from smoke_strictomp (Makefile L484) so we link in the rest of the
-# SHUD framework objects.
+# The test has its own main(), so it links $(SHUD_SRC_NOMAIN).
 .PHONY: test_adjacency_fallback
 test_adjacency_fallback: check_sundials tests/test_adjacency_fallback.cpp $(SRC) $(SRC_H)
-	@echo '...Compiling test_adjacency_fallback (S4 PR-10 fallback unit test) ...'
+	@echo '...Compiling test_adjacency_fallback ...'
 	@echo $(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/test_adjacency_fallback tests/test_adjacency_fallback.cpp $(SHUD_SRC_NOMAIN) $(LK_FLAGS)
 	@echo
 	$(CXX) $(SHUD_BUILD_CFLAGS) $(INCLUDES) -I tests $(LIBRARIES) $(RPATH) -o tests/test_adjacency_fallback tests/test_adjacency_fallback.cpp $(SHUD_SRC_NOMAIN) $(LK_FLAGS)
@@ -861,31 +596,11 @@ test_adjacency_fallback: check_sundials tests/test_adjacency_fallback.cpp $(SRC)
 	@DYLD_LIBRARY_PATH=$(LIB_SUN) tests/test_adjacency_fallback && echo 'OK: adjacency fallback unit test PASS' || (echo 'FAIL: adjacency fallback unit test'; exit 1)
 
 # -----------------------------------------------------------------
-# P8-tune.D KLU spike — additive carve-out (openspec change p8tune-klu-spike)
+# libshud.a — the SHUD sources without main.cpp, as a static library
 # -----------------------------------------------------------------
-# `libshud.a` is the documented carve-out per spec
-# `klu-pattern-spike-verdict` REQ-1 Scenario "Tool authoring with no
-# SHUD source patch": the spike tool under `tools/p8tune.D/` links this
-# archive instead of `main.cpp`, so the spike binary has the Model_Data
-# API (loadinput / initialize / rhs_core / public AoS) without dragging
-# in `shud.cpp::SHUD()` CVODE main loop. ZERO impact to existing `shud`
-# / `shud_omp` / `shud_asan` / `smoke_*` / `test_adjacency_fallback`
-# targets — uses the same `SHUD_SRC_NOMAIN` wildcard already defined at
-# L548 for the s1d StrictOMP smoke test (proves the SHUD framework
-# objects compile + link without `main.cpp`).
-#
-# Object files land under `_libshud_obj/` (gitignored via SHUD repo's
-# existing `*.o` ignore + this directory's gitignored status under
-# SHUD-OpenMP outer-repo `.gitignore` for `SHUD/_libshud_obj/`). The
-# archive lands at SHUD-repo root next to the `shud` binary so the
-# spike tool's `tools/p8tune.D/Makefile` can reference it via the
-# relative path `../../SHUD/libshud.a`.
-#
-# Flag set: ZERO instrumentation defines (no SHUD_DUMP_RHS / no
-# SHUD_ENABLE_PROFILE / no OMP defines / no DIAGNOSTICS) so the
-# archive is a clean Config-A-equivalent object set. SUNDIALS includes
-# are pulled in via $(INCLUDES) because `Model_Data.hpp` and friends
-# include `nvector_serial.h` etc.
+# For programs that need the Model_Data interface (loadinput, initialize,
+# rhs_core) without the CVODE main loop. Built with the fixed flags and
+# none of the options above. Object files go to _libshud_obj/.
 LIBSHUD_OBJ_DIR  := _libshud_obj
 LIBSHUD_ARCHIVE  := libshud.a
 LIBSHUD_SRC      := $(SHUD_SRC_NOMAIN)
@@ -897,9 +612,9 @@ $(LIBSHUD_OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
 
 .PHONY: libshud.a
 libshud.a: check_sundials $(LIBSHUD_OBJ)
-	@echo '...Archiving libshud.a (P8-tune.D KLU spike — openspec change p8tune-klu-spike) ...'
+	@echo '...Archiving libshud.a ...'
 	$(AR) rcs $(LIBSHUD_ARCHIVE) $(LIBSHUD_OBJ)
-	@echo " $(LIBSHUD_ARCHIVE) is archived successfully (additive — Config A flag set, no instrumentation)"
+	@echo " $(LIBSHUD_ARCHIVE) is archived successfully (fixed flags, no options)"
 	@echo
 
 clean:
