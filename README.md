@@ -123,6 +123,11 @@ every thread count.
 make shud_omp
 ```
 
+`./shud_omp` also gives the same output files as `./shud`, bit for bit, as
+long as both are linked against the SUNDIALS installed by `./configure`.
+With a SUNDIALS library built in another way (`make SUNDIALS_DIR=...`), even
+of the same version, the two agree only to within the solver tolerance.
+
 Set the number of threads in **both** places, to the same value:
 
 - `NUM_OPENMP` in `input/<project>/<project>.cfg.para`

@@ -32,7 +32,8 @@ which floating-point sums are accumulated.
 
 **Default build.** Vector sums and norms are kept serial, so the result does
 not depend on the thread count and is bit-identical to the serial-vector
-build. Use it unless you need the last bit of speed.
+build. Use it unless you need the last bit of speed. This holds when SUNDIALS
+is the one installed by `./configure`; see "Build" below.
 
 **Fastest build.** Sums and norms are also threaded, using a fixed summation
 tree (blocks of 4096 entries) that does not depend on the thread count. The
@@ -68,6 +69,20 @@ make shud_omp
 
 Requirements in addition to those of `make shud`: an OpenMP runtime (`libgomp`
 with GCC on Linux; `brew install libomp` on macOS).
+
+**Use the SUNDIALS installed by `./configure` if you compare outputs bit for
+bit.** The serial-vector build and `make shud` take their vector sums from
+the SUNDIALS library, while the default build uses SHUD's own copies of those
+sums, compiled to round exactly as the library built by `./configure` does.
+A SUNDIALS library built in another way (other compiler, flags or build
+script, passed with `make SUNDIALS_DIR=...`) may round differently even when
+its version is the same. The model then still runs correctly, but the
+default build is no longer bit-identical to the serial-vector build and to
+`./shud`: they agree only to within the solver tolerance. Example (macOS,
+Apple clang, `ccw`, 60 days, 8 threads, a second SUNDIALS 6.0.0 install): 16
+of the 22 output files differ, and the unsaturated-zone storage differs by
+1.3 mm RMS. Details are in
+[`OpenMP_NVector_Determinism.md`](OpenMP_NVector_Determinism.md).
 
 ## Run
 
@@ -182,6 +197,9 @@ and fastest builds add.
   expected thread counts, and that the project is large enough to benefit.
 - **The output of the fastest build differs from an older reference.**
   Expected: see "Which build do I want?".
+- **`./shud_omp` and `./shud` give slightly different output.** Check which
+  SUNDIALS they are linked against. They are bit-identical only with the
+  SUNDIALS installed by `./configure`; see "Build".
 - **`make shud_omp SHUD_NVEC_HYBRID=0` stops with an error.** That
   combination threads the vector sums without fixing their order, so the
   output changes with the thread count. It is blocked on purpose. Use
