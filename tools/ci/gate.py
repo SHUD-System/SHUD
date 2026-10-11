@@ -2,7 +2,6 @@
 """Entry point of the engineering gates. Called by the Makefile: `make <gate>`.
 
 Thresholds and baselines come from constraints.yaml and tools/ci/baseline/.
-AGENTS.md (Enforcement Index) lists what each gate enforces.
 """
 import os
 import shutil
@@ -99,7 +98,7 @@ def gate_commit_msg():
 
 
 def gate_docs():
-    return pr_checks.check_docs(ROOT, list(pr_checks.DOC_FILES) + ["decisions/README.md"])
+    return pr_checks.check_docs(ROOT, pr_checks.DOC_FILES)
 
 
 def gate_pr():

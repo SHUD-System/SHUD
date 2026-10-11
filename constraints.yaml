@@ -1,7 +1,7 @@
 # constraints.yaml — machine-readable engineering constraints
 # Canonical source of every threshold, pattern and baseline used by the gates
 # in tools/ci/. The gates read this file at run time; do not hardcode copies.
-# Human-readable rules: AGENTS.md. Levels: advice < review-only < warn < block < gate.
+# Levels: advice < review-only < warn < block < gate.
 
 strictness_profile:
   schema_version: "3.6.0"
@@ -114,7 +114,7 @@ testing:
     enforced_by: "gcovr via tools/ci/runtime_checks.py (make coverage); floor is baseline.coverage_percent until 80 is reached"
   tdd_mode:
     value: "required-by-change-type"
-    description: "A change under src/ must change tests/; evidence required per change type is in AGENTS.md"
+    description: "A change under src/ must change tests/; evidence required per change type is in .github/PULL_REQUEST_TEMPLATE.md"
   forbid_mock_of_system_under_test:
     value: true
 
@@ -143,7 +143,7 @@ regression:
   max_abs_m: 0.001
   rms_m: 0.0001
 
-# Machine-readable mirror of the AGENTS.md Verification Matrix.
+# What verifies each surface.
 verification:
   surfaces:
     static:
@@ -212,4 +212,4 @@ iteration_gates:
   checkpoint_commit_at_green: true
   test_weakening_forbidden: true
   one_task_one_branch: true
-  enforced_by: "AGENTS.md Agent Operating Rules (review-only)"
+  enforced_by: "review-only"

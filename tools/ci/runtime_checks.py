@@ -76,7 +76,8 @@ def compare_values(name, values, reference, max_abs, rms):
     root_mean = math.sqrt(sum(d * d for d in diffs) / len(diffs)) if diffs else 0.0
     if worst > max_abs or root_mean > rms:
         return ["%s: differs from the reference (max %.3e, RMS %.3e; allowed %.1e, %.1e). If the change in "
-                "results is intended, see AGENTS.md -> Reference results." % (name, worst, root_mean, max_abs, rms)]
+                "results is intended, run `make regress UPDATE=1` and give the physical reason in the PR."
+                % (name, worst, root_mean, max_abs, rms)]
     return []
 
 

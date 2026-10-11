@@ -53,10 +53,7 @@ tests/test_adjacency_fallback.dSYM/
 docs/
 .obsidian/
 .memsearch/
-.claude/*
-!.claude/skills/
-.claude/skills/*
-!.claude/skills/pre-push-checks/
+.claude/
 .coveragerc
 
 # Engineering gates (make ci): tool virtualenv and coverage data
