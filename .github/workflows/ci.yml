@@ -1,6 +1,6 @@
 name: CI
 
-# Runs the engineering gates (AGENTS.md, Enforcement Index). Each job calls the
+# Runs the engineering gates (thresholds: constraints.yaml). Each job calls the
 # same make target a developer runs locally. Branch protection should require
 # only the "All checks passed" job.
 

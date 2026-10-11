@@ -635,7 +635,7 @@ clean:
 	@echo
 
 # -----------------------------------------------------------------
-# Engineering gates (AGENTS.md, Enforcement Index)
+# Engineering gates
 # -----------------------------------------------------------------
 # Thin entry points; the checks live in tools/ci/ and read their
 # thresholds from constraints.yaml. `make ci` is what the CI runs.
