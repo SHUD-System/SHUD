@@ -35,7 +35,7 @@ def check_tests_changed(files):
     """A change under src/ must come with a change under tests/."""
     if any(f.startswith("src/") for f in files) and not any(f.startswith("tests/") for f in files):
         return ["src/ changed without any change under tests/. Add the test, invariant check or "
-                "reference update that covers it (.github/PULL_REQUEST_TEMPLATE.md, Type of change and evidence)."]
+                "reference update that covers it (see .github/PULL_REQUEST_TEMPLATE.md)."]
     return []
 
 

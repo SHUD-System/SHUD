@@ -1,39 +1,39 @@
-## Summary
+## 概述
 
-<!-- One paragraph: what changed and why. -->
+<!-- 一段话：改了什么，为什么改。 -->
 
-## Type of change and evidence
+## 改动类型与证据
 
-Tick one. The evidence listed for it is required.
+勾选一项，并提供该项要求的证据。
 
-- [ ] **Bug fix** — a test that fails before the fix and passes after it.
-- [ ] **Conservation / numerical / solver change** — an invariant test (identity, antisymmetry, pure right-hand side, unit invariance, ...).
-- [ ] **Physical closure change** — invariant tests still pass; `tests/reference/` updated with a before/after comparison and the physical reason below.
-- [ ] **Refactor** — `make regress` passes with `tests/reference/` unchanged.
-- [ ] **Build, tooling, documentation**
+- [ ] **缺陷修复** —— 一个修复前失败、修复后通过的测试。
+- [ ] **守恒、数值或求解器改动** —— 一个不变量测试（恒等式、反对称、右端纯函数性、单位不变性等）。
+- [ ] **物理闭合关系改动** —— 不变量测试仍通过；`tests/reference/` 已更新，下面给出前后对比和物理原因。
+- [ ] **重构** —— `make regress` 通过，`tests/reference/` 未变。
+- [ ] **构建、工具、文档**
 
-## Runtime evidence
+## 运行证据
 
-<!-- Commands actually run and their key output. State all four: commit, build
-     variant (shud / shud_omp / options), which SUNDIALS build, configuration.
-     Only accepted escape hatch, verbatim: "None — review-only change (reason: ...)". -->
+<!-- 实际运行过的命令及其关键输出。写明四项：提交、构建方式（shud / shud_omp / 选项）、
+     所用的 SUNDIALS 构建、配置。
+     唯一允许的例外，照此格式填写：“无——仅需审阅的改动（原因：……）”。 -->
 
-## Results
+## 结果
 
-- [ ] Model results are unchanged (`make regress` passes, reference untouched), **or**
-- [ ] Results change: reason and size of the change are given here.
+- [ ] 模型结果不变（`make regress` 通过，参考值未动），**或者**
+- [ ] 结果有变化：这里写明原因和变化幅度。
 
-## Risk
+## 风险
 
-<!-- What could break, who is affected, how to roll back. -->
+<!-- 可能出什么问题，影响谁，如何回滚。 -->
 
-## Checklist
+## 检查清单
 
-- [ ] Touches the solver loop or right-hand side (`src/Model/`), fluxes and state update (`src/ModelData/`), `src/Equations/`, `src/classes/`, `Makefile`, `configure` or `tests/reference/`: yes / no. If yes, a human reviewed every diff line.
-- [ ] Input formats, output file names/layout, command-line options and run-log lines used by scripts are unchanged, or the change is approved and documented.
-- [ ] No `_v2`/`_new`/`_old` names, no commented-out code, no scratch directories.
-- [ ] Over 400 changed lines only with the `diff-limit-exempt` label and a justification here.
+- [ ] 是否改动了求解循环或右端（`src/Model/`）、通量与状态更新（`src/ModelData/`）、`src/Equations/`、`src/classes/`、`Makefile`、`configure` 或 `tests/reference/`：是 / 否。若是，已有人逐行审阅 diff。
+- [ ] 输入格式、输出文件名与布局、命令行选项、脚本会读取的运行日志行均未改变；或者改动已获批准并写入文档。
+- [ ] 没有 `_v2`、`_new`、`_old` 之类的命名，没有注释掉的代码，没有临时目录。
+- [ ] 改动超过 400 行时，已加 `diff-limit-exempt` 标签并在这里说明理由。
 
-## References
+## 相关链接
 
-<!-- Issues. -->
+<!-- 相关 issue。 -->
