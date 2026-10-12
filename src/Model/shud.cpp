@@ -320,6 +320,7 @@ double SHUD(FileIn *fin, FileOut *fout){
 #endif
                     flag = CVode(mem, tnext, udata, &t, CV_NORMAL);
                     check_flag(&flag, "CVode", 1);
+                    cdiag.after_cvode(mem, tnext);
                 }
             }
             /* Per-interval diagnostic sample at the

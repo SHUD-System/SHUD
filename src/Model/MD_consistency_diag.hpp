@@ -19,9 +19,13 @@
  *   d_snow_m3            change of snow storage
  *   residual_m3          prcp - netprcp - canopy_evap - d_canopy - d_snow
  *   residual_frac_prcp   residual_m3 / prcp_m3 (0 when there is none)
+ *   cvode_overshoot_steps    macro steps after which CVODE's internal time
+ *                            is past the output time tnext
+ *   cvode_max_overshoot_min  largest such excess, minutes
  *
  * Known limits:
  *   - Coupled mode only; SHUD_uncouple (-g) is not instrumented (#25).
+ *   - In dummy mode (no CVode call) only the ledger runs.
  *   - Lake elements are left out of the ledger: they pass raw precipitation
  *     to the lake.
  *
@@ -30,6 +34,7 @@
 
 #include <stdio.h>
 #include <vector>
+#include <cvode/cvode.h>
 #include "Model_Data.hpp"
 #include "MD_osc_diag.hpp" /* osc_diag_env_is_1() */
 
@@ -72,6 +77,19 @@ public:
         }
     }
 
+    /* Called right after CVode() returned for the output time tnext. In
+     * CV_NORMAL mode CVODE steps past tnext and interpolates back, so the
+     * model arrays written by its last f() call belong to a later time. */
+    void after_cvode(void *mem, double tnext) {
+        if (!consistency_on) return;
+        realtype tcur = tnext;
+        CVodeGetCurrentTime(mem, &tcur);
+        if (tcur > tnext) {
+            overshoot_steps++;
+            if (tcur - tnext > max_overshoot) max_overshoot = tcur - tnext;
+        }
+    }
+
     /* Write diag_consistency.txt. Called once, after the loop. */
     void finish() const {
         if (!consistency_on) return;
@@ -92,6 +110,8 @@ public:
         put(fp, "d_snow_m3", d_snow);
         put(fp, "residual_m3", residual);
         put(fp, "residual_frac_prcp", prcp > 0. ? residual / prcp : 0.);
+        fprintf(fp, "cvode_overshoot_steps=%ld\n", overshoot_steps);
+        put(fp, "cvode_max_overshoot_min", max_overshoot);
         fclose(fp);
     }
 
@@ -105,6 +125,9 @@ private:
     int land_elements = 0;
     std::vector<double> canopy_before, snow_before; /* stores before ET(), m */
     double prcp = 0., netprcp = 0., canopy_evap = 0., d_canopy = 0., d_snow = 0.; /* m3 */
+
+    long overshoot_steps = 0;
+    double max_overshoot = 0.; /* min */
 
     bool is_land(int i) const { return MD->Ele[i].iLake <= 0; }
 
