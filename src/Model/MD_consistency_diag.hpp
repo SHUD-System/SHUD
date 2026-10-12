@@ -27,22 +27,30 @@
  *   landland_sub_gross_m3      sum of |Q_ij| * dt, subsurface flux
  *   landland_surf_residual_m3  the same for the surface flux
  *   landland_surf_gross_m3
+ *   lakes                      number of lakes
+ *   landlake_sub_residual_m3   sum over lakes of |land side - lake side| * dt
+ *   landlake_sub_gross_m3      sum over lakes of |lake side| * dt
+ *   landlake_surf_residual_m3  the same for the surface flux
+ *   landlake_surf_gross_m3
  *
  * Interface fluxes: QeleSubAt(i, j) and QeleSurfAt(i, j) are m3/min, positive
  * out of element i through edge j (rhs_apply subtracts their sum from the
- * storage of i). They are read once per macro step as CVODE's last f() call
- * left them and weighted by the step length; nothing is recomputed. Both
- * fluxes are antisymmetric by construction except for the frozen-soil factor
- * fu_Sub, which is 1 unless `cryosphere` is on, and for the `depression`
- * threshold of the surface flux, which is the element's own
- * (MD_ElementFlux.cpp:86-88) and today has the same default value in every
- * element (Element.hpp:89). With `cryosphere` off a residual must be at
- * rounding level and verifies the pairing of the two sides; with it on the
- * residual measures #20.
+ * storage of i). QLakeSub and QLakeSurf are m3/min, positive into the lake
+ * (rhs_apply adds them to the lake storage). So on a lake edge positive is
+ * land to lake on both sides. The fluxes are read once per macro step as
+ * CVODE's last f() call left them and weighted by the step length; nothing
+ * is recomputed. Both fluxes are antisymmetric by construction except for
+ * the frozen-soil factor fu_Sub, which is 1 unless `cryosphere` is on, and
+ * for the `depression` threshold of the surface flux, which is the element's
+ * own (MD_ElementFlux.cpp:86-88) and today has the same default value in
+ * every element (Element.hpp:89). With `cryosphere` off a residual must be
+ * at rounding level and verifies the pairing of the two sides; with it on
+ * the residual measures #20.
  *
  * Known limits:
  *   - Coupled mode only; SHUD_uncouple (-g) is not instrumented (#25).
  *   - In dummy mode (no CVode call) only the ledger runs.
+ *   - The lake keys are not covered by `make regress` (ccw has no lake).
  *   - Lake elements are left out of the ledger: they pass raw precipitation
  *     to the lake.
  *
@@ -54,6 +62,7 @@
 #include <vector>
 #include <cvode/cvode.h>
 #include "Model_Data.hpp"
+#include "MD_adjacency.hpp" /* lake_bank_edge_by_lake: (element, edge) pairs on each lake */
 #include "MD_osc_diag.hpp" /* osc_diag_env_is_1() */
 
 class ConsistencyDiag {
@@ -110,6 +119,7 @@ public:
             if (tcur - tnext > max_overshoot) max_overshoot = tcur - tnext;
         }
         land_land();
+        land_lake();
     }
 
     /* Write diag_consistency.txt. Called once, after the loop. */
@@ -139,6 +149,11 @@ public:
         put(fp, "landland_sub_gross_m3", landland_sub_gross);
         put(fp, "landland_surf_residual_m3", landland_surf_residual);
         put(fp, "landland_surf_gross_m3", landland_surf_gross);
+        fprintf(fp, "lakes=%d\n", MD->NumLake);
+        put(fp, "landlake_sub_residual_m3", landlake_sub_residual);
+        put(fp, "landlake_sub_gross_m3", landlake_sub_gross);
+        put(fp, "landlake_surf_residual_m3", landlake_surf_residual);
+        put(fp, "landlake_surf_gross_m3", landlake_surf_gross);
         fclose(fp);
     }
 
@@ -160,6 +175,8 @@ private:
     int landland_edges = 0;
     double landland_sub_residual = 0., landland_sub_gross = 0.;   /* m3 */
     double landland_surf_residual = 0., landland_surf_gross = 0.; /* m3 */
+    double landlake_sub_residual = 0., landlake_sub_gross = 0.;   /* m3 */
+    double landlake_surf_residual = 0., landlake_surf_gross = 0.; /* m3 */
 
     bool is_land(int i) const { return MD->Ele[i].iLake <= 0; }
 
@@ -185,6 +202,22 @@ private:
                 landland_surf_residual += fabs(MD->QeleSurfAt(i, j) + MD->QeleSurfAt(k, kj)) * dt;
                 landland_surf_gross += fabs(MD->QeleSurfAt(i, j)) * dt;
             }
+        }
+    }
+
+    /* Per lake: what the land elements book on their lake edges (the flux
+     * their storage loses) against what the lake receives. */
+    void land_lake() {
+        for (int l = 0; l < MD->NumLake; l++) {
+            double land_sub = 0., land_surf = 0.;
+            for (const std::pair<int, int> &edge : lake_bank_edge_by_lake[l]) {
+                land_sub += MD->QeleSubAt(edge.first, edge.second);
+                land_surf += MD->QeleSurfAt(edge.first, edge.second);
+            }
+            landlake_sub_residual += fabs(land_sub - MD->QLakeSub[l]) * dt;
+            landlake_sub_gross += fabs(MD->QLakeSub[l]) * dt;
+            landlake_surf_residual += fabs(land_surf - MD->QLakeSurf[l]) * dt;
+            landlake_surf_gross += fabs(MD->QLakeSurf[l]) * dt;
         }
     }
 
