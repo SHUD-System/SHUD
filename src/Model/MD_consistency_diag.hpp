@@ -4,13 +4,16 @@
  * acceptance tool for the fixes under #13 that does not depend on the model's
  * own output files. Default off. Driven by one-line hooks in SHUD().
  *
- * Gate, strict `=1` as in MD_osc_diag.hpp, read once at construction:
+ * Two gates, strict `=1` as in MD_osc_diag.hpp, read once at construction:
  *   SHUD_DIAG_CONSISTENCY=1  read-only; every model output stays identical.
- * When the gate is off every hook returns at once and no file is written.
+ *   SHUD_DIAG_RHS_REPEAT=1   calls f() twice before each CVode call; this
+ *                            changes the results (see the limits below).
+ * With both gates off every hook returns at once and no file is written.
  *
  * Output <outpath>/diag_consistency.txt, `key=value`, written at run end.
- * Totals over the run:
+ * Totals over the run. Always:
  *   macro_steps          number of solver macro steps
+ * SHUD_DIAG_CONSISTENCY:
  *   land_elements        elements with iLake <= 0
  *   prcp_m3              precipitation (rain and snow) on the land elements
  *   netprcp_m3           net precipitation passed on to the land surface
@@ -47,7 +50,20 @@
  * at rounding level and verifies the pairing of the two sides; with it on
  * the residual measures #20.
  *
+ * SHUD_DIAG_RHS_REPEAT:
+ *   rhs_repeat_calls      macro steps in which f() was called twice at the
+ *                         same (t, y)
+ *   rhs_repeat_differing  those in which any component of DY differed
+ *   rhs_repeat_max_abs    largest |DY second - DY first|, in the unit of DY
+ *                         (m/min for elements, rivers and lakes)
+ *
  * Known limits:
+ *   - The repeat check adds two f() calls per macro step. While f() depends
+ *     on its call history (#16), a run with SHUD_DIAG_RHS_REPEAT=1 does not
+ *     reproduce the default trajectory, and nfcall.txt counts the extra
+ *     calls. With both gates on, the canopy and snow keys are unaffected
+ *     (they depend on the forcing only); the cvode_* and interface keys and
+ *     all model outputs then describe the perturbed run.
  *   - Coupled mode only; SHUD_uncouple (-g) is not instrumented (#25).
  *   - In dummy mode (no CVode call) only the ledger runs.
  *   - The lake keys are not covered by `make regress` (ccw has no lake).
@@ -61,6 +77,7 @@
 #include <math.h>
 #include <vector>
 #include <cvode/cvode.h>
+#include "f.hpp"
 #include "Model_Data.hpp"
 #include "MD_adjacency.hpp" /* lake_bank_edge_by_lake: (element, edge) pairs on each lake */
 #include "MD_osc_diag.hpp" /* osc_diag_env_is_1() */
@@ -71,7 +88,8 @@ public:
      * holds the canopy and snow stores before the first ET() call. */
     ConsistencyDiag(Model_Data *md, const char *out_dir)
         : MD(md), outpath(out_dir),
-          consistency_on(osc_diag_env_is_1("SHUD_DIAG_CONSISTENCY")) {
+          consistency_on(osc_diag_env_is_1("SHUD_DIAG_CONSISTENCY")),
+          repeat_on(osc_diag_env_is_1("SHUD_DIAG_RHS_REPEAT")) {
         if (!consistency_on) return;
         canopy_before.assign(MD->yEleIS, MD->yEleIS + MD->NumEle);
         snow_before.assign(MD->yEleSnow, MD->yEleSnow + MD->NumEle);
@@ -89,10 +107,12 @@ public:
      * step; f() overwrites qEleE_IC. Only ET() writes the two stores inside
      * the loop, so the values kept here are the ones before the next ET().
      * Rates are m/min and stores m; times the element area they are m3.
-     * Also counts the macro step and keeps dt for after_cvode(). */
+     * Also counts the macro step (for both gates) and keeps dt for
+     * after_cvode(). */
     void after_et(double t, double tnext) {
-        if (!consistency_on) return;
+        if (!consistency_on && !repeat_on) return;
         macro_steps++;
+        if (!consistency_on) return;
         dt = tnext - t;
         for (int i = 0; i < MD->NumEle; i++) {
             if (!is_land(i)) continue;
@@ -105,6 +125,25 @@ public:
             canopy_before[i] = MD->yEleIS[i];
             snow_before[i] = MD->yEleSnow[i];
         }
+    }
+
+    /* Called right before CVode(): evaluates the right-hand side twice at
+     * the same (t, y) and compares the two DY. A right-hand side that is a
+     * function of (t, y) only gives the same DY both times. `dy` is the
+     * scratch vector of SHUD(), which nothing else reads. */
+    void rhs_repeat(double t, N_Vector y, N_Vector dy) {
+        if (!repeat_on) return;
+        const double *DY = N_VGetArrayPointer(dy);
+        f(t, y, dy, MD);
+        first_dy.assign(DY, DY + MD->NumY);
+        f(t, y, dy, MD);
+        double max_abs = 0.;
+        for (int i = 0; i < MD->NumY; i++) {
+            if (fabs(DY[i] - first_dy[i]) > max_abs) max_abs = fabs(DY[i] - first_dy[i]);
+        }
+        repeat_calls++;
+        if (max_abs > 0.) repeat_differing++;
+        if (max_abs > repeat_max_abs) repeat_max_abs = max_abs;
     }
 
     /* Called right after CVode() returned for the output time tnext. In
@@ -124,7 +163,7 @@ public:
 
     /* Write diag_consistency.txt. Called once, after the loop. */
     void finish() const {
-        if (!consistency_on) return;
+        if (!consistency_on && !repeat_on) return;
         char path[MAXLEN];
         snprintf(path, sizeof(path), "%s/diag_consistency.txt", outpath);
         FILE *fp = fopen(path, "w");
@@ -133,6 +172,17 @@ public:
             return;
         }
         fprintf(fp, "macro_steps=%ld\n", macro_steps);
+        if (consistency_on) write_consistency(fp);
+        if (repeat_on) {
+            fprintf(fp, "rhs_repeat_calls=%ld\n", repeat_calls);
+            fprintf(fp, "rhs_repeat_differing=%ld\n", repeat_differing);
+            put(fp, "rhs_repeat_max_abs", repeat_max_abs);
+        }
+        fclose(fp);
+    }
+
+private:
+    void write_consistency(FILE *fp) const {
         const double residual = prcp - netprcp - canopy_evap - d_canopy - d_snow;
         fprintf(fp, "land_elements=%d\n", land_elements);
         put(fp, "prcp_m3", prcp);
@@ -154,13 +204,12 @@ public:
         put(fp, "landlake_sub_gross_m3", landlake_sub_gross);
         put(fp, "landlake_surf_residual_m3", landlake_surf_residual);
         put(fp, "landlake_surf_gross_m3", landlake_surf_gross);
-        fclose(fp);
     }
 
-private:
     Model_Data *MD;
     const char *outpath;
     const bool consistency_on;
+    const bool repeat_on;
 
     long macro_steps = 0;
     double dt = 0.; /* min; set by after_et(), read by after_cvode() in the same macro step */
@@ -177,6 +226,10 @@ private:
     double landland_surf_residual = 0., landland_surf_gross = 0.; /* m3 */
     double landlake_sub_residual = 0., landlake_sub_gross = 0.;   /* m3 */
     double landlake_surf_residual = 0., landlake_surf_gross = 0.; /* m3 */
+
+    std::vector<double> first_dy; /* DY of the first of the two f() calls */
+    long repeat_calls = 0, repeat_differing = 0;
+    double repeat_max_abs = 0.;
 
     bool is_land(int i) const { return MD->Ele[i].iLake <= 0; }
 
