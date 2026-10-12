@@ -46,6 +46,7 @@
  * cleanly too — the wrapper's drain probes LS->ops->getid and returns
  * 0 if the handle is not the custom AMG wrapper). */
 #include "sunlinsol_hypre.h"
+#include "MD_consistency_diag.hpp" /* SHUD_DIAG_CONSISTENCY */
 
 /* Wall-clock profile timer infrastructure. timer.h lives in
  * `tools/profile/`; `make ... SHUD_ENABLE_PROFILE=1` adds the define, the
@@ -270,6 +271,7 @@ double SHUD(FileIn *fin, FileOut *fout){
         diag.begin(mem, udata, fout->projectname, MD->CS.SolverStep,
                    MD->NumEle, MD->NumRiv, fout->outpath);
     }
+    ConsistencyDiag cdiag(MD, fout->outpath);
     {
 #ifdef SHUD_ENABLE_PROFILE
         /* t_wall_total wraps the main solver loop
@@ -304,6 +306,7 @@ double SHUD(FileIn *fin, FileOut *fout){
                     shud_profile::Timer _t_et("t_ET");
 #endif
                     MD->ET(t, tnext);
+                    cdiag.after_et(t, tnext);
                 }
                 if(dummy_mode){
                     t = tnext;  /* dummy mode only. */
@@ -385,6 +388,7 @@ double SHUD(FileIn *fin, FileOut *fout){
     if (diag.any_on()) {
         diag.finish();
     }
+    cdiag.finish(); /* diag_consistency.txt; no-op unless its gate is on */
     /* Dump nvec_prof.csv at run end (no-op unless
      * SHUD_NVEC_PROF=1). Reads only the per-op global counters, not the
      * vectors, so it is safe to call before/after N_VDestroy; placed here
