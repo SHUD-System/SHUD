@@ -1,15 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
-//#include "f_element.hpp"
-//#include "f_River.hpp"
 #include "f.hpp"
 #include "IO.hpp"
 #include "ModelConfigure.hpp"
 #include "print.hpp"
 #include "Macros.hpp"
 #include "functions.hpp"
-//#include "is_sm_et.hpp"
 #include "cvode_config.hpp"
 #include "Model_Data.hpp"
 #include "TimeSeriesData.hpp"
@@ -258,13 +255,10 @@ double SHUD(FileIn *fin, FileOut *fout){
     /* set start time */
     t = MD->CS.StartTime;
     tnext = t;
-    //CheckInput(MD, &CS);
     /* start solver in loops */
-//    getSecond();
     MD->modelSummary(0);
     MD->debugData(fout->outpath);
     MD->gc.write(fout->Calib_bak);
-//    f(t, udata, du, MD); /* Initialized the status */
     /* Construct + prime the env-gated diagnostics
      * BEFORE the profiled solver-loop scope so header-write / buffer alloc /
      * initial-state snapshot do not skew t_wall_total (initialization is
@@ -335,7 +329,6 @@ double SHUD(FileIn *fin, FileOut *fout){
             if (diag.any_on()) {
                 diag.record(mem, udata, t);
             }
-            //            CVODEstatus(mem, udata, t);
             {
 #ifdef SHUD_ENABLE_PROFILE
                 /* summary() flux post-proc to t_output bucket. */
