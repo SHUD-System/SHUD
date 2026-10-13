@@ -137,7 +137,7 @@ commits:
 # Regression run used by `make test`, `make regress` and `make coverage`.
 regression:
   project: "ccw"
-  days: 3
+  days: 731
   # Allowed difference of the final state against tests/reference/ (metres).
   # Covers compiler and platform rounding only; a physics change must update the reference.
   max_abs_m: 0.001
