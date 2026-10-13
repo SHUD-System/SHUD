@@ -100,6 +100,8 @@ def cases(tmp):
               "d_snow_m3": 0.0, "residual_m3": 22.0}
     yield ("ledger tolerance", runtime_checks.compare_ledger(dict(ledger, d_snow_m3=1e-6), ledger, 1e-9),
            runtime_checks.compare_ledger(dict(ledger, d_snow_m3=1e-8), ledger, 1e-9))
+    yield ("ledger closure", runtime_checks.check_closure(ledger, 1e-9),
+           runtime_checks.check_closure(dict(ledger, residual_m3=1e-8), 1e-9))
     yield ("coverage floor", runtime_checks.check_coverage(49.0, 54.0, 80),
            runtime_checks.check_coverage(54.2, 54.0, 80))
 
