@@ -14,6 +14,12 @@ from common import ROOT, constraint, run, tool
 REFERENCE_DIR = os.path.join(ROOT, "tests", "reference")
 CONTRACT_DIR = os.path.join(ROOT, "tests", "io_contract")
 STATE_FILES = ("eleysurf", "eleyunsat", "eleygw", "rivystage")
+# diag_consistency.txt (src/Model/MD_consistency_diag.hpp): the volumes and counts compared with the reference,
+# and the interfaces whose residual must stay at rounding level of the gross volume.
+DIAG_FILE = "diag_consistency.txt"
+LEDGER_KEYS = ("prcp_m3", "netprcp_m3", "canopy_evap_m3", "d_canopy_m3", "d_snow_m3", "residual_m3")
+COUNT_KEYS = ("land_elements", "landland_edges", "lakes", "cvode_overshoot_steps", "rhs_repeat_differing")
+INTERFACES = ("landland_sub", "landland_surf", "landlake_sub", "landlake_surf")
 
 
 def updating():
@@ -32,7 +38,7 @@ def make(*args):
     return run(cmd)
 
 
-def run_case(binary, project, days, threads=2):
+def run_case(binary, project, days, threads=2, extra_env=None):
     """Run `binary` on a private copy of input/<project> for `days`; return the output directory."""
     work = tempfile.mkdtemp(prefix="shud-gate-")
     shutil.copytree(os.path.join(ROOT, "input", project), os.path.join(work, "input", project))
@@ -44,6 +50,7 @@ def run_case(binary, project, days, threads=2):
     with open(cfg, "w", encoding="utf-8") as handle:
         handle.write(text)
     env = {"OMP_NUM_THREADS": str(threads), "SHUD_RHS_THREADS": str(threads), "OMP_PROC_BIND": "close"}
+    env.update(extra_env or {})
     run([os.path.join(ROOT, binary), "-o", "out", project], cwd=work, env=env)
     return os.path.join(work, "out")
 
@@ -146,6 +153,75 @@ def gate_regress():
             reference = [float(line) for line in handle if line.strip()]
         failures += compare_values(state, last, reference,
                                    constraint("regression.max_abs_m"), constraint("regression.rms_m"))
+    return failures + check_diagnostics(serial, project, days)
+
+
+def read_keys(path):
+    """`key=value` lines -> {key: number}; a missing file gives {}."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as handle:
+        return {key: float(value) for key, _, value in (line.strip().partition("=") for line in handle) if key}
+
+
+def compare_ledger(values, reference, rel):
+    """Failure messages if a canopy or snow volume differs from the reference by more than rel * precipitation."""
+    allowed = rel * reference["prcp_m3"]
+    return ["%s: %.12e m3, reference %.12e m3 (allowed difference %.1e m3). If the change in results is "
+            "intended, run `make regress UPDATE=1` and give the physical reason in the PR."
+            % (key, values[key], reference[key], allowed)
+            for key in LEDGER_KEYS if not abs(values[key] - reference[key]) <= allowed]
+
+
+def check_diagnostics(default_out, project, days):
+    """Consistency diagnostics: read-only run and repeat-check run against the invariants and the reference."""
+    ledger_out = run_case("shud", project, days, extra_env={"SHUD_DIAG_CONSISTENCY": "1"})
+    repeat_out = run_case("shud", project, days, extra_env={"SHUD_DIAG_RHS_REPEAT": "1"})
+    values = read_keys(os.path.join(ledger_out, DIAG_FILE))
+    repeat = read_keys(os.path.join(repeat_out, DIAG_FILE))
+    if not values or not repeat:
+        return ["%s was not written with SHUD_DIAG_CONSISTENCY=1 / SHUD_DIAG_RHS_REPEAT=1." % DIAG_FILE]
+    values["rhs_repeat_differing"] = repeat["rhs_repeat_differing"]  # the only compared key from the repeat run
+    print("diagnostics (%s %d days): residual_frac_prcp=%.6f cvode_max_overshoot_min=%.3e rhs_repeat_max_abs=%.3e"
+          % (project, days, values["residual_frac_prcp"], values["cvode_max_overshoot_min"],
+             repeat["rhs_repeat_max_abs"]))
+    # Read-only: the same files with the same bytes, except *.time.csv (wall-clock times) and the diagnostics file.
+    names = [{name for name in os.listdir(out) if name != DIAG_FILE and not name.endswith(".time.csv")}
+             for out in (default_out, ledger_out)]
+    failures = ["%s: written with or without SHUD_DIAG_CONSISTENCY=1 only; the gate must be read-only." % name
+                for name in sorted(names[0] ^ names[1])]
+    for name in sorted(names[0] & names[1]):
+        with open(os.path.join(default_out, name), "rb") as a, open(os.path.join(ledger_out, name), "rb") as b:
+            if a.read() != b.read():
+                failures.append("%s: changed by SHUD_DIAG_CONSISTENCY=1, which must be read-only." % name)
+    with open(os.path.join(ROOT, "input", project, project + ".cfg.para"), encoding="utf-8") as handle:
+        step_min = float(re.search(r"(?m)^MAX_SOLVER_STEP\s+(\S+)", handle.read()).group(1))
+    rel = constraint("regression.ledger_rel")
+    for ok, message in (
+            (values["macro_steps"] == days * 1440 / step_min, "macro_steps is not days * 1440 / MAX_SOLVER_STEP"),
+            (repeat["rhs_repeat_calls"] == repeat["macro_steps"], "rhs_repeat_calls differs from macro_steps"),
+            (values["prcp_m3"] > 0, "prcp_m3 is not positive; the ledger saw no precipitation"),
+            (values["landland_edges"] > 0, "landland_edges is not positive"),
+            (values["landland_sub_gross_m3"] > 0, "landland_sub_gross_m3 is not positive"),
+            (values["landland_surf_gross_m3"] > 0, "landland_surf_gross_m3 is not positive")):
+        if not ok:
+            failures.append("%s: %s." % (DIAG_FILE, message))
+    for name in INTERFACES:
+        residual, gross = values[name + "_residual_m3"], values[name + "_gross_m3"]
+        if not residual <= rel * gross:
+            failures.append("%s_residual_m3 %.3e exceeds %.1e of the gross volume %.3e m3: the two sides of "
+                            "the interface book different fluxes." % (name, residual, rel, gross))
+    ref_path = os.path.join(REFERENCE_DIR, project, "diag_consistency.ref")
+    if updating():
+        if not failures:  # a run that breaks an invariant is not recorded
+            with open(ref_path, "w", encoding="utf-8") as handle:
+                handle.write("".join("%s=%.12e\n" % (key, values[key]) for key in LEDGER_KEYS)
+                             + "".join("%s=%d\n" % (key, values[key]) for key in COUNT_KEYS))
+        return failures
+    reference = read_keys(ref_path)
+    failures += compare_ledger(values, reference, rel)
+    failures += ["%s: %d, reference %d." % (key, values[key], reference[key])
+                 for key in COUNT_KEYS if values[key] != reference[key]]
     return failures
 
 
@@ -173,7 +249,9 @@ def gate_coverage():
         # gcda files are written next to the gcno files, wherever the binary runs from.
         run_case("shud", project, days)
         summary = os.path.join(tempfile.mkdtemp(prefix="shud-cov-"), "summary.json")
-        run([tool("gcovr"), "-r", ".", "--filter", "src/", "--json-summary", summary])
+        # Temporary tool, off by default: left out so the floor measures model code and stays put when it is removed.
+        run([tool("gcovr"), "-r", ".", "--filter", "src/", "--exclude", "src/Model/MD_consistency_diag.hpp",
+             "--json-summary", summary])
         with open(summary, encoding="utf-8") as handle:
             percent = float(json.load(handle)["line_percent"])
     finally:

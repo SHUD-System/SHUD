@@ -1,15 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
-//#include "f_element.hpp"
-//#include "f_River.hpp"
 #include "f.hpp"
 #include "IO.hpp"
 #include "ModelConfigure.hpp"
 #include "print.hpp"
 #include "Macros.hpp"
 #include "functions.hpp"
-//#include "is_sm_et.hpp"
 #include "cvode_config.hpp"
 #include "Model_Data.hpp"
 #include "TimeSeriesData.hpp"
@@ -49,6 +46,7 @@
  * cleanly too — the wrapper's drain probes LS->ops->getid and returns
  * 0 if the handle is not the custom AMG wrapper). */
 #include "sunlinsol_hypre.h"
+#include "MD_consistency_diag.hpp" /* SHUD_DIAG_CONSISTENCY, SHUD_DIAG_RHS_REPEAT */
 
 /* Wall-clock profile timer infrastructure. timer.h lives in
  * `tools/profile/`; `make ... SHUD_ENABLE_PROFILE=1` adds the define, the
@@ -258,13 +256,10 @@ double SHUD(FileIn *fin, FileOut *fout){
     /* set start time */
     t = MD->CS.StartTime;
     tnext = t;
-    //CheckInput(MD, &CS);
     /* start solver in loops */
-//    getSecond();
     MD->modelSummary(0);
     MD->debugData(fout->outpath);
     MD->gc.write(fout->Calib_bak);
-//    f(t, udata, du, MD); /* Initialized the status */
     /* Construct + prime the env-gated diagnostics
      * BEFORE the profiled solver-loop scope so header-write / buffer alloc /
      * initial-state snapshot do not skew t_wall_total (initialization is
@@ -276,6 +271,7 @@ double SHUD(FileIn *fin, FileOut *fout){
         diag.begin(mem, udata, fout->projectname, MD->CS.SolverStep,
                    MD->NumEle, MD->NumRiv, fout->outpath);
     }
+    ConsistencyDiag cdiag(MD, fout->outpath);
     {
 #ifdef SHUD_ENABLE_PROFILE
         /* t_wall_total wraps the main solver loop
@@ -310,10 +306,12 @@ double SHUD(FileIn *fin, FileOut *fout){
                     shud_profile::Timer _t_et("t_ET");
 #endif
                     MD->ET(t, tnext);
+                    cdiag.after_et(t, tnext);
                 }
                 if(dummy_mode){
                     t = tnext;  /* dummy mode only. */
                 }else{
+                    cdiag.rhs_repeat(t, udata, du);
 #ifdef SHUD_ENABLE_PROFILE
                     /* t_CVODE_raw includes the RHS sub-calls (CVode
                      * invokes f() internally). dump() subtracts the
@@ -323,6 +321,7 @@ double SHUD(FileIn *fin, FileOut *fout){
 #endif
                     flag = CVode(mem, tnext, udata, &t, CV_NORMAL);
                     check_flag(&flag, "CVode", 1);
+                    cdiag.after_cvode(mem, tnext);
                 }
             }
             /* Per-interval diagnostic sample at the
@@ -335,7 +334,6 @@ double SHUD(FileIn *fin, FileOut *fout){
             if (diag.any_on()) {
                 diag.record(mem, udata, t);
             }
-            //            CVODEstatus(mem, udata, t);
             {
 #ifdef SHUD_ENABLE_PROFILE
                 /* summary() flux post-proc to t_output bucket. */
@@ -392,6 +390,7 @@ double SHUD(FileIn *fin, FileOut *fout){
     if (diag.any_on()) {
         diag.finish();
     }
+    cdiag.finish(); /* diag_consistency.txt; no-op unless one of its gates is on */
     /* Dump nvec_prof.csv at run end (no-op unless
      * SHUD_NVEC_PROF=1). Reads only the per-op global counters, not the
      * vectors, so it is safe to call before/after N_VDestroy; placed here

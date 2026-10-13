@@ -96,6 +96,10 @@ def cases(tmp):
            runtime_checks.compare_values("state", [1.0, 2.0, 3.0 + 1e-6], reference, 1e-3, 1e-4))
     yield ("regression length", runtime_checks.compare_values("state", [1.0, 2.0], reference, 1e-3, 1e-4),
            runtime_checks.compare_values("state", reference, reference, 1e-3, 1e-4))
+    ledger = {"prcp_m3": 100.0, "netprcp_m3": 70.0, "canopy_evap_m3": 5.0, "d_canopy_m3": 3.0,
+              "d_snow_m3": 0.0, "residual_m3": 22.0}
+    yield ("ledger tolerance", runtime_checks.compare_ledger(dict(ledger, d_snow_m3=1e-6), ledger, 1e-9),
+           runtime_checks.compare_ledger(dict(ledger, d_snow_m3=1e-8), ledger, 1e-9))
     yield ("coverage floor", runtime_checks.check_coverage(49.0, 54.0, 80),
            runtime_checks.check_coverage(54.2, 54.0, 80))
 
