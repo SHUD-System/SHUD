@@ -158,11 +158,14 @@ void Model_Data::ET(double t, double tnext){
         double icStg = yEleIS[i];
         /* Ele[i].VegFrac SoA read. */
         double vgFrac = hot.VegFrac[i];
+        /* icStg and icMax are depths (m), icAcc and icEvap rates (m/min),
+         * all over the element area: the vegetated-area values times
+         * vgFrac. yEleIS is stored on that basis. */
         double icAcc, icEvap;
         if(LAI > ZERO){
-            double icMax = gc.cISmax * IC_MAX * LAI;
-            icAcc = min(prcp - snAcc, max(0., (icMax - icStg) / DT_min) );
-            icEvap = min(max(0., icStg / DT_min), qPotEvap[i]);
+            double icMax = gc.cISmax * IC_MAX * LAI * vgFrac;
+            icAcc = min((prcp - snAcc) * vgFrac, max(0., (icMax - icStg) / DT_min) );
+            icEvap = min(max(0., icStg / DT_min), qPotEvap[i] * vgFrac);
         }else{
             icAcc = 0.;
             icEvap = 0.;
@@ -170,10 +173,10 @@ void Model_Data::ET(double t, double tnext){
         icStg += (icAcc - icEvap) * DT_min;
 
         /* Update the storage value and net precipitaion */
-        yEleIS[i] = icStg * vgFrac;
+        yEleIS[i] = icStg;
         yEleSnow[i] = snStg;
-        qEleE_IC[i] = icEvap * vgFrac;
-        qEleNetPrep[i] = (1. - snFrac) * prcp + snMelt - icAcc * vgFrac ;
+        qEleE_IC[i] = icEvap;
+        qEleNetPrep[i] = (1. - snFrac) * prcp + snMelt - icAcc ;
 
 //        CheckNonNegative(qEleNetPrep[i], i, "Net Precipitation");
 //        CheckNonNegative(qEleE_IC[i], i, "qEleE_IC");
