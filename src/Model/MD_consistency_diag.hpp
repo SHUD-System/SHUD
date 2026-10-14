@@ -75,13 +75,13 @@
  *   - the six lines in src/Model/shud.cpp that include it or name cdiag;
  *   - in tools/ci/runtime_checks.py: the constants DIAG_FILE, LEDGER_KEYS,
  *     COUNT_KEYS and INTERFACES with their comment; the functions read_keys,
- *     compare_ledger and check_diagnostics; the call of check_diagnostics,
- *     so that gate_regress ends with `return failures` again; the parameter
- *     extra_env of run_case and the line that uses it; in gate_coverage, the
- *     `--exclude` of this header and the comment above the gcovr call, which
- *     fits on one line again;
- *   - the `ledger` dict and the "ledger tolerance" row in
- *     tools/ci/test_guardrails.py;
+ *     compare_ledger, check_closure and check_diagnostics; the call of
+ *     check_diagnostics, so that gate_regress ends with `return failures`
+ *     again; the parameter extra_env of run_case and the line that uses it;
+ *     in gate_coverage, the `--exclude` of this header and the comment above
+ *     the gcovr call, which fits on one line again;
+ *   - the `ledger` dict and the "ledger tolerance" and "ledger closure" rows
+ *     in tools/ci/test_guardrails.py;
  *   - regression.ledger_rel, with its comment, in constraints.yaml;
  *   - tests/reference/ccw/diag_consistency.ref. */
 

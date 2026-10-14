@@ -173,6 +173,14 @@ def compare_ledger(values, reference, rel):
             for key in LEDGER_KEYS if not abs(values[key] - reference[key]) <= allowed]
 
 
+def check_closure(values, rel):
+    """Failure message if the canopy and snow ledger leaves more than rel * precipitation unaccounted for."""
+    if abs(values["residual_m3"]) <= rel * values["prcp_m3"]:
+        return []
+    return ["residual_m3 %.3e exceeds %.1e of prcp_m3 %.3e: the canopy and snow ledger does not close "
+            "(prcp - netprcp - canopy_evap - d_canopy - d_snow)." % (values["residual_m3"], rel, values["prcp_m3"])]
+
+
 def check_diagnostics(default_out, project, days):
     """Consistency diagnostics: read-only run and repeat-check run against the invariants and the reference."""
     ledger_out = run_case("shud", project, days, extra_env={"SHUD_DIAG_CONSISTENCY": "1"})
@@ -211,6 +219,7 @@ def check_diagnostics(default_out, project, days):
         if not residual <= rel * gross:
             failures.append("%s_residual_m3 %.3e exceeds %.1e of the gross volume %.3e m3: the two sides of "
                             "the interface book different fluxes." % (name, residual, rel, gross))
+    failures += check_closure(values, rel)
     ref_path = os.path.join(REFERENCE_DIR, project, "diag_consistency.ref")
     if updating():
         if not failures:  # a run that breaks an invariant is not recorded

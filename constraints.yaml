@@ -145,8 +145,8 @@ regression:
   max_abs_m: 0.03
   rms_m: 0.003
   # Allowed difference of the canopy and snow ledger volumes of diag_consistency.txt against
-  # tests/reference/, and of an interface residual against zero, as a fraction of the precipitation
-  # (ledger) or gross (interface) volume. Covers platform rounding of sums only.
+  # tests/reference/, and of the ledger residual and an interface residual against zero, as a fraction
+  # of the precipitation (ledger) or gross (interface) volume. Covers platform rounding of sums only.
   ledger_rel: 1.0e-9
 
 # What verifies each surface.
