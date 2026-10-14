@@ -15,10 +15,16 @@ REFERENCE_DIR = os.path.join(ROOT, "tests", "reference")
 CONTRACT_DIR = os.path.join(ROOT, "tests", "io_contract")
 STATE_FILES = ("eleysurf", "eleyunsat", "eleygw", "rivystage")
 # diag_consistency.txt (src/Model/MD_consistency_diag.hpp): the volumes and counts compared with the reference,
-# and the interfaces whose residual must stay at rounding level of the gross volume.
+# the counts that must be 0 (#16), and the interfaces whose residual must stay at rounding level of the gross volume.
 DIAG_FILE = "diag_consistency.txt"
 LEDGER_KEYS = ("prcp_m3", "netprcp_m3", "canopy_evap_m3", "d_canopy_m3", "d_snow_m3", "residual_m3")
-COUNT_KEYS = ("land_elements", "landland_edges", "lakes", "cvode_overshoot_steps", "rhs_repeat_differing")
+COUNT_KEYS = ("land_elements", "landland_edges", "lakes", "cvode_overshoot_steps")
+PURITY_KEYS = {
+    "rhs_repeat_differing": "the right-hand side gave a different DY when called twice at the same (t, y)",
+    "rhs_aba_differing": "the right-hand side gave a different DY at (t, yA) after a call at another state yB",
+    "et_inputs_changed_steps": "the frozen step inputs qEleE_IC / qEleNetPrep of a land element were rewritten "
+                               "during CVode",
+}
 INTERFACES = ("landland_sub", "landland_surf", "landlake_sub", "landlake_surf")
 
 
@@ -181,6 +187,27 @@ def check_closure(values, rel):
             "(prcp - netprcp - canopy_evap - d_canopy - d_snow)." % (values["residual_m3"], rel, values["prcp_m3"])]
 
 
+def check_purity(values):
+    """Failure messages for every count of PURITY_KEYS that is not 0: f must be a function of (t, y) and the
+    inputs frozen for the macro step, and must not write those inputs."""
+    return ["%s=%d: %s (#16). f(t, y) must depend only on (t, y) and the inputs frozen for the macro step."
+            % (key, values[key], message) for key, message in PURITY_KEYS.items() if values[key] != 0]
+
+
+def compare_outputs(default_out, other_out, skip, gate, why):
+    """Failure messages unless `other_out` holds the files of `default_out` with the same bytes, apart from
+    *.time.csv (wall-clock times), the diagnostics file and the names in `skip`."""
+    names = [{name for name in os.listdir(out)
+              if name != DIAG_FILE and name not in skip and not name.endswith(".time.csv")}
+             for out in (default_out, other_out)]
+    failures = ["%s: written with or without %s only; %s." % (name, gate, why) for name in sorted(names[0] ^ names[1])]
+    for name in sorted(names[0] & names[1]):
+        with open(os.path.join(default_out, name), "rb") as a, open(os.path.join(other_out, name), "rb") as b:
+            if a.read() != b.read():
+                failures.append("%s: changed by %s; %s." % (name, gate, why))
+    return failures
+
+
 def check_diagnostics(default_out, project, days):
     """Consistency diagnostics: read-only run and repeat-check run against the invariants and the reference."""
     ledger_out = run_case("shud", project, days, extra_env={"SHUD_DIAG_CONSISTENCY": "1"})
@@ -189,19 +216,18 @@ def check_diagnostics(default_out, project, days):
     repeat = read_keys(os.path.join(repeat_out, DIAG_FILE))
     if not values or not repeat:
         return ["%s was not written with SHUD_DIAG_CONSISTENCY=1 / SHUD_DIAG_RHS_REPEAT=1." % DIAG_FILE]
-    values["rhs_repeat_differing"] = repeat["rhs_repeat_differing"]  # the only compared key from the repeat run
+    values["rhs_repeat_differing"] = repeat["rhs_repeat_differing"]
+    values["rhs_aba_differing"] = repeat["rhs_aba_differing"]
     print("diagnostics (%s %d days): residual_frac_prcp=%.6f cvode_max_overshoot_min=%.3e rhs_repeat_max_abs=%.3e"
           % (project, days, values["residual_frac_prcp"], values["cvode_max_overshoot_min"],
              repeat["rhs_repeat_max_abs"]))
-    # Read-only: the same files with the same bytes, except *.time.csv (wall-clock times) and the diagnostics file.
-    names = [{name for name in os.listdir(out) if name != DIAG_FILE and not name.endswith(".time.csv")}
-             for out in (default_out, ledger_out)]
-    failures = ["%s: written with or without SHUD_DIAG_CONSISTENCY=1 only; the gate must be read-only." % name
-                for name in sorted(names[0] ^ names[1])]
-    for name in sorted(names[0] & names[1]):
-        with open(os.path.join(default_out, name), "rb") as a, open(os.path.join(ledger_out, name), "rb") as b:
-            if a.read() != b.read():
-                failures.append("%s: changed by SHUD_DIAG_CONSISTENCY=1, which must be read-only." % name)
+    print("diagnostics (%s %d days): %s"
+          % (project, days, " ".join("%s=%d" % (key, values[key]) for key in PURITY_KEYS)))
+    failures = compare_outputs(default_out, ledger_out, (), "SHUD_DIAG_CONSISTENCY=1", "the gate must be read-only")
+    # nfcall.txt counts the extra f() calls of the repeat check.
+    failures += compare_outputs(default_out, repeat_out, ("nfcall.txt",), "SHUD_DIAG_RHS_REPEAT=1",
+                                "the right-hand side depends on its call history (#16)")
+    failures += check_purity(values)
     with open(os.path.join(ROOT, "input", project, project + ".cfg.para"), encoding="utf-8") as handle:
         step_min = float(re.search(r"(?m)^MAX_SOLVER_STEP\s+(\S+)", handle.read()).group(1))
     rel = constraint("regression.ledger_rel")

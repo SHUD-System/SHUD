@@ -6,8 +6,10 @@
  *
  * Two gates, strict `=1` as in MD_osc_diag.hpp, read once at construction:
  *   SHUD_DIAG_CONSISTENCY=1  read-only; every model output stays identical.
- *   SHUD_DIAG_RHS_REPEAT=1   calls f() twice before each CVode call; this
- *                            changes the results (see the limits below).
+ *   SHUD_DIAG_RHS_REPEAT=1   calls f() four times before each CVode call;
+ *                            the model outputs stay identical as long as
+ *                            f() is a function of (t, y) and the frozen
+ *                            step inputs (#16); nfcall.txt counts the calls.
  * With both gates off every hook returns at once and no file is written.
  *
  * Output <outpath>/diag_consistency.txt, `key=value`, written at run end.
@@ -35,6 +37,9 @@
  *   landlake_sub_gross_m3      sum over lakes of |lake side| * dt
  *   landlake_surf_residual_m3  the same for the surface flux
  *   landlake_surf_gross_m3
+ *   et_inputs_changed_steps    macro steps after which qEleE_IC or
+ *                              qEleNetPrep of a land element differs, bit
+ *                              for bit, from the value ET() set (#16)
  *
  * Interface fluxes: QeleSubAt(i, j) and QeleSurfAt(i, j) are m3/min, positive
  * out of element i through edge j (rhs_apply subtracts their sum from the
@@ -51,42 +56,46 @@
  * the residual measures #20.
  *
  * SHUD_DIAG_RHS_REPEAT:
- *   rhs_repeat_calls      macro steps in which f() was called twice at the
- *                         same (t, y)
- *   rhs_repeat_differing  those in which any component of DY differed
- *   rhs_repeat_max_abs    largest |DY second - DY first|, in the unit of DY
- *                         (m/min for elements, rivers and lakes)
+ *   rhs_repeat_calls      macro steps in which f() was called as
+ *                         f(t, yA), f(t, yA), f(t, yB), f(t, yA)
+ *   rhs_repeat_differing  those in which the second DY differed from the
+ *                         first, bit for bit
+ *   rhs_aba_differing     those in which the last DY differed from the
+ *                         first, bit for bit (#16)
+ *   rhs_repeat_max_abs    largest |DY - DY first| over both comparisons, in
+ *                         the unit of DY (m/min for elements, rivers and
+ *                         lakes)
  *
  * Known limits:
- *   - The repeat check adds two f() calls per macro step. While f() depends
- *     on its call history (#16), a run with SHUD_DIAG_RHS_REPEAT=1 does not
- *     reproduce the default trajectory, and nfcall.txt counts the extra
- *     calls. With both gates on, the canopy and snow keys are unaffected
- *     (they depend on the forcing only); the cvode_* and interface keys and
- *     all model outputs then describe the perturbed run.
+ *   - The repeat check adds four f() calls per macro step; nfcall.txt
+ *     counts them. Since #16 the run reproduces the default run's other
+ *     output files byte for byte, which `make regress` checks.
  *   - Coupled mode only; SHUD_uncouple (-g) is not instrumented (#25).
  *   - In dummy mode (no CVode call) only the ledger runs.
  *   - The lake keys are not covered by `make regress` (ccw has no lake).
  *   - Lake elements are left out of the ledger: they pass raw precipitation
- *     to the lake.
+ *     to the lake. They are left out of et_inputs_changed_steps too:
+ *     fun_Ele_lakeVertical sets their qEleE_IC to 0 in every f() call.
  *
  * Removal (when #13 closes): delete
  *   - this header;
  *   - the six lines in src/Model/shud.cpp that include it or name cdiag;
  *   - in tools/ci/runtime_checks.py: the constants DIAG_FILE, LEDGER_KEYS,
- *     COUNT_KEYS and INTERFACES with their comment; the functions read_keys,
- *     compare_ledger, check_closure and check_diagnostics; the call of
+ *     COUNT_KEYS, PURITY_KEYS and INTERFACES with their comment; the
+ *     functions read_keys, compare_ledger, check_closure, check_purity,
+ *     compare_outputs and check_diagnostics; the call of
  *     check_diagnostics, so that gate_regress ends with `return failures`
  *     again; the parameter extra_env of run_case and the line that uses it;
  *     in gate_coverage, the `--exclude` of this header and the comment above
  *     the gcovr call, which fits on one line again;
- *   - the `ledger` dict and the "ledger tolerance" and "ledger closure" rows
- *     in tools/ci/test_guardrails.py;
+ *   - the `ledger` dict and the "ledger tolerance", "ledger closure" and
+ *     "right-hand side purity" rows in tools/ci/test_guardrails.py;
  *   - regression.ledger_rel, with its comment, in constraints.yaml;
  *   - tests/reference/ccw/diag_consistency.ref. */
 
 #include <stdio.h>
 #include <math.h>
+#include <string.h> /* memcmp */
 #include <vector>
 #include <cvode/cvode.h>
 #include "f.hpp"
@@ -116,11 +125,11 @@ public:
     /* Canopy and snow water ledger of one macro step. Called right after
      * ET(t, tnext): ET() has just moved both stores over dt = tnext - t and
      * set qEleNetPrep and qEleE_IC for the step. No f() has run yet in this
-     * step; f() overwrites qEleE_IC. Only ET() writes the two stores inside
-     * the loop, so the values kept here are the ones before the next ET().
-     * Rates are m/min and stores m; times the element area they are m3.
-     * Also counts the macro step (for both gates) and keeps dt for
-     * after_cvode(). */
+     * step. Only ET() writes the two stores inside the loop, so the values
+     * kept here are the ones before the next ET(). Rates are m/min and
+     * stores m; times the element area they are m3. Also counts the macro
+     * step (for both gates), keeps dt for after_cvode() and copies the two
+     * rates, which f() reads and must not write, for after_cvode(). */
     void after_et(double t, double tnext) {
         if (!consistency_on && !repeat_on) return;
         macro_steps++;
@@ -137,32 +146,50 @@ public:
             canopy_before[i] = MD->yEleIS[i];
             snow_before[i] = MD->yEleSnow[i];
         }
+        e_ic_set.assign(MD->qEleE_IC, MD->qEleE_IC + MD->NumEle);
+        netprcp_set.assign(MD->qEleNetPrep, MD->qEleNetPrep + MD->NumEle);
     }
 
-    /* Called right before CVode(): evaluates the right-hand side twice at
-     * the same (t, y) and compares the two DY. A right-hand side that is a
-     * function of (t, y) only gives the same DY both times. `dy` is the
-     * scratch vector of SHUD(), which nothing else reads. */
+    /* Called right before CVode(), with the CVODE state yA = y: evaluates
+     * f(t, yA), f(t, yA), f(t, yB), f(t, yA) and compares the second and the
+     * last DY with the first. A right-hand side that is a function of (t, y)
+     * and the frozen step inputs gives the same DY each time. yB raises every
+     * component by 0.01 m (all are water depths or stages), so it stays a
+     * valid state; it lives in a clone, and y is not written. The last call
+     * is at yA, as before CVode() in a default run. `dy` is the scratch
+     * vector of SHUD(), which nothing else reads. */
     void rhs_repeat(double t, N_Vector y, N_Vector dy) {
         if (!repeat_on) return;
         const double *DY = N_VGetArrayPointer(dy);
         f(t, y, dy, MD);
         first_dy.assign(DY, DY + MD->NumY);
         f(t, y, dy, MD);
-        double max_abs = 0.;
-        for (int i = 0; i < MD->NumY; i++) {
-            if (fabs(DY[i] - first_dy[i]) > max_abs) max_abs = fabs(DY[i] - first_dy[i]);
-        }
+        if (dy_differs(DY)) repeat_differing++;
+        N_Vector y_b = N_VClone(y);
+        const double *YA = N_VGetArrayPointer(y);
+        double *YB = N_VGetArrayPointer(y_b);
+        for (int i = 0; i < MD->NumY; i++) YB[i] = YA[i] + 0.01;
+        f(t, y_b, dy, MD);
+        N_VDestroy(y_b);
+        f(t, y, dy, MD);
+        if (dy_differs(DY)) aba_differing++;
         repeat_calls++;
-        if (max_abs > 0.) repeat_differing++;
-        if (max_abs > repeat_max_abs) repeat_max_abs = max_abs;
     }
 
     /* Called right after CVode() returned for the output time tnext. In
      * CV_NORMAL mode CVODE steps past tnext and interpolates back, so the
-     * model arrays written by its last f() call belong to a later time. */
+     * model arrays written by its last f() call belong to a later time.
+     * The rates ET() set must still hold their values on the land elements:
+     * f() reads them for the whole step. */
     void after_cvode(void *mem, double tnext) {
         if (!consistency_on) return;
+        for (int i = 0; i < MD->NumEle; i++) {
+            if (is_land(i) && (!same_bits(MD->qEleE_IC[i], e_ic_set[i])
+                               || !same_bits(MD->qEleNetPrep[i], netprcp_set[i]))) {
+                et_inputs_changed_steps++;
+                break;
+            }
+        }
         realtype tcur = tnext;
         CVodeGetCurrentTime(mem, &tcur);
         if (tcur > tnext) {
@@ -188,6 +215,7 @@ public:
         if (repeat_on) {
             fprintf(fp, "rhs_repeat_calls=%ld\n", repeat_calls);
             fprintf(fp, "rhs_repeat_differing=%ld\n", repeat_differing);
+            fprintf(fp, "rhs_aba_differing=%ld\n", aba_differing);
             put(fp, "rhs_repeat_max_abs", repeat_max_abs);
         }
         fclose(fp);
@@ -216,6 +244,7 @@ private:
         put(fp, "landlake_sub_gross_m3", landlake_sub_gross);
         put(fp, "landlake_surf_residual_m3", landlake_surf_residual);
         put(fp, "landlake_surf_gross_m3", landlake_surf_gross);
+        fprintf(fp, "et_inputs_changed_steps=%ld\n", et_inputs_changed_steps);
     }
 
     Model_Data *MD;
@@ -239,11 +268,26 @@ private:
     double landlake_sub_residual = 0., landlake_sub_gross = 0.;   /* m3 */
     double landlake_surf_residual = 0., landlake_surf_gross = 0.; /* m3 */
 
-    std::vector<double> first_dy; /* DY of the first of the two f() calls */
-    long repeat_calls = 0, repeat_differing = 0;
+    std::vector<double> e_ic_set, netprcp_set; /* qEleE_IC, qEleNetPrep as ET() set them, m/min */
+    long et_inputs_changed_steps = 0;
+
+    std::vector<double> first_dy; /* DY of the first f() call at yA */
+    long repeat_calls = 0, repeat_differing = 0, aba_differing = 0;
     double repeat_max_abs = 0.;
 
     bool is_land(int i) const { return MD->Ele[i].iLake <= 0; }
+
+    static bool same_bits(double a, double b) { return memcmp(&a, &b, sizeof(double)) == 0; }
+
+    /* DY against first_dy, bit for bit; keeps the largest difference. */
+    bool dy_differs(const double *DY) {
+        bool differs = false;
+        for (int i = 0; i < MD->NumY; i++) {
+            if (!same_bits(DY[i], first_dy[i])) differs = true;
+            if (fabs(DY[i] - first_dy[i]) > repeat_max_abs) repeat_max_abs = fabs(DY[i] - first_dy[i]);
+        }
+        return differs;
+    }
 
     /* Edge j of element i is shared with a land element of higher index, so
      * each interior edge is taken once. nabr and nabrToMe are 1-based;
