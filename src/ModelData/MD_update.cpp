@@ -124,8 +124,9 @@ void Model_Data::summary (N_Vector udata){
  * (Ele[i].{QBC, u_effKH, ...}, Riv[i].{u_Ystage, u_CSarea, ...},
  * lake[i].{u_toparea, ...}, hot.*[i]) from its own (t, y) before
  * reading it. The next CVode step is therefore the same with or
- * without this call; `make regress` checks that with
- * SHUD_DIAG_RHS_REPEAT=1.
+ * without this call. `make regress` checks the same property at the
+ * start of each macro step: with SHUD_DIAG_RHS_REPEAT=1, four extra
+ * f() calls must leave every output unchanged.
  *
  * Under SHUD_ENABLE_DIAGNOSTICS builds, the shud_diag::ScopeTimer
  * buckets inside rhs_flux also count this extra call; subtract one

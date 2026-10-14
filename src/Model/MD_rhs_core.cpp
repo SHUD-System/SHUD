@@ -179,7 +179,7 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
  * previous ones wrote:
  *   1. Element pass 1  (lake updateLakeElement / fun_Ele_lakeVertical
  *                       + per-element qLakeEvap/qLakePrcp shares;
- *                       non-lake f_etFlux + updateElement +
+ *                       non-lake updateElement + f_etFlux +
  *                       fun_Ele_Infiltraion + fun_Ele_Recharge)
  *   2. Element pass 2  (lake fun_Ele_lakeHorizon; non-lake
  *                       fun_Ele_surface + fun_Ele_sub)
