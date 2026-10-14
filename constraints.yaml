@@ -140,8 +140,10 @@ regression:
   days: 731
   # Allowed difference of the final state against tests/reference/ (metres).
   # Covers compiler and platform rounding only; a physics change must update the reference.
-  max_abs_m: 0.001
-  rms_m: 0.0001
+  # Over two years that rounding grows to about 1 cm: Linux against the macOS reference differs by up to
+  # 0.012 m, RMS 0.001 m (PR #39), which failed the 0.001 / 0.0001 m set for the three-day run.
+  max_abs_m: 0.03
+  rms_m: 0.003
   # Allowed difference of the canopy and snow ledger volumes of diag_consistency.txt against
   # tests/reference/, and of an interface residual against zero, as a fraction of the precipitation
   # (ledger) or gross (interface) volume. Covers platform rounding of sums only.
