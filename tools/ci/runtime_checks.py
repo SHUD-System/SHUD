@@ -259,8 +259,9 @@ def gate_coverage():
         run_case("shud", project, days)
         summary = os.path.join(tempfile.mkdtemp(prefix="shud-cov-"), "summary.json")
         # Temporary tool, off by default: left out so the floor measures model code and stays put when it is removed.
+        # suspicious_hits: gcovr rejects a line count above 2**32 as a gcov bug; the two-year run really gets there.
         run([tool("gcovr"), "-r", ".", "--filter", "src/", "--exclude", "src/Model/MD_consistency_diag.hpp",
-             "--json-summary", summary])
+             "--gcov-ignore-parse-errors", "suspicious_hits.warn_once_per_file", "--json-summary", summary])
         with open(summary, encoding="utf-8") as handle:
             percent = float(json.load(handle)["line_percent"])
     finally:
