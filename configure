@@ -37,14 +37,37 @@ fi
 cd "${SCRIPT_DIR}"
 
 # --- Download (wget preferred, curl fallback for macOS) ----------------------
+# -O creates its destination before any byte arrives. A failed GitHub fetch
+# is written to a temporary name and renamed only after success, so it cannot
+# become the cached cvode.tar.gz. If GitHub does not connect, try mirrors.
 if [ ! -f "${SUNDIALS_TARBALL}" ]; then
-  echo "Downloading ${SUNDIALS_URL}"
-  if command -v wget >/dev/null 2>&1; then
-    wget -c "${SUNDIALS_URL}" -O "${SUNDIALS_TARBALL}"
-  elif command -v curl >/dev/null 2>&1; then
-    curl -L -o "${SUNDIALS_TARBALL}" "${SUNDIALS_URL}"
-  else
-    echo "ERROR: neither wget nor curl available; cannot download SUNDIALS." >&2
+  tmp="${SUNDIALS_TARBALL}.partial"
+  rm -f "${tmp}"
+  for url in \
+    "${SUNDIALS_URL}" \
+    "https://ghproxy.net/${SUNDIALS_URL}" \
+    "https://ghfast.top/${SUNDIALS_URL}" \
+    "https://gh-proxy.com/${SUNDIALS_URL}" \
+    "https://gh-proxy.org/${SUNDIALS_URL}"
+  do
+    echo "Downloading ${url}"
+    ok=0
+    if command -v wget >/dev/null 2>&1; then
+      wget --connect-timeout=15 --tries=1 -O "${tmp}" "${url}" && ok=1
+    elif command -v curl >/dev/null 2>&1; then
+      curl -fL --connect-timeout 15 -o "${tmp}" "${url}" && ok=1
+    else
+      echo "ERROR: neither wget nor curl available; cannot download SUNDIALS." >&2
+      exit 2
+    fi
+    if [ "${ok}" -eq 1 ]; then
+      mv -f "${tmp}" "${SUNDIALS_TARBALL}"
+      break
+    fi
+    rm -f "${tmp}"
+  done
+  if [ ! -f "${SUNDIALS_TARBALL}" ]; then
+    echo "ERROR: could not download SUNDIALS from GitHub or Chinese mirrors." >&2
     exit 2
   fi
 else

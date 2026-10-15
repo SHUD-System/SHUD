@@ -29,6 +29,7 @@ rAnalysis/test.R
 # SUNDIALS 6.0.0 download and install made by ./configure
 InstallSundials/
 cvode.tar.gz
+cvode.tar.gz.partial
 cvode-6.0.0/
 shud_omp
 shud_omp.dSYM/
