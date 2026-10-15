@@ -179,7 +179,7 @@ void Model_Data::rhs_update(double *Y, double *DY, double t){
  * previous ones wrote:
  *   1. Element pass 1  (lake updateLakeElement / fun_Ele_lakeVertical
  *                       + per-element qLakeEvap/qLakePrcp shares;
- *                       non-lake f_etFlux + updateElement +
+ *                       non-lake updateElement + f_etFlux +
  *                       fun_Ele_Infiltraion + fun_Ele_Recharge)
  *   2. Element pass 2  (lake fun_Ele_lakeHorizon; non-lake
  *                       fun_Ele_surface + fun_Ele_sub)
@@ -302,14 +302,14 @@ void Model_Data:: rhs_flux(double t){
             qEleEvapo_lake[i] = qEleEvapo[i] / lake[Ele[i].iLake - 1].NumEleLake;
             qElePrep_lake[i]  = qElePrep[i]  / lake[Ele[i].iLake - 1].NumEleLake;
         }else{
-            f_etFlux(i, t);
             /*DO INFILTRATION FRIST, then do LATERAL FLOW.*/
             /*========infiltration/Recharge Function==============*/
             Ele[i].updateElement(uYsf[i] , uYus[i] , uYgw[i] ); // step 1 update the kinf, kh, etc. for elements.
-            /* Same SoA refresh after updateElement(): the infiltration
-             * / recharge code reads hot.u_effkInfi[i] etc. and must see
-             * the post-update value. */
+            /* Same SoA refresh after updateElement(): f_etFlux (u_satn),
+             * infiltration and recharge must see this (t, y), not the
+             * value left by the previous f() call (#16). */
             sync_hot_dynamic(i);
+            f_etFlux(i, t);
             fun_Ele_Infiltraion(i, t); // step 2 calculate the infiltration.
             fun_Ele_Recharge(i, t); // step 3 calculate the recharge.
         }

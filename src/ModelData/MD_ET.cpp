@@ -209,11 +209,12 @@ void Model_Data::f_etFlux(int i, double t){
         Eg = 0.;
         Eu = 0.;
     }
-    /* Vegetation Transpiration */
+    /* Vegetation Transpiration. qEleE_IC is the rate by which ET() reduced
+     * the canopy store for this step: read here, never written, so that
+     * the right-hand side does not depend on its call history (#16). */
     if(t_lai[i] > ZERO){
         if(qEleE_IC[i] >= qPotTran[i]){
             Tg = Tu = 0.;
-            qEleE_IC[i] = qPotTran[i] * pj * va;
         }else{
             if(uYgw[i] > hot.RootReachLevel[i]){
                 Tg = min(max(0., uYgw[i]), (qPotTran[i] - qEleE_IC[i]) ) * pj * va;
@@ -224,7 +225,7 @@ void Model_Data::f_etFlux(int i, double t){
             }
         }
     }else{
-        Tg = Tu = qEleE_IC[i] = 0.;
+        Tg = Tu = 0.;
     }
     qEs[i] = Es;
     qEu[i] = Eu;

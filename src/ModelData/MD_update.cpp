@@ -102,10 +102,9 @@ void Model_Data::summary (N_Vector udata){
  *
  * Mechanics: re-run the full RHS chain `rhs_update -> rhs_flux ->
  * rhs_apply` exactly once at (Y, t)=(udata, t) using a local scratch
- * DY buffer. rhs_apply is idempotent at fixed (Y, t) (each per-element
- * total is reset with `=` before its three edges are added with `+=`),
- * so calling it is safe; the DY_scratch mutation is harmless because
- * the scratch buffer is discarded on return.
+ * DY buffer, which is discarded on return. rhs_apply resets each
+ * per-element total with `=` before its three edges are added with
+ * `+=`, so no total accumulates across calls.
  *
  * Why rhs_apply MUST be called: rhs_update zeroes QeleSubTot[i] and
  * QeleSurfTot[i] and only rhs_apply refills them. Without it the
@@ -117,11 +116,17 @@ void Model_Data::summary (N_Vector udata){
  * through PCtrl::Init() and flood->InitPointer in one pass, with the
  * same iteration and floating-point operation order as the solver.
  *
- * Side effects extend beyond the output buffers to all RHS-touched
- * scratch state (Ele[i].{QBC, u_effKH, ...},
- * Riv[i].{u_Ystage, u_CSarea, ...}, lake[i].{u_toparea, ...},
- * hot.*[i]); these are deterministic functions of (Y, t) and are
- * overwritten on the next f() call, so this is benign.
+ * The extra call is harmless because f() is a function of (t, y) and
+ * of the inputs updateforcing() and ET() froze for the macro step
+ * (#16): it does not write those inputs (on lake elements
+ * fun_Ele_lakeVertical sets qEleE_IC to 0 in every call, whatever came
+ * before), and every f() call rewrites the RHS-touched scratch state
+ * (Ele[i].{QBC, u_effKH, ...}, Riv[i].{u_Ystage, u_CSarea, ...},
+ * lake[i].{u_toparea, ...}, hot.*[i]) from its own (t, y) before
+ * reading it. The next CVode step is therefore the same with or
+ * without this call. `make regress` checks the same property at the
+ * start of each macro step: with SHUD_DIAG_RHS_REPEAT=1, four extra
+ * f() calls must leave every output unchanged.
  *
  * Under SHUD_ENABLE_DIAGNOSTICS builds, the shud_diag::ScopeTimer
  * buckets inside rhs_flux also count this extra call; subtract one
