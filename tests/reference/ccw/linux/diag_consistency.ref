@@ -1,0 +1,11 @@
+prcp_m3=3.056914510535e+08
+netprcp_m3=2.872799275201e+08
+canopy_evap_m3=1.841152353335e+07
+d_canopy_m3=1.674850702571e-09
+d_snow_m3=4.078395812041e-09
+residual_m3=-6.744803396432e-06
+land_elements=1147
+landland_edges=1666
+lakes=0
+cvode_overshoot_steps=105264
+rhs_repeat_differing=9454

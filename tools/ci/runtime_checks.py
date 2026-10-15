@@ -12,6 +12,9 @@ import tempfile
 from common import ROOT, constraint, run, tool
 
 REFERENCE_DIR = os.path.join(ROOT, "tests", "reference")
+# The project targets macOS and Linux. Two years of integration amplify the rounding differences between
+# them past any tolerance that still detects a change (PR #40), so each keeps its own reference and floor.
+PLATFORM = "darwin" if sys.platform == "darwin" else "linux"
 CONTRACT_DIR = os.path.join(ROOT, "tests", "io_contract")
 STATE_FILES = ("eleysurf", "eleyunsat", "eleygw", "rivystage")
 # diag_consistency.txt (src/Model/MD_consistency_diag.hpp): the volumes and counts compared with the reference,
@@ -89,7 +92,8 @@ def compare_values(name, values, reference, max_abs, rms):
     root_mean = math.sqrt(sum(d * d for d in diffs) / len(diffs)) if diffs else 0.0
     if worst > max_abs or root_mean > rms:
         return ["%s: differs from the reference (max %.3e, RMS %.3e; allowed %.1e, %.1e). If the change in "
-                "results is intended, run `make regress UPDATE=1` and give the physical reason in the PR."
+                "results is intended, run `make regress UPDATE=1` on macOS and on Linux and give the physical "
+                "reason in the PR."
                 % (name, worst, root_mean, max_abs, rms)]
     return []
 
@@ -147,7 +151,9 @@ def gate_regress():
             if not os.path.exists(other) or a.read() != open(other, "rb").read():
                 failures.append("%s: shud and shud_omp outputs differ. They must be bit-identical "
                                 "(OpenMP_NVector_Determinism.md)." % name)
-    ref_dir = os.path.join(REFERENCE_DIR, project)
+    ref_dir = os.path.join(REFERENCE_DIR, project, PLATFORM)
+    if updating():
+        os.makedirs(ref_dir, exist_ok=True)
     for state in STATE_FILES:
         last = list(read_dat(os.path.join(serial, "%s.%s.dat" % (project, state)))[1][-1])
         ref_path = os.path.join(ref_dir, state + ".ref")
@@ -174,7 +180,7 @@ def compare_ledger(values, reference, rel):
     """Failure messages if a canopy or snow volume differs from the reference by more than rel * precipitation."""
     allowed = rel * reference["prcp_m3"]
     return ["%s: %.12e m3, reference %.12e m3 (allowed difference %.1e m3). If the change in results is "
-            "intended, run `make regress UPDATE=1` and give the physical reason in the PR."
+            "intended, run `make regress UPDATE=1` on macOS and on Linux and give the physical reason in the PR."
             % (key, values[key], reference[key], allowed)
             for key in LEDGER_KEYS if not abs(values[key] - reference[key]) <= allowed]
 
@@ -246,7 +252,7 @@ def check_diagnostics(default_out, project, days):
             failures.append("%s_residual_m3 %.3e exceeds %.1e of the gross volume %.3e m3: the two sides of "
                             "the interface book different fluxes." % (name, residual, rel, gross))
     failures += check_closure(values, rel)
-    ref_path = os.path.join(REFERENCE_DIR, project, "diag_consistency.ref")
+    ref_path = os.path.join(REFERENCE_DIR, project, PLATFORM, "diag_consistency.ref")
     if updating():
         if not failures:  # a run that breaks an invariant is not recorded
             with open(ref_path, "w", encoding="utf-8") as handle:
@@ -295,7 +301,6 @@ def gate_coverage():
             os.remove(leftover)
         if os.path.exists(binary):
             os.remove(binary)
-    platform = "darwin" if sys.platform == "darwin" else "linux"
-    print("line coverage (%s, %s %d days): %.1f%%" % (platform, project, days, percent))
-    return check_coverage(percent, constraint("baseline.coverage_percent." + platform),
+    print("line coverage (%s, %s %d days): %.1f%%" % (PLATFORM, project, days, percent))
+    return check_coverage(percent, constraint("baseline.coverage_percent." + PLATFORM),
                           constraint("testing.min_line_coverage.value"))
