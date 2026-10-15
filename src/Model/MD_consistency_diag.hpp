@@ -83,7 +83,7 @@
  *   - the `ledger` dict and the "ledger tolerance" and "ledger closure" rows
  *     in tools/ci/test_guardrails.py;
  *   - regression.ledger_rel, with its comment, in constraints.yaml;
- *   - tests/reference/ccw/diag_consistency.ref. */
+ *   - tests/reference/ccw/<platform>/diag_consistency.ref. */
 
 #include <stdio.h>
 #include <math.h>
