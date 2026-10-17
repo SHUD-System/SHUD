@@ -133,12 +133,6 @@ double effKH(double Ygw, double aqDepth, double MacD, double Kmac, double AF, do
     return effk;
 }
 
-double satKfun(double elemSatn, double n){
-    double temp = -1. + pow(1. - pow(elemSatn, n / (n - 1.)), (n - 1.) / n);
-    double ret = sqrt(elemSatn) * temp * temp;    
-//    CheckNANi(ret, 0, "satKfun():ret");
-    return ret;
-}
 /*************Critical update.*******************
 double OverlandManning(double avg_y, double grad_y, double avg_sf, double A, double n){
     double Q;
