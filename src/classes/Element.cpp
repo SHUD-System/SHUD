@@ -277,8 +277,11 @@ void _Element::updateElement(double Ysurf, double Yunsat, double Ygw){
         u_phius = MINPSI;
         u_theta = ThetaR;
     }else{
-        u_satKr = satKfun(u_satn, Beta);
-        u_phius = sat2psi(u_satn, Alpha, Beta);
+        double sat_pow = pow(u_satn, Beta / (Beta - 1.0));
+        double sat_term = pow(1.0 - sat_pow, (Beta - 1.0) / Beta);
+        double temp = -1.0 + sat_term;
+        u_satKr = sqrt(u_satn) * temp * temp;
+        u_phius = -((1.0 - sat_pow) / sat_term * (u_satn / sat_pow) / Alpha);
         u_phius = max(MINPSI, u_phius);
     }
     u_effkInfi = infKsatV * (1 - hAreaF) + u_satn * macKsatV * hAreaF ;

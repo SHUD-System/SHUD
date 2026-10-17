@@ -19,19 +19,12 @@ double effKV(double ksatFunc, double gradY, double macKV, double KV, double area
 double effKVnew(double ksatFunc, double macKV, double KV, double areaF, double y0);
 
 double effKH(double tmpY, double aqDepth, double MacD, double MacKsatH, double areaF, double ksatH);
-double satKfun(double elemSatn, double beta);
-double sat2psi(double elemSatn, double alpha, double beta, double mpsi);
 double fun_recharge(double effk_us, double kgw, double Deficit, double ygw, double hus,double yus);
 double effKRech(double ksatFunc,  double macKV, double KV, double areaF);
 double ManningEquation(double Area, double rough, double y, double S);
 double OverlandManning(double avg_y, double grad_y, double avg_sf, double A, double n);
 double FieldCapacity (double Alpha, double Beta, double deficit );
 double GreenAmpt(double k, double ti, double ts, double phi, double hf, double prcp, double sy);
-inline
-double sat2psi(double elemSatn, double alpha, double n){
-    return -(pow(pow(elemSatn, n / (1 - n)) - 1, 1 / n) / alpha);
-}
-
 inline
 double pow23(double x){
     double t = cbrt(x);
